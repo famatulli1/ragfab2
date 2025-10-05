@@ -105,14 +105,15 @@ services:
       - "traefik.http.routers.ragfab-api.middlewares=ragfab-api-cors"
 
   # Service Frontend (React/Vite - version buildée)
-  ragfab-frontend:
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
         VITE_API_URL: https://${API_DOMAIN:-api-rag.lab-numihfrance.fr}
     depends_on:
-      - ragfab-api
+      ragfab-api:
+        condition: service_started
     expose:
       - "80"
     networks:
