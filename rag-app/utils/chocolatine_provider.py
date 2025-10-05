@@ -6,9 +6,12 @@ Compatible avec PydanticAI
 import os
 import httpx
 import logging
-from typing import AsyncIterator, Optional, Union
+import json
+from typing import AsyncIterator, Optional, Union, Iterable
 from contextlib import asynccontextmanager
-from pydantic_ai.models import Model, AgentModel, KnownModelName
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pydantic_ai.models import Model, AgentModel, KnownModelName, StreamTextResponse
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -25,6 +28,66 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChocolatineStreamTextResponse(StreamTextResponse):
+    """Implementation of StreamTextResponse for Chocolatine models"""
+
+    _first_content: str | None
+    _response_lines: AsyncIterator[str]
+    _timestamp: datetime
+    _usage: Usage
+    _buffer: list[str] = field(default_factory=list, init=False)
+
+    async def __anext__(self) -> None:
+        """Process next chunk from stream"""
+        if self._first_content is not None:
+            self._buffer.append(self._first_content)
+            self._first_content = None
+            return None
+
+        # Get next line from HTTP stream
+        line = await self._response_lines.__anext__()
+
+        if not line.strip() or line.startswith(":"):
+            # Skip empty lines and comments, continue to next
+            return await self.__anext__()
+
+        if line.startswith("data: "):
+            data = line[6:]
+
+            if data.strip() == "[DONE]":
+                raise StopAsyncIteration()
+
+            try:
+                chunk = json.loads(data)
+                delta_content = (
+                    chunk.get("choices", [{}])[0]
+                    .get("delta", {})
+                    .get("content", "")
+                )
+
+                if delta_content:
+                    self._buffer.append(delta_content)
+
+            except json.JSONDecodeError:
+                logger.warning(f"Unable to parse JSON chunk: {data}")
+                # Continue to next line
+                return await self.__anext__()
+
+    def get(self, *, final: bool = False) -> Iterable[str]:
+        """Get buffered content and clear buffer"""
+        yield from self._buffer
+        self._buffer.clear()
+
+    def usage(self) -> Usage:
+        """Return usage information"""
+        return self._usage
+
+    def timestamp(self) -> datetime:
+        """Return timestamp of first response"""
+        return self._timestamp
 
 
 class ChocolatineAgentModel(AgentModel):
@@ -102,8 +165,6 @@ class ChocolatineAgentModel(AgentModel):
         self, messages: list[ModelMessage], model_settings: Optional[ModelSettings]
     ):
         """Execute a streaming request with tools support"""
-        import json
-
         # Format messages
         formatted_messages = self._format_messages(messages)
 
@@ -125,6 +186,9 @@ class ChocolatineAgentModel(AgentModel):
         if self.tools:
             payload["tools"] = self.tools
 
+        timestamp = datetime.now(timezone.utc)
+        usage = Usage()
+
         try:
             async with self.http_client.stream(
                 "POST",
@@ -134,8 +198,12 @@ class ChocolatineAgentModel(AgentModel):
             ) as response:
                 response.raise_for_status()
 
-                # Yield directly, don't wrap in another generator
-                async for line in response.aiter_lines():
+                # Create async iterator for response lines
+                response_lines = response.aiter_lines()
+
+                # Get first content chunk to determine response type
+                first_content = None
+                async for line in response_lines:
                     if not line.strip() or line.startswith(":"):
                         continue
 
@@ -154,11 +222,20 @@ class ChocolatineAgentModel(AgentModel):
                             )
 
                             if delta_content:
-                                yield ModelResponse(parts=[TextPart(content=delta_content)])
+                                first_content = delta_content
+                                break
 
                         except json.JSONDecodeError:
                             logger.warning(f"Unable to parse JSON chunk: {data}")
                             continue
+
+                # Return a StreamTextResponse
+                yield ChocolatineStreamTextResponse(
+                    _first_content=first_content,
+                    _response_lines=response_lines,
+                    _timestamp=timestamp,
+                    _usage=usage,
+                )
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error in Chocolatine streaming: {e}")
