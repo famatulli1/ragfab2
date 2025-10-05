@@ -1,0 +1,70 @@
+version: '3.8'
+
+# Configuration optimisée pour déploiement Coolify
+# Les variables d'environnement seront configurées via l'interface Coolify
+
+services:
+  # Service PostgreSQL avec PGVector
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ragfab-network
+    restart: always
+    labels:
+      - "coolify.managed=true"
+
+  # Service d'embeddings
+  embeddings:
+    build:
+      context: ./embeddings-server
+      dockerfile: Dockerfile
+    environment:
+      MODEL_NAME: intfloat/multilingual-e5-large
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Plus long pour Coolify
+    networks:
+      - ragfab-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    labels:
+      - "coolify.managed=true"
+      - "coolify.http.port=8001"
+      # Exposer via domaine Coolify si nécessaire
+      # - "traefik.enable=true"
+      # - "traefik.http.routers.embeddings.rule=Host(`embeddings.votredomaine.fr`)"
+
+networks:
+  ragfab-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+
+# Note pour Coolify:
+# 1. Les variables d'environnement doivent être configurées dans l'interface Coolify
+# 2. Les domaines/sous-domaines peuvent être configurés via les labels Traefik
+# 3. Le service rag-app n'est pas inclus car il s'exécute en CLI (utilisation locale ou jobs)

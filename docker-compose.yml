@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Service PostgreSQL avec PGVector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ragfab-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass123}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+
+  # Service d'embeddings
+  embeddings:
+    build:
+      context: ./embeddings-server
+      dockerfile: Dockerfile
+    container_name: ragfab-embeddings
+    environment:
+      MODEL_NAME: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-large}
+    ports:
+      - "${EMBEDDINGS_PORT:-8001}:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+
+  # Application RAG (CLI mode - démarrage manuel)
+  rag-app:
+    build:
+      context: ./rag-app
+      dockerfile: Dockerfile
+    container_name: ragfab-app
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
+      EMBEDDINGS_API_URL: http://embeddings:8001
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
+      CHOCOLATINE_API_KEY: ${CHOCOLATINE_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+    networks:
+      - ragfab-network
+    stdin_open: true
+    tty: true
+    profiles:
+      - app  # Démarrage manuel avec: docker-compose --profile app up rag-app
+
+networks:
+  ragfab-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
