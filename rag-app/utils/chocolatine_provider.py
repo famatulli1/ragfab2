@@ -7,7 +7,7 @@ import os
 import httpx
 import logging
 from typing import AsyncIterator, Optional, Union
-from pydantic_ai.models import Model, KnownModelName
+from pydantic_ai.models import Model, AgentModel, KnownModelName
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -17,11 +17,105 @@ from pydantic_ai.messages import (
     SystemPromptPart,
 )
 from pydantic_ai.result import Usage
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import ToolDefinition
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class ChocolatineAgentModel(AgentModel):
+    """AgentModel pour Chocolatine avec support des tools"""
+
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        model_name: str,
+        chat_endpoint: str,
+        api_key: Optional[str],
+        allow_text_result: bool,
+        tools: list,
+    ):
+        self.http_client = http_client
+        self.model_name = model_name
+        self.chat_endpoint = chat_endpoint
+        self.api_key = api_key
+        self.allow_text_result = allow_text_result
+        self.tools = tools
+
+    async def request(
+        self, messages: list[ModelMessage], model_settings: Optional[ModelSettings]
+    ) -> tuple[ModelResponse, Usage]:
+        """Execute a request with tools support"""
+        # Format messages
+        formatted_messages = self._format_messages(messages)
+
+        # Prepare headers
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Prepare payload
+        payload = {
+            "model": self.model_name,
+            "messages": formatted_messages,
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "stream": False,
+        }
+
+        # Add tools if available
+        if self.tools:
+            payload["tools"] = self.tools
+
+        try:
+            response = await self.http_client.post(
+                self.chat_endpoint,
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Extract response
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # Extract usage
+            usage_data = result.get("usage", {})
+            usage = Usage(
+                request_tokens=usage_data.get("prompt_tokens", 0),
+                response_tokens=usage_data.get("completion_tokens", 0),
+                total_tokens=usage_data.get("total_tokens", 0),
+            )
+
+            return ModelResponse(parts=[TextPart(content=content)]), usage
+
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error in Chocolatine request: {e}")
+            raise
+
+    def _format_messages(self, messages: list[ModelMessage]) -> list[dict]:
+        """Convert PydanticAI messages to OpenAI format"""
+        formatted = []
+
+        for msg in messages:
+            if isinstance(msg, ModelRequest):
+                for part in msg.parts:
+                    if isinstance(part, SystemPromptPart):
+                        formatted.append({"role": "system", "content": part.content})
+                    elif isinstance(part, UserPromptPart):
+                        formatted.append({"role": "user", "content": part.content})
+            elif isinstance(msg, ModelResponse):
+                content = ""
+                for part in msg.parts:
+                    if isinstance(part, TextPart):
+                        content += part.content
+                if content:
+                    formatted.append({"role": "assistant", "content": content})
+
+        return formatted
 
 
 class ChocolatineModel(Model):
@@ -54,11 +148,36 @@ class ChocolatineModel(Model):
         # Endpoint pour chat completion
         self.chat_endpoint = f"{self.api_url.rstrip('/')}/v1/chat/completions"
 
+        # HTTP client for agent model
+        self._http_client = httpx.AsyncClient(timeout=self.timeout)
+
         logger.info(f"Chocolatine model initialized with API: {self.api_url}")
 
     def name(self) -> Union[KnownModelName, str]:
         """Retourne le nom du modèle"""
         return self.model_name
+
+    async def agent_model(
+        self,
+        *,
+        function_tools: list[ToolDefinition],
+        allow_text_result: bool,
+        result_tools: list[ToolDefinition],
+    ) -> AgentModel:
+        """Create an agent model with tools support"""
+        # Convert tool definitions if needed
+        tools = []
+        # For now, we'll pass tools as-is
+        # You may need to convert ToolDefinition to OpenAI format here
+
+        return ChocolatineAgentModel(
+            http_client=self._http_client,
+            model_name=self.model_name,
+            chat_endpoint=self.chat_endpoint,
+            api_key=self.api_key,
+            allow_text_result=allow_text_result,
+            tools=tools,
+        )
 
     async def request(
         self, messages: list[ModelMessage]
