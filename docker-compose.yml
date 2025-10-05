@@ -11,7 +11,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ragdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/02_web_schema.sql:/docker-entrypoint-initdb.d/02_web_schema.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -81,10 +82,58 @@ services:
     profiles:
       - app  # Démarrage manuel avec: docker-compose --profile app up rag-app
 
+  # API Backend FastAPI
+  ragfab-api:
+    build:
+      context: ./web-api
+      dockerfile: Dockerfile
+    container_name: ragfab-api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      EMBEDDINGS_API_URL: http://embeddings:8001
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
+      CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
+      CHOCOLATINE_MODEL_NAME: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./rag-app:/rag-app:ro  # Monter rag-app en lecture seule pour import des modules
+      - api_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      embeddings:
+        condition: service_healthy
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+
+  # Frontend React
+  ragfab-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ragfab-frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - ragfab-api
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+
 networks:
   ragfab-network:
     driver: bridge
 
 volumes:
   postgres_data:
+    driver: local
+  api_uploads:
     driver: local
