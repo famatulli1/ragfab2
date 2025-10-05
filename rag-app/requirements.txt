@@ -1,6 +1,16 @@
+# Core dependencies
 asyncpg==0.30.0
 pydantic-ai==0.0.18
 python-dotenv==1.0.1
 httpx==0.28.1
 pydantic==2.10.2
 rich==13.9.4
+
+# Ingestion dependencies
+transformers==4.57.0
+tiktoken==0.8.0
+docling==2.15.0
+docling-core==2.7.0
+
+# Additional utilities
+tqdm==4.67.1
