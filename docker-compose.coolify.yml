@@ -99,7 +99,7 @@ services:
       # CORS headers pour permettre les requêtes cross-origin
       - "traefik.http.middlewares.ragfab-api-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,PATCH,OPTIONS"
       - "traefik.http.middlewares.ragfab-api-cors.headers.accesscontrolallowheaders=*"
-      - "traefik.http.middlewares.ragfab-api-cors.headers.accesscontrolalloworiginlist=${FRONTEND_DOMAIN:-https://ragfab.localhost}"
+      - "traefik.http.middlewares.ragfab-api-cors.headers.accesscontrolalloworiginlist=https://${FRONTEND_DOMAIN:-ragfab.localhost}"
       - "traefik.http.middlewares.ragfab-api-cors.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.ragfab-api-cors.headers.addvaryheader=true"
       - "traefik.http.routers.ragfab-api.middlewares=ragfab-api-cors"
