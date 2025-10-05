@@ -96,6 +96,80 @@ class ChocolatineAgentModel(AgentModel):
             logger.error(f"HTTP error in Chocolatine request: {e}")
             raise
 
+    async def request_stream(
+        self, messages: list[ModelMessage], model_settings: Optional[ModelSettings]
+    ):
+        """Execute a streaming request with tools support"""
+        import json
+        from contextlib import asynccontextmanager
+
+        # Format messages
+        formatted_messages = self._format_messages(messages)
+
+        # Prepare headers
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # Prepare payload
+        payload = {
+            "model": self.model_name,
+            "messages": formatted_messages,
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "stream": True,
+        }
+
+        # Add tools if available
+        if self.tools:
+            payload["tools"] = self.tools
+
+        @asynccontextmanager
+        async def stream_response():
+            try:
+                async with self.http_client.stream(
+                    "POST",
+                    self.chat_endpoint,
+                    json=payload,
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+
+                    async def generate_chunks():
+                        total_tokens = 0
+                        async for line in response.aiter_lines():
+                            if not line.strip() or line.startswith(":"):
+                                continue
+
+                            if line.startswith("data: "):
+                                data = line[6:]
+
+                                if data.strip() == "[DONE]":
+                                    break
+
+                                try:
+                                    chunk = json.loads(data)
+                                    delta_content = (
+                                        chunk.get("choices", [{}])[0]
+                                        .get("delta", {})
+                                        .get("content", "")
+                                    )
+
+                                    if delta_content:
+                                        yield ModelResponse(parts=[TextPart(content=delta_content)])
+
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Unable to parse JSON chunk: {data}")
+                                    continue
+
+                    yield generate_chunks()
+
+            except httpx.HTTPError as e:
+                logger.error(f"HTTP error in Chocolatine streaming: {e}")
+                raise
+
+        return stream_response()
+
     def _format_messages(self, messages: list[ModelMessage]) -> list[dict]:
         """Convert PydanticAI messages to OpenAI format"""
         formatted = []
