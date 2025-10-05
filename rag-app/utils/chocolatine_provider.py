@@ -249,18 +249,24 @@ class ChocolatineAgentModel(AgentModel):
             if isinstance(msg, ModelRequest):
                 for part in msg.parts:
                     if isinstance(part, SystemPromptPart):
-                        formatted.append({"role": "system", "content": part.content})
+                        formatted.append({"role": "system", "content": self._clean_text(part.content)})
                     elif isinstance(part, UserPromptPart):
-                        formatted.append({"role": "user", "content": part.content})
+                        formatted.append({"role": "user", "content": self._clean_text(part.content)})
             elif isinstance(msg, ModelResponse):
                 content = ""
                 for part in msg.parts:
                     if isinstance(part, TextPart):
                         content += part.content
                 if content:
-                    formatted.append({"role": "assistant", "content": content})
+                    formatted.append({"role": "assistant", "content": self._clean_text(content)})
 
         return formatted
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """Clean text to remove invalid UTF-8 characters and surrogates"""
+        # Replace surrogates and invalid UTF-8 characters
+        return text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
 
 
 class ChocolatineModel(Model):
@@ -482,12 +488,12 @@ class ChocolatineModel(Model):
                     if isinstance(part, SystemPromptPart):
                         formatted.append({
                             "role": "system",
-                            "content": part.content,
+                            "content": self._clean_text(part.content),
                         })
                     elif isinstance(part, UserPromptPart):
                         formatted.append({
                             "role": "user",
-                            "content": part.content,
+                            "content": self._clean_text(part.content),
                         })
             elif isinstance(msg, ModelResponse):
                 # Message assistant
@@ -499,10 +505,16 @@ class ChocolatineModel(Model):
                 if content:
                     formatted.append({
                         "role": "assistant",
-                        "content": content,
+                        "content": self._clean_text(content),
                     })
 
         return formatted
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """Clean text to remove invalid UTF-8 characters and surrogates"""
+        # Replace surrogates and invalid UTF-8 characters
+        return text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
 
 
 def get_chocolatine_model(
