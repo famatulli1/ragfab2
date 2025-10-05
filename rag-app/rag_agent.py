@@ -122,14 +122,13 @@ agent = Agent(
 Ton rôle est d'aider les utilisateurs à trouver des informations précises dans la base de connaissances.
 Tu as un comportement professionnel mais amical.
 
-IMPORTANT: Recherche toujours dans la base de connaissances avant de répondre aux questions sur des informations spécifiques.
-Si l'information n'est pas dans la base de connaissances, indique-le clairement et offre des conseils généraux.
+IMPORTANT: On te fournira des extraits de la base de connaissances en contexte pour répondre aux questions.
+Utilise UNIQUEMENT les informations fournies dans le contexte pour répondre.
+Si l'information n'est pas dans le contexte fourni, indique-le clairement.
 Sois concis mais complet dans tes réponses.
-Pose des questions de clarification si la requête de l'utilisateur est ambiguë.
-Lorsque tu trouves des informations pertinentes, synthétise-les clairement et cite les documents sources.
+Cite toujours les sources des documents utilisés dans ta réponse.
 
 Réponds toujours en français, car c'est la langue principale de l'utilisateur.""",
-    tools=[search_knowledge_base],
 )
 
 
@@ -168,9 +167,22 @@ async def run_cli():
             print("Assistant: ", end="", flush=True)
 
             try:
+                # Rechercher dans la base de connaissances AVANT d'appeler l'agent
+                context = await search_knowledge_base(None, user_input, limit=3)
+
+                # Construire le prompt avec le contexte
+                prompt_with_context = f"""Contexte de la base de connaissances:
+{context}
+
+---
+
+Question de l'utilisateur: {user_input}
+
+Réponds à la question en utilisant UNIQUEMENT les informations du contexte ci-dessus."""
+
                 # Streamer la réponse avec run_stream
                 async with agent.run_stream(
-                    user_input, message_history=message_history
+                    prompt_with_context, message_history=message_history
                 ) as result:
                     # Streamer le texte au fur et à mesure (delta=True pour uniquement les nouveaux tokens)
                     async for text in result.stream_text(delta=True):
