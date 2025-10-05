@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # Uploads
     UPLOAD_DIR: str = "/app/uploads"
-    MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100 MB
+    MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024  # 500 MB (augmenté pour gros documents)
 
     # RAG Agent paths (montés depuis le container rag-app)
     RAG_APP_PATH: str = "/rag-app"

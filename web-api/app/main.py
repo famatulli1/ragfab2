@@ -41,11 +41,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Créer l'application FastAPI
+# Créer l'application FastAPI avec limite d'upload augmentée
 app = FastAPI(
     title="RAGFab Web API",
     description="API pour l'interface web de RAGFab - Chat et Administration",
-    version="1.0.0"
+    version="1.0.0",
+    # Augmenter la limite de taille de requête à 100 MB
+    swagger_ui_parameters={"defaultModelsExpandDepth": -1}
 )
 
 # Configuration CORS
@@ -685,7 +687,7 @@ async def export_conversation(
 # ============================================================================
 
 async def process_ingestion(job_id: UUID, file_path: str, filename: str):
-    """Traite l'ingestion d'un document en arrière-plan"""
+    """Traite l'ingestion d'un document en arrière-plan en appelant directement le pipeline Python"""
     try:
         # Mettre à jour le statut
         async with database.db_pool.acquire() as conn:
@@ -698,9 +700,83 @@ async def process_ingestion(job_id: UUID, file_path: str, filename: str):
                 job_id
             )
 
-        # TODO: Appeler le système d'ingestion réel
-        # Pour l'instant, simulation
-        await asyncio.sleep(2)
+        logger.info(f"📤 Démarrage ingestion de {filename}")
+
+        # Progress 30%
+        async with database.db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE ingestion_jobs SET progress = 30 WHERE id = $1",
+                job_id
+            )
+
+        # Créer un dossier temporaire pour ce fichier
+        upload_dir = settings.UPLOAD_DIR
+        doc_folder = os.path.join(upload_dir, f"job_{job_id}")
+        os.makedirs(doc_folder, exist_ok=True)
+
+        # Déplacer le fichier dans le dossier temporaire
+        doc_path = os.path.join(doc_folder, filename)
+        if os.path.exists(file_path) and file_path != doc_path:
+            import shutil
+            shutil.move(file_path, doc_path)
+
+        logger.info(f"📁 Fichier sauvegardé: {doc_path}")
+
+        # Progress 50%
+        async with database.db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE ingestion_jobs SET progress = 50 WHERE id = $1",
+                job_id
+            )
+
+        # Importer et utiliser le pipeline d'ingestion directement
+        # Les modules rag-app sont montés dans /rag-app
+        sys.path.insert(0, "/rag-app")
+        from ingestion.ingest import DocumentIngestionPipeline
+        from utils.models import IngestionConfig
+
+        # Configuration d'ingestion
+        config = IngestionConfig(
+            chunk_size=1000,
+            chunk_overlap=200,
+            max_chunk_size=2000,
+            use_semantic_chunking=True
+        )
+
+        # Créer et initialiser le pipeline
+        pipeline = DocumentIngestionPipeline(
+            config=config,
+            documents_folder=doc_folder,
+            clean_before_ingest=False  # Ne pas nettoyer la BD
+        )
+
+        await pipeline.initialize()
+
+        # Progress 60%
+        async with database.db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE ingestion_jobs SET progress = 60 WHERE id = $1",
+                job_id
+            )
+
+        logger.info(f"🔄 Ingestion du document via pipeline...")
+
+        # Lancer l'ingestion
+        results = await pipeline.ingest_documents()
+
+        await pipeline.close()
+
+        # Progress 80%
+        async with database.db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE ingestion_jobs SET progress = 80 WHERE id = $1",
+                job_id
+            )
+
+        # Compter les chunks créés
+        total_chunks = sum(r.chunks_created for r in results)
+
+        logger.info(f"✅ Ingestion terminée: {total_chunks} chunks créés")
 
         # Marquer comme terminé
         async with database.db_pool.acquire() as conn:
@@ -708,18 +784,21 @@ async def process_ingestion(job_id: UUID, file_path: str, filename: str):
                 """
                 UPDATE ingestion_jobs
                 SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
-                    progress = 100, chunks_created = 10
+                    progress = 100, chunks_created = $2
                 WHERE id = $1
                 """,
-                job_id
+                job_id, total_chunks
             )
 
-        # Nettoyer le fichier temporaire
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # Nettoyer le dossier temporaire
+        import shutil
+        if os.path.exists(doc_folder):
+            shutil.rmtree(doc_folder)
+
+        logger.info(f"✅ Job {job_id} terminé avec succès")
 
     except Exception as e:
-        logger.error(f"Erreur lors de l'ingestion: {e}", exc_info=True)
+        logger.error(f"❌ Erreur lors de l'ingestion: {e}", exc_info=True)
 
         # Marquer comme échoué
         async with database.db_pool.acquire() as conn:

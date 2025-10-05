@@ -25,6 +25,9 @@ class APIClient {
       headers: {
         'Content-Type': 'application/json',
       },
+      // Pas de limite de taille pour les uploads
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
     });
 
     // Intercepteur pour ajouter le token JWT

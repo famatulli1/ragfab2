@@ -17,6 +17,15 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
+        // Augmenter la limite de taille pour les uploads
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Pas de limite de taille
+            if (req.url?.includes('/upload')) {
+              proxyReq.setHeader('Connection', 'keep-alive');
+            }
+          });
+        },
       },
     },
   },
