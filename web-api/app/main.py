@@ -158,7 +158,14 @@ async def get_document_chunks(
             """,
             document_id, limit, offset
         )
-        return [ChunkResponse(**dict(row)) for row in rows]
+        # Parser le metadata JSON stocké comme string
+        chunks = []
+        for row in rows:
+            chunk_dict = dict(row)
+            if isinstance(chunk_dict.get('metadata'), str):
+                chunk_dict['metadata'] = json.loads(chunk_dict['metadata'])
+            chunks.append(ChunkResponse(**chunk_dict))
+        return chunks
 
 
 @app.get("/api/documents/{document_id}/view")

@@ -110,25 +110,33 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_API_URL: https://${API_DOMAIN:-api.localhost}
+        VITE_API_URL: https://${API_DOMAIN:-api-rag.lab-numihfrance.fr}
     depends_on:
       - ragfab-api
+    expose:
+      - "80"
     networks:
       - ragfab-network
+      - coolify
     restart: unless-stopped
     labels:
-      - "coolify.managed=true"
-      # Labels Traefik pour le frontend
-      - "traefik.enable=true"
-      - "traefik.http.routers.ragfab-frontend.rule=Host(`${FRONTEND_DOMAIN:-ragfab.localhost}`)"
-      - "traefik.http.routers.ragfab-frontend.entrypoints=websecure"
-      - "traefik.http.routers.ragfab-frontend.tls=true"
-      - "traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.ragfab-frontend.loadbalancer.server.port=80"
+      - traefik.enable=true
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`${SERVICE_FQDN_FRONTEND}`)"
+      - traefik.http.routers.ragfab-frontend.entryPoints=https
+      - traefik.http.routers.ragfab-frontend.tls=true
+      - traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.ragfab-frontend.loadbalancer.server.port=80
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   ragfab-network:
     driver: bridge
+  coolify:
+    external: true
 
 volumes:
   postgres_data:
