@@ -1,10 +1,21 @@
-# 🇫🇷 RAGFab - Système RAG Français avec Chocolatine-2-14B
+# 🇫🇷 RAGFab - Système RAG Français Dual-Provider
 
-Système RAG (Retrieval Augmented Generation) **100% autonome** et **optimisé pour le français**, utilisant :
-- **Chocolatine-2-14B** (Top 3 French LLM) comme modèle de langage
-- **Multilingual-E5-Large** pour les embeddings multilingues
+Système RAG (Retrieval Augmented Generation) **100% autonome** et **optimisé pour le français**, avec **deux modes de fonctionnement** :
+
+### 🎯 Mode Chocolatine (Manuel)
+- **Chocolatine-2-14B** (Top 3 French LLM)
+- Injection manuelle de contexte
+- Idéal pour modèles sans function calling
+
+### 🛠️ Mode Mistral (Tools)
+- **Mistral 7B** via API Mistral AI
+- Function calling automatique
+- L'agent décide quand chercher
+
+### 🔧 Infrastructure commune
+- **Multilingual-E5-Large** pour les embeddings multilingues (1024 dim)
 - **PostgreSQL + PGVector** pour le stockage vectoriel
-- **FastAPI** pour le serveur d'embeddings
+- **FastAPI** pour le serveur d'embeddings autonome
 
 **✅ Zéro dépendance OpenAI** | **🇫🇷 Optimisé français** | **🐳 Déployable sur Coolify**
 
@@ -91,6 +102,9 @@ Les services PostgreSQL et Embeddings seront automatiquement déployés et acces
 Créez un fichier `.env` à partir de `.env.example` :
 
 ```bash
+# Choix du provider: "chocolatine" ou "mistral"
+RAG_PROVIDER=chocolatine
+
 # Base de données PostgreSQL
 DATABASE_URL=postgresql://raguser:votremotdepasse@postgres:5432/ragdb
 
@@ -98,9 +112,13 @@ DATABASE_URL=postgresql://raguser:votremotdepasse@postgres:5432/ragdb
 EMBEDDINGS_API_URL=http://embeddings:8001
 EMBEDDING_DIMENSION=1024
 
-# API LLM Chocolatine
+# === Mode Chocolatine (manuel) ===
 CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
 CHOCOLATINE_API_KEY=  # Si nécessaire
+
+# === Mode Mistral (tools) ===
+MISTRAL_API_KEY=votre_clé_api
+MISTRAL_MODEL_NAME=open-mistral-7b
 ```
 
 ### Pour Coolify :
@@ -135,13 +153,25 @@ python -m ingestion.ingest --documents documents/
 
 ### 2. Lancer l'agent RAG
 
-```bash
-# Avec Docker
-docker-compose --profile app up rag-app
+#### Mode Chocolatine (injection manuelle)
 
-# En local
-cd rag-app
-python rag_agent.py
+```bash
+# Dans .env
+RAG_PROVIDER=chocolatine
+
+# Lancer l'agent
+docker-compose --profile app up rag-app
+```
+
+#### Mode Mistral (function calling)
+
+```bash
+# Dans .env
+RAG_PROVIDER=mistral
+MISTRAL_API_KEY=votre_clé
+
+# Lancer l'agent
+docker-compose --profile app up rag-app
 ```
 
 Exemple de session :

@@ -115,24 +115,67 @@ docker exec -it ragfab-postgres psql -U raguser -d ragdb -c "SELECT COUNT(*) FRO
 
 ## ✅ Étape 5 : Tester l'agent RAG
 
-### Option A : Mode interactif
+RAGFab propose **deux modes de fonctionnement** :
+
+### 🔧 Choix du provider
+
+Éditez votre fichier `.env` et configurez `RAG_PROVIDER` :
+
+**Mode Chocolatine (manuel)** - Injection de contexte :
+```bash
+RAG_PROVIDER=chocolatine
+```
+
+**Mode Mistral (avec tools)** - Function calling automatique :
+```bash
+RAG_PROVIDER=mistral
+MISTRAL_API_KEY=votre_clé_api_mistral
+```
+
+### Option A : Mode Chocolatine (manuel)
 
 ```bash
+# Dans .env
+RAG_PROVIDER=chocolatine
+
+# Lancer l'agent
 docker-compose --profile app up rag-app
 ```
 
 **Interaction exemple** :
 ```
+🤖 Assistant RAG de Connaissances (Chocolatine-2-14B manuel)
 Vous: Quelles sont les caractéristiques de RAGFab ?
 Assistant: [Réponse basée sur le document exemple.md avec citations]
-
-Vous: Quel modèle LLM est utilisé ?
-Assistant: [Réponse sur Chocolatine-2-14B]
 
 Vous: quit
 ```
 
-### Option B : Test rapide sans Docker
+### Option B : Mode Mistral (avec tools)
+
+```bash
+# Dans .env
+RAG_PROVIDER=mistral
+MISTRAL_API_KEY=votre_clé_api
+
+# Lancer l'agent
+docker-compose --profile app up rag-app
+```
+
+**Interaction exemple** :
+```
+🤖 Assistant RAG de Connaissances (Mistral 7B avec tools)
+Vous: Quelles sont les caractéristiques de RAGFab ?
+Assistant: [L'agent appelle automatiquement search_knowledge_base et répond]
+
+Vous: quit
+```
+
+**Différences** :
+- **Chocolatine** : Contexte injecté manuellement à chaque requête
+- **Mistral** : L'agent décide automatiquement quand chercher dans la base
+
+### Option C : Test rapide sans Docker
 
 Si vous avez Python installé localement :
 
@@ -145,7 +188,10 @@ pip install -r requirements.txt
 # Configurer les variables d'environnement
 set DATABASE_URL=postgresql://raguser:changeme_secure_password@localhost:5432/ragdb
 set EMBEDDINGS_API_URL=http://localhost:8001
+set RAG_PROVIDER=chocolatine  # ou mistral
 set CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
+# Si mode mistral:
+set MISTRAL_API_KEY=votre_clé
 
 # Lancer l'agent
 python rag_agent.py

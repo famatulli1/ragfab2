@@ -95,7 +95,17 @@ async def search_knowledge_base(
             doc_title = row["document_title"]
             doc_source = row["document_source"]
 
-            response_parts.append(f"[Source: {doc_title}]\n{content}\n")
+            # Nettoyer le contenu des caractères mal encodés (surrogates)
+            try:
+                # Encoder en UTF-8 avec remplacement des surrogates, puis décoder
+                clean_content = content.encode('utf-8', errors='replace').decode('utf-8')
+                clean_title = doc_title.encode('utf-8', errors='replace').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # En cas d'erreur, utiliser ascii avec ignore
+                clean_content = content.encode('ascii', errors='ignore').decode('ascii')
+                clean_title = doc_title.encode('ascii', errors='ignore').decode('ascii')
+
+            response_parts.append(f"[Source: {clean_title}]\n{clean_content}\n")
 
         if not response_parts:
             return "Des résultats ont été trouvés mais ils ne sont peut-être pas directement pertinents pour votre requête. Veuillez reformuler votre question."
@@ -110,26 +120,61 @@ async def search_knowledge_base(
         return f"J'ai rencontré une erreur lors de la recherche dans la base de connaissances: {str(e)}"
 
 
-# Importer le provider Chocolatine
+# Importer les providers
 from utils.chocolatine_provider import get_chocolatine_model
+from utils.mistral_provider import get_mistral_model
 
-# Créer l'agent PydanticAI avec le modèle Chocolatine et l'outil RAG
-chocolatine_model = get_chocolatine_model()
 
-agent = Agent(
-    chocolatine_model,
-    system_prompt="""Tu es un assistant intelligent de connaissances avec accès à la documentation et aux informations d'une organisation.
+def get_rag_provider():
+    """Factory function pour obtenir le provider RAG configuré."""
+    provider_name = os.getenv("RAG_PROVIDER", "chocolatine").lower()
+
+    if provider_name == "mistral":
+        logger.info("Utilisation du provider Mistral avec support des tools")
+        return "mistral", get_mistral_model()
+    else:
+        logger.info("Utilisation du provider Chocolatine avec injection manuelle de contexte")
+        return "chocolatine", get_chocolatine_model()
+
+
+# Obtenir le provider configuré
+provider_type, model = get_rag_provider()
+
+# System prompt de base
+BASE_SYSTEM_PROMPT = """Tu es un assistant intelligent de connaissances avec accès à la documentation et aux informations d'une organisation.
 Ton rôle est d'aider les utilisateurs à trouver des informations précises dans la base de connaissances.
 Tu as un comportement professionnel mais amical.
 
-IMPORTANT: On te fournira des extraits de la base de connaissances en contexte pour répondre aux questions.
+Réponds toujours en français, car c'est la langue principale de l'utilisateur."""
+
+# Créer l'agent selon le provider
+if provider_type == "mistral":
+    # Mistral avec tools
+    agent = Agent(
+        model,
+        system_prompt=BASE_SYSTEM_PROMPT + """
+
+Tu as accès à un outil 'search_knowledge_base' qui te permet de rechercher dans la base de connaissances.
+Utilise cet outil dès que l'utilisateur pose une question nécessitant des informations de la base de connaissances.
+
+IMPORTANT: Utilise UNIQUEMENT les informations retournées par l'outil search_knowledge_base pour répondre.
+Si l'outil ne trouve pas d'informations pertinentes, indique-le clairement à l'utilisateur.
+Sois concis mais complet dans tes réponses.
+Cite toujours les sources des documents utilisés dans ta réponse.""",
+        tools=[search_knowledge_base],
+    )
+else:
+    # Chocolatine avec injection manuelle
+    agent = Agent(
+        model,
+        system_prompt=BASE_SYSTEM_PROMPT + """
+
+IMPORTANT: On te fournira des extraits pertinents de la base de connaissances en contexte pour répondre aux questions.
 Utilise UNIQUEMENT les informations fournies dans le contexte pour répondre.
 Si l'information n'est pas dans le contexte fourni, indique-le clairement.
 Sois concis mais complet dans tes réponses.
-Cite toujours les sources des documents utilisés dans ta réponse.
-
-Réponds toujours en français, car c'est la langue principale de l'utilisateur.""",
-)
+Cite toujours les sources des documents utilisés dans ta réponse.""",
+    )
 
 
 async def run_cli():
@@ -138,8 +183,10 @@ async def run_cli():
     # Initialiser la base de données
     await initialize_db()
 
+    provider_display = "Mistral 7B avec tools" if provider_type == "mistral" else "Chocolatine-2-14B manuel"
+
     print("=" * 60)
-    print("🤖 Assistant RAG de Connaissances (Chocolatine-2-14B)")
+    print(f"🤖 Assistant RAG de Connaissances ({provider_display})")
     print("=" * 60)
     print("Posez-moi des questions sur la base de connaissances!")
     print("Tapez 'quit', 'exit', ou Ctrl+C pour quitter.")
@@ -167,11 +214,19 @@ async def run_cli():
             print("Assistant: ", end="", flush=True)
 
             try:
-                # Rechercher dans la base de connaissances AVANT d'appeler l'agent
-                context = await search_knowledge_base(None, user_input, limit=3)
+                if provider_type == "mistral":
+                    # Mode Mistral: utiliser run() au lieu de run_stream() pour supporter les tools
+                    # Le streaming avec tools est complexe dans PydanticAI
+                    result = await agent.run(user_input, message_history=message_history)
+                    print(result.data)
+                    print()
+                    message_history = result.all_messages()
 
-                # Construire le prompt avec le contexte
-                prompt_with_context = f"""Contexte de la base de connaissances:
+                else:
+                    # Mode Chocolatine: injection manuelle du contexte
+                    context = await search_knowledge_base(None, user_input, limit=3)
+
+                    prompt_with_context = f"""Contexte de la base de connaissances:
 {context}
 
 ---
@@ -180,19 +235,14 @@ Question de l'utilisateur: {user_input}
 
 Réponds à la question en utilisant UNIQUEMENT les informations du contexte ci-dessus."""
 
-                # Streamer la réponse avec run_stream
-                async with agent.run_stream(
-                    prompt_with_context, message_history=message_history
-                ) as result:
-                    # Streamer le texte au fur et à mesure (delta=True pour uniquement les nouveaux tokens)
-                    async for text in result.stream_text(delta=True):
-                        # Afficher uniquement le nouveau token
-                        print(text, end="", flush=True)
+                    async with agent.run_stream(
+                        prompt_with_context, message_history=message_history
+                    ) as result:
+                        async for text in result.stream_text(delta=True):
+                            print(text, end="", flush=True)
 
-                    print()  # Nouvelle ligne après la fin du streaming
-
-                    # Mettre à jour l'historique des messages pour le contexte
-                    message_history = result.all_messages()
+                        print()
+                        message_history = result.all_messages()
 
             except KeyboardInterrupt:
                 print("\n\n[Interrompu]")
@@ -212,8 +262,9 @@ Réponds à la question en utilisant UNIQUEMENT les informations du contexte ci-
 async def main():
     """Point d'entrée principal."""
     # Configurer le logging
+    log_level = logging.DEBUG if provider_type == "mistral" else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 

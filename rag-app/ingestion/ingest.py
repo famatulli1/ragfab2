@@ -249,9 +249,13 @@ class DocumentIngestionPipeline:
         files = []
 
         for pattern in patterns:
+            # Chercher à la racine du dossier
+            files.extend(glob.glob(os.path.join(self.documents_folder, pattern)))
+            # Chercher dans les sous-dossiers
             files.extend(glob.glob(os.path.join(self.documents_folder, "**", pattern), recursive=True))
 
-        return sorted(files)
+        # Supprimer les doublons et trier
+        return sorted(list(set(files)))
     
     def _read_document(self, file_path: str) -> tuple[str, Optional[Any]]:
         """

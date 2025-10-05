@@ -61,8 +61,14 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
       EMBEDDINGS_API_URL: http://embeddings:8001
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      RAG_PROVIDER: ${RAG_PROVIDER:-chocolatine}
       CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
       CHOCOLATINE_API_KEY: ${CHOCOLATINE_API_KEY:-}
+      CHOCOLATINE_MODEL_NAME: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_API_URL: ${MISTRAL_API_URL:-https://api.mistral.ai}
+      MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-open-mistral-7b}
+      MISTRAL_TIMEOUT: ${MISTRAL_TIMEOUT:-120.0}
     depends_on:
       postgres:
         condition: service_healthy

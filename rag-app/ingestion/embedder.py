@@ -29,10 +29,10 @@ class EmbeddingGenerator:
         self,
         api_url: str = EMBEDDINGS_API_URL,
         dimension: int = EMBEDDING_DIMENSION,
-        batch_size: int = 100,
+        batch_size: int = 20,  # Réduit de 100 à 20 pour éviter les timeouts
         max_retries: int = 3,
         retry_delay: float = 1.0,
-        timeout: float = 60.0,
+        timeout: float = 90.0,  # Augmenté de 60 à 90 secondes
     ):
         """
         Initialize embedding generator.
