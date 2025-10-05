@@ -3,7 +3,7 @@ asyncpg==0.30.0
 pydantic-ai==0.0.18
 python-dotenv==1.0.1
 httpx==0.28.1
-pydantic==2.10.2
+pydantic==2.9.2  # Downgraded to avoid conflict with docling-core
 rich==13.9.4
 
 # Ingestion dependencies
