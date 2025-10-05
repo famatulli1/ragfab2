@@ -121,7 +121,7 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - "traefik.http.routers.ragfab-frontend.rule=Host(`${SERVICE_FQDN_FRONTEND}`)"
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`rag.lab-numihfrance.fr`)"
       - traefik.http.routers.ragfab-frontend.entryPoints=https
       - traefik.http.routers.ragfab-frontend.tls=true
       - traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt
