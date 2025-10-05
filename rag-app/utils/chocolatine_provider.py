@@ -198,7 +198,7 @@ class ChocolatineModel(Model):
         self,
         api_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        model_name: str = "chocolatine-2-14b",
+        model_name: str = "jpacifico/Chocolatine-2-14B-Instruct-v2.0.3",
         timeout: float = 120.0,
     ):
         """
