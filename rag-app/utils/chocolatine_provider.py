@@ -134,33 +134,31 @@ class ChocolatineAgentModel(AgentModel):
             ) as response:
                 response.raise_for_status()
 
-                async def generate_chunks():
-                    async for line in response.aiter_lines():
-                        if not line.strip() or line.startswith(":"):
+                # Yield directly, don't wrap in another generator
+                async for line in response.aiter_lines():
+                    if not line.strip() or line.startswith(":"):
+                        continue
+
+                    if line.startswith("data: "):
+                        data = line[6:]
+
+                        if data.strip() == "[DONE]":
+                            break
+
+                        try:
+                            chunk = json.loads(data)
+                            delta_content = (
+                                chunk.get("choices", [{}])[0]
+                                .get("delta", {})
+                                .get("content", "")
+                            )
+
+                            if delta_content:
+                                yield ModelResponse(parts=[TextPart(content=delta_content)])
+
+                        except json.JSONDecodeError:
+                            logger.warning(f"Unable to parse JSON chunk: {data}")
                             continue
-
-                        if line.startswith("data: "):
-                            data = line[6:]
-
-                            if data.strip() == "[DONE]":
-                                break
-
-                            try:
-                                chunk = json.loads(data)
-                                delta_content = (
-                                    chunk.get("choices", [{}])[0]
-                                    .get("delta", {})
-                                    .get("content", "")
-                                )
-
-                                if delta_content:
-                                    yield ModelResponse(parts=[TextPart(content=delta_content)])
-
-                            except json.JSONDecodeError:
-                                logger.warning(f"Unable to parse JSON chunk: {data}")
-                                continue
-
-                yield generate_chunks()
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error in Chocolatine streaming: {e}")
