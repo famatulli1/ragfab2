@@ -1,5 +1,8 @@
 FROM pgvector/pgvector:pg16
 
+# Copier la configuration pg_hba.conf personnalisée avec trust pour Docker networks
+COPY custom-pg_hba.conf /tmp/custom-pg_hba.conf
+
 # Copier les schémas SQL
 COPY schema.sql /docker-entrypoint-initdb.d/01_schema.sql
 COPY 02_web_schema.sql /docker-entrypoint-initdb.d/02_web_schema.sql

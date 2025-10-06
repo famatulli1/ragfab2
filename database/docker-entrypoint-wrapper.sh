@@ -18,6 +18,14 @@ done
 
 echo "✅ PostgreSQL démarré, lancement de l'initialisation..."
 
+# Copier notre pg_hba.conf personnalisé
+if [ -f "/tmp/custom-pg_hba.conf" ]; then
+  echo "📝 Installation de pg_hba.conf personnalisé..."
+  cp /tmp/custom-pg_hba.conf /var/lib/postgresql/data/pg_hba.conf
+  psql -U "${POSTGRES_USER:-raguser}" -d "${POSTGRES_DB:-ragdb}" -c "SELECT pg_reload_conf();" > /dev/null 2>&1
+  echo "✅ pg_hba.conf appliqué (trust pour réseaux Docker)"
+fi
+
 # Exécuter le script d'initialisation
 /usr/local/bin/init-db.sh
 
