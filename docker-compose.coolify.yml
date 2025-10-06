@@ -70,13 +70,17 @@ services:
     build:
       context: ./web-api
       dockerfile: Dockerfile
-    sysctls:
-      - net.ipv6.conf.all.disable_ipv6=1
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
-      # PostgreSQL connection
+      # PostgreSQL connection (utiliser variables individuelles pour asyncpg)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+      # Garder DATABASE_URL pour compatibilité
       DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ragdb}
       # Auth
       JWT_SECRET: ${JWT_SECRET}

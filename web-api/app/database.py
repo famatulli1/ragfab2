@@ -3,6 +3,7 @@ Gestion de la connexion à la base de données PostgreSQL
 """
 import asyncpg
 import logging
+import socket
 from typing import Optional
 from .config import settings
 
@@ -15,15 +16,22 @@ db_pool: Optional[asyncpg.Pool] = None
 async def initialize_database():
     """
     Initialise le pool de connexions à la base de données
+    Force IPv4 pour éviter les problèmes de résolution DNS IPv6
     """
     global db_pool
 
     try:
+        # Forcer IPv4 en utilisant les paramètres individuels
         db_pool = await asyncpg.create_pool(
-            settings.DATABASE_URL,
+            host=settings.POSTGRES_HOST,
+            port=settings.POSTGRES_PORT,
+            user=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            database=settings.POSTGRES_DB,
             min_size=2,
             max_size=10,
             command_timeout=60,
+            server_settings={'jit': 'off'},  # Désactiver JIT pour compatibilité
         )
         logger.info("✅ Pool de connexions BD initialisé")
         return db_pool

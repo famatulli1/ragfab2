@@ -10,7 +10,14 @@ from pydantic import computed_field
 class Settings(BaseSettings):
     """Configuration de l'application"""
 
-    # Base de données
+    # Base de données (paramètres individuels pour éviter problèmes DNS IPv6)
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "postgres")
+    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "raguser")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "ragpass")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "ragdb")
+
+    # DATABASE_URL conservé pour compatibilité
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         "postgresql://raguser:ragpass@postgres:5432/ragdb"
