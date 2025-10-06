@@ -80,6 +80,8 @@ services:
     volumes:
       - ./rag-app:/rag-app:ro
       - api_uploads:/app/uploads
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
