@@ -24,13 +24,27 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 
-    # CORS
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ]
+    # CORS - Origines autorisées (séparées par virgule dans env var CORS_ORIGINS)
+    @property
+    def CORS_ORIGINS(self) -> list[str]:
+        """
+        Origines CORS autorisées.
+        Peut être configuré via env var CORS_ORIGINS (séparées par virgule)
+        """
+        custom_origins = os.getenv("CORS_ORIGINS", "")
+        default_origins = [
+            "http://localhost:3000",
+            "http://localhost:5173",  # Vite dev server
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+        ]
+
+        if custom_origins:
+            # Ajouter les origines custom depuis env var
+            custom_list = [origin.strip() for origin in custom_origins.split(",") if origin.strip()]
+            return default_origins + custom_list
+
+        return default_origins
 
     # Uploads
     UPLOAD_DIR: str = "/app/uploads"

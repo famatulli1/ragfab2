@@ -98,6 +98,7 @@ services:
       MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
       CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
       CHOCOLATINE_MODEL_NAME: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -119,7 +120,7 @@ services:
       dockerfile: Dockerfile
     container_name: ragfab-frontend
     environment:
-      VITE_API_URL: http://localhost:8000
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
