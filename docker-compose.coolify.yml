@@ -87,6 +87,7 @@ services:
         condition: service_healthy
     networks:
       - ragfab-network
+      - coolify
     restart: unless-stopped
     labels:
       - "coolify.managed=true"
