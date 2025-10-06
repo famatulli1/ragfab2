@@ -4,6 +4,7 @@ Configuration de l'application FastAPI
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
+from pydantic import computed_field
 
 
 class Settings(BaseSettings):
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 
     # CORS - Origines autorisées (séparées par virgule dans env var CORS_ORIGINS)
+    @computed_field
     @property
     def CORS_ORIGINS(self) -> list[str]:
         """
