@@ -5,10 +5,11 @@ version: '3.8'
 
 services:
   # Service PostgreSQL avec PGVector
-  postgres:
+  ragfab-postgres:
     build:
       context: ./database
       dockerfile: Dockerfile
+    container_name: ragfab-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -30,10 +31,11 @@ services:
       - "coolify.managed=true"
 
   # Service d'embeddings (HTTP API)
-  embeddings:
+  ragfab-embeddings:
     build:
       context: ./embeddings-server
       dockerfile: Dockerfile
+    container_name: ragfab-embeddings
     environment:
       MODEL_NAME: intfloat/multilingual-e5-large
     expose:
@@ -59,34 +61,35 @@ services:
       - "coolify.managed=true"
       # Labels Traefik pour exposer le service (optionnel)
       - "traefik.enable=true"
-      - "traefik.http.routers.embeddings.rule=Host(`${EMBEDDINGS_DOMAIN:-embeddings.localhost}`)"
-      - "traefik.http.routers.embeddings.entrypoints=websecure"
-      - "traefik.http.routers.embeddings.tls=true"
-      - "traefik.http.routers.embeddings.tls.certresolver=letsencrypt"
-      - "traefik.http.services.embeddings.loadbalancer.server.port=8001"
+      - "traefik.http.routers.ragfab-embeddings.rule=Host(`${EMBEDDINGS_DOMAIN:-embeddings.localhost}`)"
+      - "traefik.http.routers.ragfab-embeddings.entrypoints=websecure"
+      - "traefik.http.routers.ragfab-embeddings.tls=true"
+      - "traefik.http.routers.ragfab-embeddings.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ragfab-embeddings.loadbalancer.server.port=8001"
 
   # Service API Backend (FastAPI)
   ragfab-api:
     build:
       context: ./web-api
       dockerfile: Dockerfile
+    container_name: ragfab-api
     dns:
       - 8.8.8.8
       - 8.8.4.4
     environment:
       # PostgreSQL connection (utiliser variables individuelles pour asyncpg)
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: ragfab-postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:-raguser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ragdb}
       # Garder DATABASE_URL pour compatibilité
-      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ragdb}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD}@ragfab-postgres:5432/${POSTGRES_DB:-ragdb}
       # Auth
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      EMBEDDINGS_API_URL: http://embeddings:8001
+      EMBEDDINGS_API_URL: http://ragfab-embeddings:8001
       MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
       CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
@@ -98,9 +101,9 @@ services:
     expose:
       - "8000"
     depends_on:
-      postgres:
+      ragfab-postgres:
         condition: service_healthy
-      embeddings:
+      ragfab-embeddings:
         condition: service_healthy
     networks:
       - ragfab-network
@@ -124,10 +127,11 @@ services:
       - "traefik.http.routers.ragfab-api.middlewares=ragfab-api-cors"
 
   # Service Frontend (React/Vite - version buildée)
-  frontend:
+  ragfab-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
+    container_name: ragfab-frontend
     depends_on:
       ragfab-api:
         condition: service_started
@@ -139,11 +143,11 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - "traefik.http.routers.frontend.rule=Host(`rag.lab-numihfrance.fr`)"
-      - traefik.http.routers.frontend.entryPoints=https
-      - traefik.http.routers.frontend.tls=true
-      - traefik.http.routers.frontend.tls.certresolver=letsencrypt
-      - traefik.http.services.frontend.loadbalancer.server.port=80
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`rag.lab-numihfrance.fr`)"
+      - traefik.http.routers.ragfab-frontend.entryPoints=https
+      - traefik.http.routers.ragfab-frontend.tls=true
+      - traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.ragfab-frontend.loadbalancer.server.port=80
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:80"]
       interval: 30s
