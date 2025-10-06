@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix PostgreSQL authentication: rename all containers with ragfab- prefix\n\n- Renamed postgres → ragfab-postgres\n- Renamed embeddings → ragfab-embeddings  \n- Renamed frontend → ragfab-frontend\n- Updated POSTGRES_HOST: postgres → ragfab-postgres\n- Updated DATABASE_URL to use ragfab-postgres\n- Updated EMBEDDINGS_API_URL to use ragfab-embeddings\n- Updated all Traefik router names to match new service names\n\nThis fixes container name conflicts in Coolify deployments.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

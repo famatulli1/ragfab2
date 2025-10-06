@@ -21,6 +21,13 @@ async def initialize_database():
     global db_pool
 
     try:
+        # Logs de debug pour vérifier les valeurs
+        logger.info(f"🔍 POSTGRES_HOST: {settings.POSTGRES_HOST}")
+        logger.info(f"🔍 POSTGRES_PORT: {settings.POSTGRES_PORT}")
+        logger.info(f"🔍 POSTGRES_USER: {settings.POSTGRES_USER}")
+        logger.info(f"🔍 POSTGRES_PASSWORD: {'*' * len(settings.POSTGRES_PASSWORD)} (length: {len(settings.POSTGRES_PASSWORD)})")
+        logger.info(f"🔍 POSTGRES_DB: {settings.POSTGRES_DB}")
+
         # Forcer IPv4 en utilisant les paramètres individuels
         db_pool = await asyncpg.create_pool(
             host=settings.POSTGRES_HOST,
