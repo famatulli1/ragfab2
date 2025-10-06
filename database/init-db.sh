@@ -19,6 +19,40 @@ done
 
 echo "✅ PostgreSQL est prêt"
 
+# ============================================
+# Réinitialisation du mot de passe
+# ============================================
+echo ""
+echo "🔑 Vérification et mise à jour du mot de passe utilisateur..."
+
+if [ -z "$POSTGRES_PASSWORD" ]; then
+    echo "  ⚠️  POSTGRES_PASSWORD non défini"
+    echo "  Impossible de vérifier le mot de passe"
+else
+    echo "  Utilisateur: $POSTGRES_USER"
+    echo "  Base de données: $POSTGRES_DB"
+
+    # Réinitialiser le mot de passe (idempotent)
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<-EOSQL
+		ALTER USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';
+	EOSQL
+
+    echo "  ✅ Mot de passe mis à jour avec succès"
+
+    # Test de connexion réseau (simuler backend)
+    echo ""
+    echo "  🧪 Test de connexion réseau avec mot de passe..."
+    if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;" > /dev/null 2>&1; then
+        echo "  ✅ Connexion réseau avec mot de passe : OK"
+    else
+        echo "  ❌ Connexion réseau avec mot de passe : ÉCHEC"
+        echo "  ⚠️  Le backend pourrait avoir des problèmes de connexion"
+    fi
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
 # Fonction pour vérifier si une table existe
 table_exists() {
   local table_name=$1
