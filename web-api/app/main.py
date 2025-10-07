@@ -15,6 +15,7 @@ import sys
 import io
 import json
 import httpx
+from contextvars import ContextVar
 
 # Ajouter le path du rag-app pour importer les modules
 sys.path.insert(0, "/app/rag-app")
@@ -40,6 +41,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Variable de contexte pour stocker les sources trouvées par le tool
+_tool_sources: ContextVar[List[dict]] = ContextVar('tool_sources', default=[])
 
 # Créer l'application FastAPI avec limite d'upload augmentée
 app = FastAPI(
@@ -892,12 +896,15 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
-        # Rechercher dans la BD
+        # Rechercher dans la BD avec métadonnées complètes
         async with database.db_pool.acquire() as conn:
             results = await conn.fetch(
                 """
                 SELECT
+                    c.id as chunk_id,
                     c.content,
+                    c.chunk_index,
+                    d.id as document_id,
                     d.title as document_title,
                     d.source as document_source,
                     1 - (c.embedding <=> $1::vector) as similarity
@@ -911,17 +918,33 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             )
 
         if not results:
+            _tool_sources.set([])
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
-        # Formater la réponse
+        # Stocker les sources avec métadonnées pour le frontend
+        sources = []
         response_parts = []
         for row in results:
+            sources.append({
+                "chunk_id": str(row["chunk_id"]),
+                "document_id": str(row["document_id"]),
+                "document_title": row["document_title"],
+                "document_source": row["document_source"],
+                "chunk_index": row["chunk_index"],
+                "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
+                "similarity": float(row["similarity"])
+            })
             response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
+
+        # Sauvegarder les sources dans le contexte
+        _tool_sources.set(sources)
+        logger.info(f"✅ {len(sources)} sources sauvegardées dans le contexte")
 
         return "Résultats trouvés dans la base de connaissances:\n\n" + "\n---\n".join(response_parts)
 
     except Exception as e:
         logger.error(f"Erreur dans search_knowledge_base_tool: {e}", exc_info=True)
+        _tool_sources.set([])
         return f"Erreur lors de la recherche: {str(e)}"
 
 
@@ -937,13 +960,16 @@ async def execute_rag_agent(
         from utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
 
-        # Récupérer les sources pour tous les providers
-        sources = await get_search_sources(message, limit=5)
+        # Initialiser les sources à vide
+        _tool_sources.set([])
+        sources = []
 
         # Pour Chocolatine : recherche manuelle + injection dans le prompt
         if provider == "chocolatine":
-            # Faire la recherche avec notre tool local
+            # Faire la recherche avec notre tool local (stocke les sources dans le contexte)
             search_results = await search_knowledge_base_tool(message, limit=5)
+            # Récupérer les sources stockées par le tool
+            sources = _tool_sources.get()
 
             # Créer le system prompt avec le contexte
             system_prompt = f"""Tu es un assistant intelligent basé sur la documentation Medimail Webmail.
@@ -1003,6 +1029,12 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
 
         # Exécuter l'agent SANS historique pour forcer l'appel du tool à chaque fois
         result = await agent.run(enhanced_message, message_history=[])
+
+        # Pour Mistral avec tools, récupérer les sources depuis le contexte
+        # (le tool les a sauvegardées lors de son exécution)
+        if provider == "mistral" and use_tools:
+            sources = _tool_sources.get()
+            logger.info(f"📚 Sources récupérées du tool: {len(sources)} sources")
 
         return {
             "content": result.data,
