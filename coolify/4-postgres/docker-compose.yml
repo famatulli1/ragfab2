@@ -3,8 +3,8 @@ version: '3.8'
 services:
   ragfab-postgres:
     build:
-      context: .
-      dockerfile: coolify/4-postgres/Dockerfile
+      context: ./coolify/4-postgres
+      dockerfile: Dockerfile
     container_name: ragfab-postgres
     environment:
       # Credentials PostgreSQL
@@ -17,10 +17,7 @@ services:
 
     # Note: Pas de section ports - accessible uniquement via réseau Docker privé (plus sécurisé)
     volumes:
-      # Persistance des données
       - postgres_data:/var/lib/postgresql/data
-      # Note: Le script init-db.sql est COPIÉ dans l'image Docker au build
-      # Il n'est plus nécessaire de le monter ici
 
     restart: unless-stopped
 
