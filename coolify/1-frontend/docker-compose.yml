@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: coolify/1-frontend/Dockerfile
-    container_name: ragfab-frontend
     restart: unless-stopped
     environment:
       # URL du backend API (à configurer dans Coolify)
