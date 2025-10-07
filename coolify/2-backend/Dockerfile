@@ -11,7 +11,8 @@ FROM python:3.11-slim
 # Variables d'environnement Python
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
 
 # Installer les dépendances système
 RUN apt-get update && apt-get install -y \

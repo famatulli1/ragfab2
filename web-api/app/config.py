@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024  # 500 MB (augmenté pour gros documents)
 
     # RAG Agent paths (montés depuis le container rag-app)
-    RAG_APP_PATH: str = "/rag-app"
+    RAG_APP_PATH: str = "/app/rag-app"
 
     # Embeddings server
     EMBEDDINGS_API_URL: str = os.getenv("EMBEDDINGS_API_URL", "http://embeddings:8001")

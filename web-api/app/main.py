@@ -17,7 +17,7 @@ import json
 import httpx
 
 # Ajouter le path du rag-app pour importer les modules
-sys.path.insert(0, "/rag-app")
+sys.path.insert(0, "/app/rag-app")
 
 from .config import settings
 from . import database
@@ -737,8 +737,8 @@ async def process_ingestion(job_id: UUID, file_path: str, filename: str):
             )
 
         # Importer et utiliser le pipeline d'ingestion directement
-        # Les modules rag-app sont montés dans /rag-app
-        sys.path.insert(0, "/rag-app")
+        # Les modules rag-app sont montés dans /app/rag-app avec PYTHONPATH=/app
+        sys.path.insert(0, "/app/rag-app")
         from ingestion.ingest import DocumentIngestionPipeline
         from utils.models import IngestionConfig
 

@@ -7,6 +7,9 @@ services:
       dockerfile: coolify/2-backend/Dockerfile
     container_name: ragfab-backend
     environment:
+      # Python path
+      PYTHONPATH: /app
+
       # Base de données PostgreSQL (URL HTTPS ou connexion directe)
       DATABASE_URL: ${DATABASE_URL:-postgresql://raguser:ragpass123@ragfab-postgres:5432/ragdb}
 
