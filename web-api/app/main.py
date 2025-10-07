@@ -927,21 +927,26 @@ INSTRUCTIONS:
             model = get_mistral_model()
             agent = Agent(model, system_prompt=system_prompt)
 
-        # NE PAS passer l'historique complet à Mistral car il décide alors de ne pas appeler les tools
-        # À la place, on injecte seulement un résumé du contexte dans le message actuel
-        if history and len(history) > 0:
-            # Prendre seulement les 2 derniers échanges pour le contexte
-            recent_history = history[-4:] if len(history) >= 4 else history
-            context_summary = "\n".join([
-                f"{'Utilisateur' if msg['role'] == 'user' else 'Assistant'}: {msg['content'][:200]}"
-                for msg in recent_history
-            ])
-            enhanced_message = f"Contexte récent:\n{context_summary}\n\nNouvelle question: {message}"
+        # Pour Mistral avec tools: NE JAMAIS passer de contexte ou d'historique
+        # Sinon il pense pouvoir répondre sans chercher dans la base de connaissances
+        if provider == "mistral" and use_tools:
+            # Uniquement le message brut, sans contexte
+            logger.info(f"🎯 Mistral avec tools: message brut sans contexte pour forcer l'appel du tool")
+            result = await agent.run(message, message_history=[])
         else:
-            enhanced_message = message
+            # Pour Chocolatine et Mistral sans tools: on peut injecter un résumé du contexte
+            if history and len(history) > 0:
+                # Prendre seulement les 2 derniers échanges pour le contexte
+                recent_history = history[-4:] if len(history) >= 4 else history
+                context_summary = "\n".join([
+                    f"{'Utilisateur' if msg['role'] == 'user' else 'Assistant'}: {msg['content'][:200]}"
+                    for msg in recent_history
+                ])
+                enhanced_message = f"Contexte récent:\n{context_summary}\n\nNouvelle question: {message}"
+            else:
+                enhanced_message = message
 
-        # Exécuter l'agent SANS historique pour forcer l'appel du tool à chaque fois
-        result = await agent.run(enhanced_message, message_history=[])
+            result = await agent.run(enhanced_message, message_history=[])
 
         # Pour Mistral avec tools, récupérer les sources depuis la variable globale
         # (le tool les a sauvegardées lors de son exécution)
