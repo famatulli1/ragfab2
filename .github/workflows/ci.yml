@@ -1,0 +1,241 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: raguser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: ragdb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install rag-app dependencies
+        run: |
+          cd rag-app
+          pip install -r requirements.txt
+
+      - name: Install web-api dependencies
+        run: |
+          cd web-api
+          pip install -r requirements.txt
+
+      - name: Lint with flake8 (rag-app)
+        continue-on-error: true
+        run: |
+          pip install flake8
+          cd rag-app
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Lint with flake8 (web-api)
+        continue-on-error: true
+        run: |
+          cd web-api
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run rag-app unit tests
+        env:
+          DATABASE_URL: postgresql://raguser:testpass@localhost:5432/ragdb_test
+          EMBEDDINGS_API_URL: http://localhost:8001
+          EMBEDDING_DIMENSION: 1024
+        run: |
+          cd rag-app
+          pytest tests/unit/ -v --cov=. --cov-report=xml --cov-report=term-missing -m "unit and not embeddings"
+
+      - name: Run web-api unit tests
+        env:
+          DATABASE_URL: postgresql://raguser:testpass@localhost:5432/ragdb_test
+          JWT_SECRET: test-secret-key
+          JWT_ALGORITHM: HS256
+          JWT_EXPIRATION_MINUTES: 30
+        run: |
+          cd web-api
+          pytest tests/unit/ -v --cov=app --cov-report=xml --cov-report=term-missing -m unit
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://raguser:testpass@localhost:5432/ragdb_test
+          EMBEDDINGS_API_URL: http://localhost:8001
+          JWT_SECRET: test-secret-key
+        run: |
+          cd rag-app
+          pytest tests/integration/ -v --cov-append --cov=. --cov-report=xml -m "integration and not slow"
+
+      - name: Check test coverage
+        run: |
+          cd rag-app
+          pytest --cov=. --cov-report=term --cov-fail-under=70 -m "unit and not embeddings"
+          cd ../web-api
+          pytest --cov=app --cov-report=term --cov-fail-under=70 -m unit
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./rag-app/coverage.xml,./web-api/coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install safety bandit
+
+      - name: Run safety check (rag-app)
+        continue-on-error: true
+        run: |
+          cd rag-app
+          safety check -r requirements.txt --json || true
+
+      - name: Run safety check (web-api)
+        continue-on-error: true
+        run: |
+          cd web-api
+          safety check -r requirements.txt --json || true
+
+      - name: Run bandit security scan (rag-app)
+        continue-on-error: true
+        run: |
+          cd rag-app
+          bandit -r . -f json -o bandit-report.json || true
+
+      - name: Run bandit security scan (web-api)
+        continue-on-error: true
+        run: |
+          cd web-api
+          bandit -r app/ -f json -o bandit-report.json || true
+
+  type-check:
+    name: Type Checking
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Type check rag-app
+        continue-on-error: true
+        run: |
+          cd rag-app
+          pip install -r requirements.txt
+          mypy . --ignore-missing-imports || true
+
+      - name: Type check web-api
+        continue-on-error: true
+        run: |
+          cd web-api
+          pip install -r requirements.txt
+          mypy app/ --ignore-missing-imports || true
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build embeddings-server image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./embeddings-server
+          push: false
+          tags: ragfab-embeddings:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build rag-app image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./rag-app
+          push: false
+          tags: ragfab-rag-app:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build web-api image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web-api
+          push: false
+          tags: ragfab-web-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  quality-report:
+    name: Quality Report
+    needs: [quality-gates, security-scan, type-check]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Report Status
+        run: |
+          echo "## Quality Gates Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Quality Gates: ${{ needs.quality-gates.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scan: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Type Check: ${{ needs.type-check.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.quality-gates.result }}" != "success" ]; then
+            echo "❌ Quality gates failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ All quality gates passed" >> $GITHUB_STEP_SUMMARY
+          fi

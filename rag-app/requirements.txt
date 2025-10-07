@@ -14,3 +14,9 @@ docling==2.15.0
 
 # Additional utilities
 tqdm==4.67.1
+
+# Testing dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
