@@ -247,11 +247,7 @@ async def get_document_view(document_id: UUID):
 
 
 @app.post("/api/documents/upload")
-@limiter.limit("10/hour")  # Max 10 uploads per hour
 async def upload_document(
-    req: Request,
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
     current_user: dict = Depends(get_current_admin_user)
 ):
     """

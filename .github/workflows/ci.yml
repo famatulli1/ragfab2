@@ -43,12 +43,12 @@ jobs:
       - name: Install rag-app dependencies
         run: |
           cd rag-app
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Install web-api dependencies
         run: |
           cd web-api
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint with flake8 (rag-app)
         continue-on-error: true
@@ -169,14 +169,14 @@ jobs:
         continue-on-error: true
         run: |
           cd rag-app
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
           mypy . --ignore-missing-imports || true
 
       - name: Type check web-api
         continue-on-error: true
         run: |
           cd web-api
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
           mypy app/ --ignore-missing-imports || true
 
   docker-build:
