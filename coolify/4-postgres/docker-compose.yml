@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   ragfab-postgres:
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      dockerfile: coolify/4-postgres/Dockerfile
     container_name: ragfab-postgres
     environment:
       # Credentials PostgreSQL
@@ -17,8 +19,8 @@ services:
     volumes:
       # Persistance des données
       - postgres_data:/var/lib/postgresql/data
-      # Script d'initialisation automatique (exécuté UNIQUEMENT au premier démarrage)
-      - ./coolify/4-postgres/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # Note: Le script init-db.sql est COPIÉ dans l'image Docker au build
+      # Il n'est plus nécessaire de le monter ici
 
     restart: unless-stopped
 
