@@ -4,52 +4,70 @@ Ce guide explique comment déployer RAGFab en 4 services séparés sur Coolify p
 
 ---
 
-## 📋 Architecture
+## 📋 Architecture (Sécurisée)
 
 ```
+Internet (HTTPS)
+    ↓
 ┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│  1. ragfab-frontend (Nginx + React)                    │
-│     https://ragfab.yourdomain.com                       │
-│     Port: 80                                            │
-│                                                         │
+│  Caddy Reverse Proxy (coolify-proxy)                   │
+│  - Gestion SSL automatique (Let's Encrypt)             │
+│  - Routing des domaines                                 │
 └────────────────┬────────────────────────────────────────┘
                  │ HTTPS
                  ▼
 ┌─────────────────────────────────────────────────────────┐
-│                                                         │
-│  2. ragfab-backend (FastAPI)                           │
-│     https://api-ragfab.yourdomain.com                   │
-│     Port: 8000                                          │
-│                                                         │
+│  1. ragfab-frontend (Nginx + React) [PUBLIC]           │
+│     https://ragbot.lab-numihfrance.fr                   │
+│     Port interne: 80                                    │
+│     - Sert les fichiers React                           │
+│     - Proxy /api/* → ragfab-backend:8000                │
+└────────────────┬────────────────────────────────────────┘
+                 │ HTTP (réseau Docker privé)
+                 ▼
+┌─────────────────────────────────────────────────────────┐
+│  2. ragfab-backend (FastAPI) [PRIVÉ]                   │
+│     Accessible uniquement via réseau Docker             │
+│     Port: 8000 (non exposé publiquement)                │
+│     - API REST                                          │
+│     - Authentification JWT                              │
 └─────┬───────────────────────┬─────────────────────────┘
-      │ HTTPS                 │ PostgreSQL
+      │ HTTP (réseau privé)   │ PostgreSQL (réseau privé)
       ▼                       ▼
 ┌─────────────────┐   ┌─────────────────────────────────┐
-│                 │   │                                 │
 │  3. Embeddings  │   │  4. PostgreSQL + pgvector       │
-│  (FastAPI)      │   │     postgres-ragfab             │
-│  Port: 8001     │   │     Port: 5432 (privé)          │
-│                 │   │                                 │
+│  [PRIVÉ]        │   │     [PRIVÉ]                     │
+│  Port: 8001     │   │     Port: 5432                  │
+│  (non exposé)   │   │     (non exposé)                │
 └─────────────────┘   └─────────────────────────────────┘
+
+Tous les services communiquent via le réseau Docker "coolify"
+Seul le frontend est accessible publiquement
 ```
 
 ---
 
 ## 🔐 Prérequis
 
-- Serveur Coolify fonctionnel
-- 4 domaines ou sous-domaines configurés (ou utiliser le réseau privé Coolify)
+- Serveur Coolify fonctionnel **avec Caddy** (reverse proxy par défaut)
+- 1 domaine configuré pour le frontend: `ragbot.lab-numihfrance.fr`
 - Clé API Mistral (https://console.mistral.ai/)
+- Ports 80 et 443 ouverts sur le firewall
 
-### Domaines recommandés
+### Configuration Réseau
 
 ```
-ragfab.yourdomain.com          → Frontend
-api-ragfab.yourdomain.com      → Backend
-embeddings-ragfab.yourdomain.com → Embeddings
-postgres-ragfab.yourdomain.com → PostgreSQL (optionnel, préférer réseau privé)
+✅ ragbot.lab-numihfrance.fr → Frontend (SEUL service public avec SSL)
+❌ Backend → Privé (réseau Docker coolify uniquement)
+❌ Embeddings → Privé (réseau Docker coolify uniquement)
+❌ PostgreSQL → Privé (réseau Docker coolify uniquement)
 ```
+
+**Avantages de cette architecture:**
+- Surface d'attaque minimale (1 seul point d'entrée public)
+- Pas besoin de gérer plusieurs certificats SSL
+- Communications internes rapides (pas de chiffrement HTTPS inutile)
+- Authentification/autorisation centralisée dans le backend privé
 
 ---
 

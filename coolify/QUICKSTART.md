@@ -8,14 +8,18 @@ Guide condensé pour déployer RAGFab en 15 minutes.
 
 **Ce dont vous avez besoin:**
 
-1. Un serveur Coolify fonctionnel
-2. 4 sous-domaines configurés (ou utiliser le réseau privé Coolify):
-   - `ragfab.yourdomain.com` (frontend)
-   - `api-ragfab.yourdomain.com` (backend)
-   - `embeddings-ragfab.yourdomain.com` (embeddings - optionnel en public)
-   - `postgres-ragfab.yourdomain.com` (postgres - **NE PAS exposer publiquement**)
+1. Un serveur Coolify fonctionnel avec Caddy comme reverse proxy
+2. 1 domaine configuré pour le frontend:
+   - `ragbot.lab-numihfrance.fr` (frontend - seul service public)
+   - Backend, Embeddings et PostgreSQL restent privés sur réseau Docker
 
 3. Une clé API Mistral: https://console.mistral.ai/
+
+**Architecture:**
+- Frontend (Nginx) → Exposé publiquement via Caddy avec HTTPS
+- Backend (FastAPI) → Privé, accessible uniquement via frontend Nginx
+- Embeddings → Privé, accessible uniquement via backend
+- PostgreSQL → Privé, accessible uniquement via backend
 
 ---
 
@@ -103,13 +107,13 @@ MISTRAL_MODEL_NAME=mistral-small-latest
 
 **CORS:**
 ```bash
-CORS_ORIGINS=https://ragfab.yourdomain.com
+CORS_ORIGINS=https://ragbot.lab-numihfrance.fr
 ```
 
-**3.3 - Réseau**
-- Domaine: `api-ragfab.yourdomain.com`
-- Port: 8000
-- SSL: Activé
+**3.3 - Configuration Coolify**
+- ⚠️ **PAS de domaine public** (backend privé pour sécurité)
+- Réseau: `coolify` (réseau Docker partagé)
+- Le container DOIT avoir le nom: `ragfab-backend` (pour que Nginx le trouve)
 
 **3.4 - Déployer**
 
@@ -123,15 +127,23 @@ CORS_ORIGINS=https://ragfab.yourdomain.com
 
 **4.2 - Variables d'environnement**
 ```bash
-BACKEND_API_URL=https://api-ragfab.yourdomain.com
+# Note: Cette variable n'est plus utilisée, le frontend appelle /api/ en relatif
+# Nginx fait le proxy vers ragfab-backend:8000 automatiquement
+BACKEND_API_URL=https://ragbot.lab-numihfrance.fr
 ```
 
-**4.3 - Réseau**
-- Domaine: `ragfab.yourdomain.com`
-- Port: 80
-- SSL: Activé
+**4.3 - Configuration Coolify**
+- Domaine: `ragbot.lab-numihfrance.fr`
+- Port interne: 80 (Nginx)
+- SSL: Géré automatiquement par Caddy
+- Réseau: `coolify` (réseau Docker partagé)
 
 **4.4 - Déployer**
+
+**IMPORTANT:** Après déploiement, vérifiez dans l'interface Coolify:
+- Section "Domains" → Le domaine `ragbot.lab-numihfrance.fr` doit être configuré
+- "Enable HTTPS" doit être activé
+- Caddy génère automatiquement le certificat Let's Encrypt
 
 ---
 
@@ -140,23 +152,28 @@ BACKEND_API_URL=https://api-ragfab.yourdomain.com
 ### 1. Health Checks
 
 ```bash
-# Frontend
-curl https://ragfab.yourdomain.com/health
+# Frontend (public)
+curl https://ragbot.lab-numihfrance.fr/health
 # Attendu: "healthy"
 
-# Backend
-curl https://api-ragfab.yourdomain.com/health
+# Backend (via frontend proxy)
+curl https://ragbot.lab-numihfrance.fr/api/health
 # Attendu: {"status":"healthy"}
 
-# Embeddings (si public)
-curl https://embeddings-ragfab.yourdomain.com/health
-# Attendu: {"status":"ok"}
+# Backend (direct depuis le serveur, pas accessible depuis Internet)
+docker exec <backend-container-id> curl http://localhost:8000/health
+
+# Embeddings (privé, depuis le serveur uniquement)
+docker exec <embeddings-container-id> curl http://localhost:8001/health
+
+# PostgreSQL (privé)
+docker exec <postgres-container-id> pg_isready -U raguser -d ragdb
 ```
 
 ### 2. Test d'authentification
 
 ```bash
-curl -X POST https://api-ragfab.yourdomain.com/api/auth/login \
+curl -X POST https://ragbot.lab-numihfrance.fr/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
@@ -168,9 +185,9 @@ curl -X POST https://api-ragfab.yourdomain.com/api/auth/login \
 
 ### 3. Interface Web
 
-Ouvrir dans un navigateur: `https://ragfab.yourdomain.com`
+Ouvrir dans un navigateur: `https://ragbot.lab-numihfrance.fr`
 
-Vous devriez voir l'interface RAGFab.
+Vous devriez voir l'interface RAGFab avec certificat SSL valide.
 
 ---
 
