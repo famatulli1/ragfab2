@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    hashed_password TEXT NOT NULL,
     email VARCHAR(255),
     is_active BOOLEAN DEFAULT true,
     is_admin BOOLEAN DEFAULT true,
@@ -21,18 +21,20 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 -- Table des conversations
 CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(500) DEFAULT 'Nouvelle conversation',
     provider VARCHAR(50) NOT NULL DEFAULT 'mistral', -- mistral, chocolatine
     use_tools BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     message_count INTEGER DEFAULT 0,
-    is_archived BOOLEAN DEFAULT false
+    archived BOOLEAN DEFAULT false
 );
 
 -- Index pour tri par date
 CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
 
 -- Table des messages
 CREATE TABLE IF NOT EXISTS messages (
@@ -157,7 +159,7 @@ SELECT
 FROM conversations c
 LEFT JOIN messages m ON c.id = m.conversation_id
 LEFT JOIN message_ratings mr ON m.id = mr.message_id
-WHERE c.is_archived = false
+WHERE c.archived = false
 GROUP BY c.id, c.title, c.provider, c.use_tools, c.created_at, c.updated_at, c.message_count;
 
 -- Vue pour statistiques des documents (réutilise la table existante)
@@ -185,7 +187,7 @@ COMMENT ON VIEW document_stats IS 'Statistiques agrégées par document';
 
 -- Seed data : Créer un utilisateur admin par défaut
 -- Mot de passe: 'admin' (hash bcrypt)
-INSERT INTO users (username, password_hash, email, is_admin)
+INSERT INTO users (username, hashed_password, email, is_admin)
 VALUES (
     'admin',
     '$2b$12$1bs.lMmsO5iuv3.fP7oU3eNCspUfHUPeyOKUXx3mZKTdLu/vsYurq', -- 'admin'
