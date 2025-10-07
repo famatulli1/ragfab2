@@ -35,6 +35,16 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
     # Note: Pas de section ports - Coolify/Traefik gère le routing via le domaine
+
+    # Labels Traefik pour le routing HTTPS
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ragfab-backend.rule=Host(`api.ragbot.lab-numihfrance.fr`)"
+      - "traefik.http.routers.ragfab-backend.entrypoints=websecure"
+      - "traefik.http.routers.ragfab-backend.tls=true"
+      - "traefik.http.routers.ragfab-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ragfab-backend.loadbalancer.server.port=8000"
+
     volumes:
       # Persistance des fichiers uploadés
       - uploads:/app/uploads
