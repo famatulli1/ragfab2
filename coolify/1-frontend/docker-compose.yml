@@ -6,28 +6,36 @@ services:
       context: .
       dockerfile: coolify/1-frontend/Dockerfile
     container_name: ragfab-frontend
+    restart: unless-stopped
     environment:
       # URL du backend API (à configurer dans Coolify)
-      BACKEND_API_URL: ${BACKEND_API_URL:-https://api.ragfab.yourdomain.com}
+      BACKEND_API_URL: ${BACKEND_API_URL:-https://ragbot.lab-numihfrance.fr}
 
-    # Note: Pas de section ports - Coolify/Traefik gère le routing via le domaine
+    # Expose port 80 pour Traefik (ne pas utiliser ports:)
+    expose:
+      - "80"
 
-    # Note: Coolify gère automatiquement le routing HTTPS via Caddy
-    # Le domaine doit être configuré dans l'interface web de Coolify
-    # Pas besoin de labels ici
+    # Labels Traefik pour le routing HTTPS
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`${SERVICE_FQDN_FRONTEND:-ragbot.lab-numihfrance.fr}`)"
+      - "traefik.http.routers.ragfab-frontend.entryPoints=https"
+      - "traefik.http.routers.ragfab-frontend.tls=true"
+      - "traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt"
 
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:80"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
 
     networks:
+      - ragfab-network
       - coolify
 
 networks:
+  ragfab-network:
+    driver: bridge
   coolify:
     external: true
     name: coolify

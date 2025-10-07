@@ -41,6 +41,7 @@ services:
       start_period: 60s
 
     networks:
+      - ragfab-network
       - coolify
 
 volumes:
@@ -48,6 +49,8 @@ volumes:
     driver: local
 
 networks:
+  ragfab-network:
+    driver: bridge
   coolify:
     external: true
     name: coolify

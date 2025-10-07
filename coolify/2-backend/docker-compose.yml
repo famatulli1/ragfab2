@@ -34,8 +34,10 @@ services:
       # Logs
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-    # Note: Backend accessible uniquement via réseau Docker privé (plus sécurisé)
-    # Pas de labels Traefik = pas d'exposition publique
+    # Expose port 8000 pour communication interne (pas de ports publics)
+    expose:
+      - "8000"
+
     volumes:
       # Persistance des fichiers uploadés
       - uploads:/app/uploads
@@ -48,6 +50,7 @@ services:
       start_period: 20s
 
     networks:
+      - ragfab-network
       - coolify
 
 volumes:
@@ -55,6 +58,8 @@ volumes:
     driver: local
 
 networks:
+  ragfab-network:
+    driver: bridge
   coolify:
     external: true
     name: coolify
