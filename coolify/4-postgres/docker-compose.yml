@@ -5,6 +5,7 @@ services:
     build:
       context: ./coolify/4-postgres
       dockerfile: Dockerfile
+    container_name: ragfab-postgres
     environment:
       # Credentials PostgreSQL
       POSTGRES_USER: ${POSTGRES_USER:-raguser}

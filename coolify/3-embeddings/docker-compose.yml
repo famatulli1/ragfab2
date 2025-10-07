@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: coolify/3-embeddings/Dockerfile
+    container_name: ragfab-embeddings
     environment:
       # Modèle d'embeddings (ne pas changer sans recalculer tous les embeddings)
       MODEL_NAME: ${MODEL_NAME:-intfloat/multilingual-e5-large}
