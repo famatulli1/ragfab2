@@ -55,5 +55,5 @@ volumes:
 
 networks:
   ragfab-network:
-    external: true
+    driver: bridge
     name: ragfab-network
