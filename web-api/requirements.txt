@@ -14,11 +14,12 @@ httpx==0.28.1
 aiofiles==24.1.0
 reportlab==4.2.5
 markdown==3.7
-transformers==4.57.0
-tiktoken==0.8.0
 rich==13.9.4
-docling==2.15.0
 tqdm==4.67.1
+
+# Heavy ingestion packages (docling, transformers, tiktoken) NOT needed
+# Backend only does runtime operations: API, database queries, vector search
+# Ingestion is done locally via rag-app container
 
 # Testing dependencies moved to CI/CD environment (GitHub Actions)
 # Install locally with: pip install pytest pytest-asyncio pytest-cov pytest-mock
