@@ -16,9 +16,7 @@ services:
       # Logs
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-    ports:
-      - "8001:8001"
-
+    # Note: Pas de section ports - accessible uniquement via réseau Docker privé
     volumes:
       # Persistance du cache du modèle (évite re-téléchargement)
       - model_cache:/home/embeddings/.cache

@@ -13,11 +13,7 @@ services:
       # Configuration PostgreSQL (locale C.UTF-8 est disponible par défaut)
       POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:--E UTF8 --locale=C.UTF-8}
 
-    ports:
-      # ⚠️  IMPORTANT: Ne pas exposer publiquement en production
-      # Utiliser le réseau privé Coolify ou un VPN
-      - "${POSTGRES_PORT:-5432}:5432"
-
+    # Note: Pas de section ports - accessible uniquement via réseau Docker privé (plus sécurisé)
     volumes:
       # Persistance des données
       - postgres_data:/var/lib/postgresql/data
