@@ -115,7 +115,7 @@ async def authenticate_user(username: str, password: str) -> Optional[dict]:
         if not user:
             return None
 
-        if not verify_password(password, user["password_hash"]):
+        if not verify_password(password, user["hashed_password"]):
             return None
 
         # Mettre à jour last_login
