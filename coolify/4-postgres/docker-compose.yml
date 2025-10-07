@@ -10,8 +10,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass123}
       POSTGRES_DB: ${POSTGRES_DB:-ragdb}
 
-      # Configuration PostgreSQL
-      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:--E UTF8 --locale=fr_FR.UTF-8}
+      # Configuration PostgreSQL (locale C.UTF-8 est disponible par défaut)
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:--E UTF8 --locale=C.UTF-8}
 
     ports:
       # ⚠️  IMPORTANT: Ne pas exposer publiquement en production
