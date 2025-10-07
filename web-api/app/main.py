@@ -823,7 +823,7 @@ async def get_search_sources(query: str, limit: int = 5) -> List[dict]:
     """Récupère les sources structurées depuis la base de connaissances"""
     try:
         # Générer l'embedding via le service HTTP
-        embeddings_url = os.getenv("EMBEDDINGS_URL", "http://embeddings:8001")
+        embeddings_url = os.getenv("EMBEDDINGS_API_URL", "http://ragfab-embeddings:8001")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{embeddings_url}/embed",
@@ -880,7 +880,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
         # Générer l'embedding via le service
-        embeddings_url = os.getenv("EMBEDDINGS_URL", "http://embeddings:8001")
+        embeddings_url = os.getenv("EMBEDDINGS_API_URL", "http://ragfab-embeddings:8001")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{embeddings_url}/embed",
