@@ -18,7 +18,7 @@ services:
     # Labels Traefik pour le routing HTTPS
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.ragfab-frontend.rule=Host(`${SERVICE_FQDN_FRONTEND:-ragbot.lab-numihfrance.fr}`)"
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`ragbot.lab-numihfrance.fr`)"
       - "traefik.http.routers.ragfab-frontend.entryPoints=https"
       - "traefik.http.routers.ragfab-frontend.tls=true"
       - "traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt"
