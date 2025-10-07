@@ -31,12 +31,11 @@ WORKDIR /app
 # Copier les requirements du backend
 COPY web-api/requirements.txt ./web-api-requirements.txt
 
-# Copier les requirements de rag-app (pour importer les modules)
-COPY rag-app/requirements.txt ./rag-app-requirements.txt
-
 # Installer les dépendances Python
-RUN pip install --no-cache-dir -r web-api-requirements.txt && \
-    pip install --no-cache-dir -r rag-app-requirements.txt
+# Note: rag-app packages (docling, transformers, torch) not needed
+# Ingestion is done locally via docker-compose run rag-app
+# Backend only needs runtime dependencies for API and database access
+RUN pip install --no-cache-dir -r web-api-requirements.txt
 
 # Copier le code du backend
 COPY --chown=apiuser:apiuser web-api/ ./web-api/

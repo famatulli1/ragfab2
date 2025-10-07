@@ -20,8 +20,5 @@ rich==13.9.4
 docling==2.15.0
 tqdm==4.67.1
 
-# Testing dependencies
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-pytest-mock==3.12.0
+# Testing dependencies moved to CI/CD environment (GitHub Actions)
+# Install locally with: pip install pytest pytest-asyncio pytest-cov pytest-mock
