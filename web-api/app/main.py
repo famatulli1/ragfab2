@@ -904,9 +904,24 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
             agent = Agent(model, system_prompt=system_prompt, tools=[search_knowledge_base_tool])
             logger.info(f"✅ Agent Mistral créé avec {len(agent._function_tools)} tools")
         else:
-            # Mistral sans tools
+            # Mistral sans tools: faire recherche manuelle et injecter contexte (comme Chocolatine)
+            logger.info(f"🔍 Mistral sans tools: recherche manuelle activée")
+            search_results = await search_knowledge_base_tool(message, limit=5)
+            sources = _request_sources.get().copy()
+            logger.info(f"📚 {len(sources)} sources récupérées (recherche manuelle)")
+
+            system_prompt = f"""Tu es un assistant intelligent.
+
+CONTEXTE DE LA BASE DE CONNAISSANCES:
+{search_results}
+
+INSTRUCTIONS:
+- Utilise UNIQUEMENT les informations du contexte ci-dessus pour répondre
+- Si l'information n'est pas dans le contexte, dis-le clairement
+- Réponds en français de manière concise et précise"""
+
             model = get_mistral_model()
-            agent = Agent(model, system_prompt="Tu es un assistant qui répond en français.")
+            agent = Agent(model, system_prompt=system_prompt)
 
         # NE PAS passer l'historique complet à Mistral car il décide alors de ne pas appeler les tools
         # À la place, on injecte seulement un résumé du contexte dans le message actuel
@@ -928,7 +943,7 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
         # (le tool les a sauvegardées lors de son exécution)
         if provider == "mistral" and use_tools:
             sources = _request_sources.get().copy()
-            logger.info(f"📚 Sources récupérées du tool: {len(sources)} sources")
+            logger.info(f"📚 Sources récupérées du tool (function calling): {len(sources)} sources")
 
         return {
             "content": result.data,
