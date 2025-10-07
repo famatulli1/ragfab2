@@ -866,14 +866,33 @@ async def reformulate_question_with_context(
         return current_question
 
     # Détecter si la question contient des références contextuelles
-    contextual_keywords = ["celle", "celui", "ceux", "ça", "cela", "ce", "cette", "il", "elle", "ils", "elles", "le", "la", "les", "y", "en"]
-    has_reference = any(word in current_question.lower().split() for word in contextual_keywords)
+    # On se concentre sur les vrais pronoms de référence, pas les articles génériques
+    question_lower = current_question.lower()
+    words = question_lower.split()
+
+    # Références fortes qui indiquent presque toujours un contexte
+    strong_references = ["celle", "celui", "celles", "ceux", "celle-ci", "celui-ci"]
+
+    # Références moyennes qui dépendent du contexte
+    medium_references = ["ça", "cela", "ce", "cette", "ces"]
+
+    # Pronoms qui sont des références si en début de question
+    pronouns_at_start = ["il", "elle", "ils", "elles", "y", "en"]
+
+    has_strong_reference = any(ref in words for ref in strong_references)
+    has_medium_reference = any(ref in words for ref in medium_references)
+    has_pronoun_at_start = len(words) > 0 and words[0] in pronouns_at_start
+
+    # Questions typiques qui commencent par une référence
+    starts_with_reference = question_lower.startswith(("et celle", "et celui", "et ça", "et ce", "et cette"))
+
+    has_reference = has_strong_reference or starts_with_reference or (has_medium_reference and len(words) < 8) or has_pronoun_at_start
 
     if not has_reference:
-        logger.info(f"🔄 Pas de reformulation nécessaire (pas de référence détectée)")
+        logger.info(f"🔄 Pas de reformulation nécessaire (pas de référence contextuelle détectée)")
         return current_question
 
-    logger.info(f"🔄 Reformulation nécessaire (référence contextuelle détectée)")
+    logger.info(f"🔄 Reformulation nécessaire (référence contextuelle détectée: '{current_question}')")
 
     # Extraire les derniers échanges pertinents
     num_pairs = min(max_history_pairs, len(history) // 2)
