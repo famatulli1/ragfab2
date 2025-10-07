@@ -254,41 +254,21 @@ async def upload_document(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_admin_user)
 ):
-    """Upload et ingestion d'un document (traitement en arrière-plan)"""
+    """
+    Upload de documents désactivé en production.
 
-    # Vérifier la taille
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
-        )
+    L'ingestion nécessite des packages lourds (docling, transformers, torch ~3GB)
+    qui ne sont pas installés en production pour garder le backend léger.
 
-    # Sauvegarder le fichier
-    upload_path = os.path.join(settings.UPLOAD_DIR, file.filename)
-    with open(upload_path, "wb") as f:
-        f.write(content)
-
-    # Créer un job d'ingestion
-    async with database.db_pool.acquire() as conn:
-        job_id = await conn.fetchval(
-            """
-            INSERT INTO ingestion_jobs (filename, file_size, status)
-            VALUES ($1, $2, 'pending')
-            RETURNING id
-            """,
-            file.filename, len(content)
-        )
-
-    # Lancer l'ingestion en arrière-plan
-    background_tasks.add_task(process_ingestion, job_id, upload_path, file.filename)
-
-    return {
-        "job_id": str(job_id),
-        "filename": file.filename,
-        "status": "pending",
-        "message": "Upload successful, processing started"
-    }
+    Pour ingérer des documents:
+    1. En local: `docker-compose run --rm rag-app python -m ingestion.ingest`
+    2. Les chunks seront automatiquement dans PostgreSQL
+    3. Le backend Coolify les utilisera immédiatement (lecture seule)
+    """
+    raise HTTPException(
+        status_code=501,
+        detail="Document upload is disabled in production. Use 'docker-compose run rag-app' for ingestion."
+    )
 
 
 @app.get("/api/documents/jobs/{job_id}", response_model=IngestionJob)
@@ -732,130 +712,13 @@ async def export_conversation(
 # Helper Functions
 # ============================================================================
 
-async def process_ingestion(job_id: UUID, file_path: str, filename: str):
-    """Traite l'ingestion d'un document en arrière-plan en appelant directement le pipeline Python"""
-    try:
-        # Mettre à jour le statut
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE ingestion_jobs
-                SET status = 'processing', started_at = CURRENT_TIMESTAMP, progress = 10
-                WHERE id = $1
-                """,
-                job_id
-            )
-
-        logger.info(f"📤 Démarrage ingestion de {filename}")
-
-        # Progress 30%
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE ingestion_jobs SET progress = 30 WHERE id = $1",
-                job_id
-            )
-
-        # Créer un dossier temporaire pour ce fichier
-        upload_dir = settings.UPLOAD_DIR
-        doc_folder = os.path.join(upload_dir, f"job_{job_id}")
-        os.makedirs(doc_folder, exist_ok=True)
-
-        # Déplacer le fichier dans le dossier temporaire
-        doc_path = os.path.join(doc_folder, filename)
-        if os.path.exists(file_path) and file_path != doc_path:
-            import shutil
-            shutil.move(file_path, doc_path)
-
-        logger.info(f"📁 Fichier sauvegardé: {doc_path}")
-
-        # Progress 50%
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE ingestion_jobs SET progress = 50 WHERE id = $1",
-                job_id
-            )
-
-        # Importer et utiliser le pipeline d'ingestion directement
-        # Les modules rag-app sont montés dans /app/rag-app avec PYTHONPATH=/app
-        sys.path.insert(0, "/app/rag-app")
-        from ingestion.ingest import DocumentIngestionPipeline
-        from utils.models import IngestionConfig
-
-        # Configuration d'ingestion
-        config = IngestionConfig(
-            chunk_size=1000,
-            chunk_overlap=200,
-            max_chunk_size=2000,
-            use_semantic_chunking=True
-        )
-
-        # Créer et initialiser le pipeline
-        pipeline = DocumentIngestionPipeline(
-            config=config,
-            documents_folder=doc_folder,
-            clean_before_ingest=False  # Ne pas nettoyer la BD
-        )
-
-        await pipeline.initialize()
-
-        # Progress 60%
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE ingestion_jobs SET progress = 60 WHERE id = $1",
-                job_id
-            )
-
-        logger.info(f"🔄 Ingestion du document via pipeline...")
-
-        # Lancer l'ingestion
-        results = await pipeline.ingest_documents()
-
-        await pipeline.close()
-
-        # Progress 80%
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE ingestion_jobs SET progress = 80 WHERE id = $1",
-                job_id
-            )
-
-        # Compter les chunks créés
-        total_chunks = sum(r.chunks_created for r in results)
-
-        logger.info(f"✅ Ingestion terminée: {total_chunks} chunks créés")
-
-        # Marquer comme terminé
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE ingestion_jobs
-                SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
-                    progress = 100, chunks_created = $2
-                WHERE id = $1
-                """,
-                job_id, total_chunks
-            )
-
-        # Nettoyer le dossier temporaire
-        import shutil
-        if os.path.exists(doc_folder):
-            shutil.rmtree(doc_folder)
-
-        logger.info(f"✅ Job {job_id} terminé avec succès")
-
-    except Exception as e:
-        logger.error(f"❌ Erreur lors de l'ingestion: {e}", exc_info=True)
-
-        # Marquer comme échoué
-        async with database.db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE ingestion_jobs
-                SET status = 'failed', error_message = $2, completed_at = CURRENT_TIMESTAMP
-                WHERE id = $1
-                """,
-                job_id, str(e)
-            )
+# FONCTION DÉSACTIVÉE: Ingestion nécessite des packages lourds (docling, transformers, torch)
+# non installés en production pour garder le build léger (<1 min au lieu de 3+ min)
+# L'ingestion se fait uniquement en local via: docker-compose run --rm rag-app
+# Les chunks ingérés sont automatiquement disponibles sur Coolify (lecture depuis PostgreSQL)
+# async def process_ingestion(job_id: UUID, file_path: str, filename: str):
+#     """Traite l'ingestion d'un document en arrière-plan"""
+#     pass
 
 
 async def get_search_sources(query: str, limit: int = 5) -> List[dict]:
