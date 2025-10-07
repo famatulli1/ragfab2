@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  ragfab-frontend:
+    build:
+      context: ../../frontend
+      dockerfile: ../../coolify/1-frontend/Dockerfile
+    container_name: ragfab-frontend
+    environment:
+      # URL du backend API (à configurer dans Coolify)
+      BACKEND_API_URL: ${BACKEND_API_URL:-https://api.ragfab.yourdomain.com}
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Note: Pas de réseau custom car chaque service est indépendant dans Coolify
+# La communication se fait via HTTPS public ou réseau privé Coolify

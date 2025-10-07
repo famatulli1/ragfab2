@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  ragfab-postgres:
+    build:
+      context: ../..
+      dockerfile: coolify/4-postgres/Dockerfile
+    container_name: ragfab-postgres
+    environment:
+      # Credentials PostgreSQL
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass123}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+
+      # Configuration PostgreSQL
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:--E UTF8 --locale=fr_FR.UTF-8}
+
+    ports:
+      # ⚠️  IMPORTANT: Ne pas exposer publiquement en production
+      # Utiliser le réseau privé Coolify ou un VPN
+      - "${POSTGRES_PORT:-5432}:5432"
+
+    volumes:
+      # Persistance des données
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+    # Limites de ressources
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local
