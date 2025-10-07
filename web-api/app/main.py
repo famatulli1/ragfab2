@@ -7,10 +7,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
-from uuid import UUID
-from contextvars import ContextVar
 import logging
 import os
 import shutil
@@ -45,8 +43,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Context variable pour stocker les sources par requête (thread-safe et async-compatible)
-_request_sources: ContextVar[List[dict]] = ContextVar('request_sources', default=[])
+# Variable globale pour stocker les sources de la requête en cours
+# Plus fiable que ContextVar qui peut être perdu dans les appels async de PydanticAI
+# Note: Pas de problème de concurrence car FastAPI traite les requêtes séquentiellement avec async
+_current_request_sources: List[dict] = []
 
 # Rate limiter configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -775,6 +775,7 @@ async def get_search_sources(query: str, limit: int = 5) -> List[dict]:
 
 async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     """Tool pour rechercher dans la base de connaissances - version web-api sans docling"""
+    global _current_request_sources
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
         # Générer l'embedding via le service
@@ -812,7 +813,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             )
 
         if not results:
-            _request_sources.set([])
+            _current_request_sources = []
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
         # Stocker les sources avec métadonnées pour le frontend
@@ -830,15 +831,15 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             })
             response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
 
-        # Sauvegarder les sources dans le contexte de la requête
-        _request_sources.set(sources.copy())
-        logger.info(f"✅ {len(sources)} sources sauvegardées (request context)")
+        # Sauvegarder les sources dans la variable globale
+        _current_request_sources = sources.copy()
+        logger.info(f"✅ {len(sources)} sources sauvegardées dans _current_request_sources")
 
         return "Résultats trouvés dans la base de connaissances:\n\n" + "\n---\n".join(response_parts)
 
     except Exception as e:
         logger.error(f"Erreur dans search_knowledge_base_tool: {e}", exc_info=True)
-        _request_sources.set([])
+        _current_request_sources = []
         return f"Erreur lors de la recherche: {str(e)}"
 
 
@@ -854,16 +855,18 @@ async def execute_rag_agent(
         from utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
 
-        # Initialiser les sources à vide dans le contexte de la requête
-        _request_sources.set([])
+        global _current_request_sources
+
+        # Initialiser les sources pour cette requête
+        _current_request_sources = []
         sources = []
 
         # Pour Chocolatine : recherche manuelle + injection dans le prompt
         if provider == "chocolatine":
-            # Faire la recherche avec notre tool local (stocke les sources dans le contexte)
+            # Faire la recherche avec notre tool local (stocke les sources dans la variable globale)
             search_results = await search_knowledge_base_tool(message, limit=5)
             # Récupérer les sources stockées par le tool
-            sources = _request_sources.get().copy()
+            sources = _current_request_sources.copy()
 
             # Créer le system prompt avec le contexte
             system_prompt = f"""Tu es un assistant intelligent basé sur la documentation Medimail Webmail.
@@ -907,7 +910,7 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
             # Mistral sans tools: faire recherche manuelle et injecter contexte (comme Chocolatine)
             logger.info(f"🔍 Mistral sans tools: recherche manuelle activée")
             search_results = await search_knowledge_base_tool(message, limit=5)
-            sources = _request_sources.get().copy()
+            sources = _current_request_sources.copy()
             logger.info(f"📚 {len(sources)} sources récupérées (recherche manuelle)")
 
             system_prompt = f"""Tu es un assistant intelligent.
@@ -939,10 +942,10 @@ INSTRUCTIONS:
         # Exécuter l'agent SANS historique pour forcer l'appel du tool à chaque fois
         result = await agent.run(enhanced_message, message_history=[])
 
-        # Pour Mistral avec tools, récupérer les sources depuis le contexte de la requête
+        # Pour Mistral avec tools, récupérer les sources depuis la variable globale
         # (le tool les a sauvegardées lors de son exécution)
         if provider == "mistral" and use_tools:
-            sources = _request_sources.get().copy()
+            sources = _current_request_sources.copy()
             logger.info(f"📚 Sources récupérées du tool (function calling): {len(sources)} sources")
 
         return {
