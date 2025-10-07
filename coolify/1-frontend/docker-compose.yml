@@ -30,12 +30,9 @@ services:
       retries: 3
 
     networks:
-      - ragfab-network
       - coolify
 
 networks:
-  ragfab-network:
-    driver: bridge
   coolify:
     external: true
     name: coolify
