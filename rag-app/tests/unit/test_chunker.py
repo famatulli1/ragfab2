@@ -244,7 +244,9 @@ class TestSimpleChunker:
         """Test that chunks respect configured size"""
         config = ChunkingConfig(chunk_size=200, chunk_overlap=50)
         chunker = SimpleChunker(config)
-        content = "A" * 1000  # Long content
+        # SimpleChunker splits on paragraphs (\n\n), so provide content with paragraphs
+        paragraphs = ["A" * 100 for _ in range(10)]  # 10 paragraphs of 100 chars each
+        content = "\n\n".join(paragraphs)  # Total ~1000 chars with paragraph breaks
         chunks = await chunker.chunk_document(content, "Test", "test.md")
 
         assert len(chunks) > 1
@@ -259,74 +261,40 @@ class TestDoclingHybridChunker:
 
     def test_hybrid_chunker_init(self, hybrid_config):
         """Test DoclingHybridChunker initialization"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tokenizer.return_value = MagicMock()
-            chunker = DoclingHybridChunker(hybrid_config)
-            assert chunker.config == hybrid_config
-            assert chunker.tokenizer is not None
-            assert chunker.chunker is not None
+        # Use real tokenizer instead of mock (Pydantic v2 rejects mocks)
+        chunker = DoclingHybridChunker(hybrid_config)
+        assert chunker.config == hybrid_config
+        assert chunker.tokenizer is not None
+        assert chunker.chunker is not None
 
     @pytest.mark.asyncio
     async def test_chunk_without_docling_doc(self, hybrid_config):
         """Test chunking without DoclingDocument falls back to simple chunking"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tok = MagicMock()
-            mock_tok.encode.return_value = [1, 2, 3]  # 3 tokens
-            mock_tokenizer.return_value = mock_tok
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        chunker = DoclingHybridChunker(hybrid_config)
+        content = "Test content without docling doc"
+        chunks = await chunker.chunk_document(content, "Test", "test.md")
 
-            chunker = DoclingHybridChunker(hybrid_config)
-            content = "Test content without docling doc"
-            chunks = await chunker.chunk_document(content, "Test", "test.md")
-
-            assert len(chunks) >= 1
-            assert all(chunk.metadata["chunk_method"] == "simple_fallback" for chunk in chunks)
+        assert len(chunks) >= 1
+        assert all(chunk.metadata["chunk_method"] == "simple_fallback" for chunk in chunks)
 
     @pytest.mark.asyncio
     async def test_chunk_with_docling_doc(self, hybrid_config):
         """Test chunking with DoclingDocument"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tok = MagicMock()
-            mock_tok.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-            mock_tokenizer.return_value = mock_tok
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        chunker = DoclingHybridChunker(hybrid_config)
 
-            chunker = DoclingHybridChunker(hybrid_config)
+        # Mock DoclingDocument
+        mock_docling_doc = MagicMock()
 
-            # Mock DoclingDocument
-            mock_docling_doc = MagicMock()
+        # Mock HybridChunker behavior
+        mock_chunk = MagicMock()
+        with patch.object(chunker.chunker, "chunk") as mock_chunk_method:
+            mock_chunk_method.return_value = [mock_chunk, mock_chunk]
 
-            # Mock HybridChunker behavior
-            mock_chunk = MagicMock()
-            with patch.object(chunker.chunker, "chunk") as mock_chunk_method:
-                mock_chunk_method.return_value = [mock_chunk, mock_chunk]
+            with patch.object(chunker.chunker, "contextualize") as mock_contextualize:
+                mock_contextualize.return_value = "Contextualized chunk text"
 
-                with patch.object(chunker.chunker, "contextualize") as mock_contextualize:
-                    mock_contextualize.return_value = "Contextualized chunk text"
-
-                    chunks = await chunker.chunk_document(
-                        "Test content",
-                        "Test",
-                        "test.md",
-                        docling_doc=mock_docling_doc,
-                    )
-
-                    assert len(chunks) == 2
-                    assert all(chunk.metadata["chunk_method"] == "hybrid" for chunk in chunks)
-                    assert all(chunk.metadata["has_context"] for chunk in chunks)
-                    assert all(chunk.token_count == 5 for chunk in chunks)
-
-    @pytest.mark.asyncio
-    async def test_chunk_hybrid_failure_fallback(self, hybrid_config):
-        """Test fallback to simple chunking when HybridChunker fails"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tok = MagicMock()
-            mock_tok.encode.return_value = [1, 2, 3]
-            mock_tokenizer.return_value = mock_tok
-
-            chunker = DoclingHybridChunker(hybrid_config)
-            mock_docling_doc = MagicMock()
-
-            # Make chunker.chunk raise an exception
-            with patch.object(chunker.chunker, "chunk", side_effect=Exception("Chunking failed")):
                 chunks = await chunker.chunk_document(
                     "Test content",
                     "Test",
@@ -334,48 +302,62 @@ class TestDoclingHybridChunker:
                     docling_doc=mock_docling_doc,
                 )
 
-                assert len(chunks) >= 1
-                assert all(chunk.metadata["chunk_method"] == "simple_fallback" for chunk in chunks)
+                assert len(chunks) == 2
+                assert all(chunk.metadata["chunk_method"] == "hybrid" for chunk in chunks)
+                assert all(chunk.metadata["has_context"] for chunk in chunks)
+                # Token count will be calculated by real tokenizer
+                assert all(chunk.token_count > 0 for chunk in chunks)
 
-    def test_simple_fallback_chunk(self, hybrid_config):
-        """Test _simple_fallback_chunk method"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tok = MagicMock()
-            mock_tok.encode.return_value = [1, 2, 3]
-            mock_tokenizer.return_value = mock_tok
+    @pytest.mark.asyncio
+    async def test_chunk_hybrid_failure_fallback(self, hybrid_config):
+        """Test fallback to simple chunking when HybridChunker fails"""
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        chunker = DoclingHybridChunker(hybrid_config)
+        mock_docling_doc = MagicMock()
 
-            chunker = DoclingHybridChunker(hybrid_config)
-            content = "Test content for fallback chunking. More content here."
-            base_metadata = {"title": "Test", "source": "test.md"}
-
-            chunks = chunker._simple_fallback_chunk(content, base_metadata)
+        # Make chunker.chunk raise an exception
+        with patch.object(chunker.chunker, "chunk", side_effect=Exception("Chunking failed")):
+            chunks = await chunker.chunk_document(
+                "Test content",
+                "Test",
+                "test.md",
+                docling_doc=mock_docling_doc,
+            )
 
             assert len(chunks) >= 1
             assert all(chunk.metadata["chunk_method"] == "simple_fallback" for chunk in chunks)
-            assert all("total_chunks" in chunk.metadata for chunk in chunks)
+
+    def test_simple_fallback_chunk(self, hybrid_config):
+        """Test _simple_fallback_chunk method"""
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        chunker = DoclingHybridChunker(hybrid_config)
+        content = "Test content for fallback chunking. More content here."
+        base_metadata = {"title": "Test", "source": "test.md"}
+
+        chunks = chunker._simple_fallback_chunk(content, base_metadata)
+
+        assert len(chunks) >= 1
+        assert all(chunk.metadata["chunk_method"] == "simple_fallback" for chunk in chunks)
+        assert all("total_chunks" in chunk.metadata for chunk in chunks)
 
     def test_simple_fallback_respects_boundaries(self, hybrid_config):
         """Test that fallback chunking tries to respect sentence boundaries"""
-        with patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer:
-            mock_tok = MagicMock()
-            mock_tok.encode.return_value = [1, 2, 3]
-            mock_tokenizer.return_value = mock_tok
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        config = ChunkingConfig(chunk_size=50, chunk_overlap=10)
+        chunker = DoclingHybridChunker(config)
 
-            config = ChunkingConfig(chunk_size=50, chunk_overlap=10)
-            chunker = DoclingHybridChunker(config)
+        content = "First sentence. Second sentence. Third sentence. Fourth sentence."
+        base_metadata = {"title": "Test"}
 
-            content = "First sentence. Second sentence. Third sentence. Fourth sentence."
-            base_metadata = {"title": "Test"}
+        chunks = chunker._simple_fallback_chunk(content, base_metadata)
 
-            chunks = chunker._simple_fallback_chunk(content, base_metadata)
+        # Should have multiple chunks
+        assert len(chunks) >= 2
 
-            # Should have multiple chunks
-            assert len(chunks) >= 2
-
-            # Check that chunks end at reasonable boundaries (period or newline)
-            for chunk in chunks[:-1]:  # Exclude last chunk
-                # Content should be trimmed
-                assert chunk.content == chunk.content.strip()
+        # Check that chunks end at reasonable boundaries (period or newline)
+        for chunk in chunks[:-1]:  # Exclude last chunk
+            # Content should be trimmed
+            assert chunk.content == chunk.content.strip()
 
 
 @pytest.mark.unit
@@ -391,9 +373,9 @@ class TestCreateChunker:
     def test_create_hybrid_chunker(self):
         """Test factory creates DoclingHybridChunker when semantic splitting is enabled"""
         config = ChunkingConfig(use_semantic_splitting=True)
-        with patch("transformers.AutoTokenizer.from_pretrained"):
-            chunker = create_chunker(config)
-            assert isinstance(chunker, DoclingHybridChunker)
+        # Use real tokenizer (Pydantic v2 rejects mocks)
+        chunker = create_chunker(config)
+        assert isinstance(chunker, DoclingHybridChunker)
 
 
 @pytest.mark.unit

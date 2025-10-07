@@ -36,13 +36,16 @@ def sample_chunks():
     """Create sample document chunks for testing"""
     return [
         DocumentChunk(
-            id=f"chunk-{i}",
             content=f"Test content {i}",
-            source="test.md",
-            title="Test Doc",
-            chunk_index=i,
+            index=i,
+            start_char=i * 100,
+            end_char=(i + 1) * 100,
+            metadata={
+                "test": True,
+                "title": "Test Doc",
+                "source": "test.md"
+            },
             token_count=10,
-            metadata={"test": True},
         )
         for i in range(3)
     ]
