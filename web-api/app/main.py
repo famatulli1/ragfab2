@@ -439,7 +439,7 @@ async def get_conversation_messages(
 
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")  # Max 20 messages per minute
-async def send_message(req: Request, request: ChatRequest):
+async def send_message(request: Request, chat_request: ChatRequest):
     """
     Envoie un message et obtient une réponse du RAG agent
 
@@ -454,14 +454,14 @@ async def send_message(req: Request, request: ChatRequest):
     async with database.db_pool.acquire() as conn:
         conversation = await conn.fetchrow(
             "SELECT * FROM conversations WHERE id = $1",
-            request.conversation_id
+            chat_request.conversation_id
         )
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Déterminer le provider à utiliser
-    provider = request.provider or conversation["provider"]
-    use_tools = request.use_tools if request.use_tools is not None else conversation["use_tools"]
+    provider = chat_request.provider or conversation["provider"]
+    use_tools = chat_request.use_tools if chat_request.use_tools is not None else conversation["use_tools"]
 
     # Créer le message utilisateur
     async with database.db_pool.acquire() as conn:
@@ -471,7 +471,7 @@ async def send_message(req: Request, request: ChatRequest):
             VALUES ($1, 'user', $2)
             RETURNING *
             """,
-            request.conversation_id, request.message
+            chat_request.conversation_id, chat_request.message
         )
 
     # Récupérer l'historique (pour le context)
@@ -484,13 +484,13 @@ async def send_message(req: Request, request: ChatRequest):
             AND id != $2
             ORDER BY created_at
             """,
-            request.conversation_id, user_message["id"]
+            chat_request.conversation_id, user_message["id"]
         )
 
     # Exécuter le RAG agent
     try:
         assistant_response = await execute_rag_agent(
-            message=request.message,
+            message=chat_request.message,
             history=[{"role": msg["role"], "content": msg["content"]} for msg in history],
             provider=provider,
             use_tools=use_tools
@@ -517,7 +517,7 @@ async def send_message(req: Request, request: ChatRequest):
             VALUES ($1, 'assistant', $2, $3, $4, $5, $6)
             RETURNING *
             """,
-            request.conversation_id,
+            chat_request.conversation_id,
             assistant_response["content"],
             sources_json,
             provider,
