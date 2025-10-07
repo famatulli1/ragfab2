@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical, Check, X } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical } from 'lucide-react';
 import { useTheme } from '../App';
 import api from '../api/client';
 import type { Conversation, Message, Provider } from '../types';
