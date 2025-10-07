@@ -21,9 +21,8 @@ services:
     volumes:
       # Persistance des données
       - postgres_data:/var/lib/postgresql/data
-      # Schémas SQL d'initialisation (depuis la racine du repo)
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./database/02_web_schema.sql:/docker-entrypoint-initdb.d/02_web_schema.sql:ro
+      # Note: Les schémas SQL seront initialisés manuellement après le premier démarrage
+      # car Coolify ne peut pas monter des fichiers depuis le repo correctement
 
     restart: unless-stopped
 
