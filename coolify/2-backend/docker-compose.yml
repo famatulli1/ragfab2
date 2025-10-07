@@ -3,15 +3,15 @@ version: '3.8'
 services:
   ragfab-backend:
     build:
-      context: ../..
+      context: .
       dockerfile: coolify/2-backend/Dockerfile
     container_name: ragfab-backend
     environment:
       # Base de données PostgreSQL (URL HTTPS ou connexion directe)
-      DATABASE_URL: ${DATABASE_URL:-postgresql://raguser:ragpass123@postgres.ragfab.yourdomain.com:5432/ragdb}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://raguser:ragpass123@ragfab-postgres:5432/ragdb}
 
       # API Embeddings (URL HTTPS)
-      EMBEDDINGS_API_URL: ${EMBEDDINGS_API_URL:-https://embeddings.ragfab.yourdomain.com}
+      EMBEDDINGS_API_URL: ${EMBEDDINGS_API_URL:-http://ragfab-embeddings:8001}
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
 
       # JWT et authentification

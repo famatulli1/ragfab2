@@ -9,13 +9,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copier les fichiers de dépendances
-COPY package*.json ./
+COPY frontend/package*.json ./
 
 # Installer les dépendances
 RUN npm ci --production=false
 
 # Copier le code source
-COPY . .
+COPY frontend/ ./
 
 # Build l'application pour production
 RUN npm run build
@@ -32,7 +32,7 @@ RUN apk add --no-cache curl
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copier la configuration Nginx pour Coolify
-COPY nginx.coolify.conf /etc/nginx/conf.d/default.conf
+COPY coolify/1-frontend/nginx.coolify.conf /etc/nginx/conf.d/default.conf
 
 # Créer un utilisateur non-root pour nginx
 RUN addgroup -g 1000 nginx-user && \

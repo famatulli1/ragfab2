@@ -3,8 +3,8 @@ version: '3.8'
 services:
   ragfab-frontend:
     build:
-      context: ../../frontend
-      dockerfile: ../../coolify/1-frontend/Dockerfile
+      context: .
+      dockerfile: coolify/1-frontend/Dockerfile
     container_name: ragfab-frontend
     environment:
       # URL du backend API (à configurer dans Coolify)

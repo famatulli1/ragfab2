@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ragfab-embeddings:
     build:
-      context: ../..
+      context: .
       dockerfile: coolify/3-embeddings/Dockerfile
     container_name: ragfab-embeddings
     environment:

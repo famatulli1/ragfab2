@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   ragfab-postgres:
-    build:
-      context: ../..
-      dockerfile: coolify/4-postgres/Dockerfile
+    image: pgvector/pgvector:pg16
     container_name: ragfab-postgres
     environment:
       # Credentials PostgreSQL
@@ -23,6 +21,9 @@ services:
     volumes:
       # Persistance des données
       - postgres_data:/var/lib/postgresql/data
+      # Schémas SQL d'initialisation (depuis la racine du repo)
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/02_web_schema.sql:/docker-entrypoint-initdb.d/02_web_schema.sql:ro
 
     restart: unless-stopped
 
