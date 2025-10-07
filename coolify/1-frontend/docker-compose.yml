@@ -11,6 +11,16 @@ services:
       BACKEND_API_URL: ${BACKEND_API_URL:-https://api.ragfab.yourdomain.com}
 
     # Note: Pas de section ports - Coolify/Traefik gère le routing via le domaine
+
+    # Labels Traefik pour le routing HTTPS
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ragfab-frontend.rule=Host(`ragbot.lab-numihfrance.fr`)"
+      - "traefik.http.routers.ragfab-frontend.entrypoints=websecure"
+      - "traefik.http.routers.ragfab-frontend.tls=true"
+      - "traefik.http.routers.ragfab-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ragfab-frontend.loadbalancer.server.port=80"
+
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
