@@ -41,13 +41,13 @@ services:
       start_period: 60s
 
     networks:
-      - ragfab-network
+      - coolify
 
 volumes:
   model_cache:
     driver: local
 
 networks:
-  ragfab-network:
-    driver: bridge
-    name: ragfab-network
+  coolify:
+    external: true
+    name: coolify
