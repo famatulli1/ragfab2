@@ -15,7 +15,7 @@ import sys
 import io
 import json
 import httpx
-from contextvars import ContextVar
+from threading import Lock
 
 # Ajouter le path du rag-app pour importer les modules
 sys.path.insert(0, "/app/rag-app")
@@ -42,8 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Variable de contexte pour stocker les sources trouvées par le tool
-_tool_sources: ContextVar[List[dict]] = ContextVar('tool_sources', default=[])
+# Variable globale thread-safe pour stocker les sources trouvées par le tool
+_tool_sources: List[dict] = []
+_tool_sources_lock = Lock()
 
 # Créer l'application FastAPI avec limite d'upload augmentée
 app = FastAPI(
@@ -918,7 +919,9 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             )
 
         if not results:
-            _tool_sources.set([])
+            global _tool_sources
+            with _tool_sources_lock:
+                _tool_sources = []
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
         # Stocker les sources avec métadonnées pour le frontend
@@ -936,15 +939,17 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             })
             response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
 
-        # Sauvegarder les sources dans le contexte
-        _tool_sources.set(sources)
-        logger.info(f"✅ {len(sources)} sources sauvegardées dans le contexte")
+        # Sauvegarder les sources dans la variable globale
+        with _tool_sources_lock:
+            _tool_sources = sources.copy()
+        logger.info(f"✅ {len(sources)} sources sauvegardées (global)")
 
         return "Résultats trouvés dans la base de connaissances:\n\n" + "\n---\n".join(response_parts)
 
     except Exception as e:
         logger.error(f"Erreur dans search_knowledge_base_tool: {e}", exc_info=True)
-        _tool_sources.set([])
+        with _tool_sources_lock:
+            _tool_sources = []
         return f"Erreur lors de la recherche: {str(e)}"
 
 
@@ -961,7 +966,9 @@ async def execute_rag_agent(
         from pydantic_ai import Agent, RunContext
 
         # Initialiser les sources à vide
-        _tool_sources.set([])
+        global _tool_sources
+        with _tool_sources_lock:
+            _tool_sources = []
         sources = []
 
         # Pour Chocolatine : recherche manuelle + injection dans le prompt
@@ -969,7 +976,8 @@ async def execute_rag_agent(
             # Faire la recherche avec notre tool local (stocke les sources dans le contexte)
             search_results = await search_knowledge_base_tool(message, limit=5)
             # Récupérer les sources stockées par le tool
-            sources = _tool_sources.get()
+            with _tool_sources_lock:
+                sources = _tool_sources.copy()
 
             # Créer le system prompt avec le contexte
             system_prompt = f"""Tu es un assistant intelligent basé sur la documentation Medimail Webmail.
@@ -1030,10 +1038,11 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
         # Exécuter l'agent SANS historique pour forcer l'appel du tool à chaque fois
         result = await agent.run(enhanced_message, message_history=[])
 
-        # Pour Mistral avec tools, récupérer les sources depuis le contexte
+        # Pour Mistral avec tools, récupérer les sources depuis la variable globale
         # (le tool les a sauvegardées lors de son exécution)
         if provider == "mistral" and use_tools:
-            sources = _tool_sources.get()
+            with _tool_sources_lock:
+                sources = _tool_sources.copy()
             logger.info(f"📚 Sources récupérées du tool: {len(sources)} sources")
 
         return {
