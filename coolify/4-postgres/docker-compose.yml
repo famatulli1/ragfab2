@@ -38,6 +38,14 @@ services:
       timeout: 5s
       retries: 5
 
+    networks:
+      - ragfab-network
+
 volumes:
   postgres_data:
     driver: local
+
+networks:
+  ragfab-network:
+    external: true
+    name: ragfab-network

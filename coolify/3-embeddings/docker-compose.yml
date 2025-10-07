@@ -40,6 +40,14 @@ services:
       retries: 3
       start_period: 60s
 
+    networks:
+      - ragfab-network
+
 volumes:
   model_cache:
     driver: local
+
+networks:
+  ragfab-network:
+    external: true
+    name: ragfab-network

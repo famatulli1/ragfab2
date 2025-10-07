@@ -19,5 +19,10 @@ services:
       retries: 3
       start_period: 10s
 
-# Note: Pas de réseau custom car chaque service est indépendant dans Coolify
-# La communication se fait via HTTPS public ou réseau privé Coolify
+    networks:
+      - ragfab-network
+
+networks:
+  ragfab-network:
+    external: true
+    name: ragfab-network
