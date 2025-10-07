@@ -1,7 +1,9 @@
 """
 Routes d'authentification
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from datetime import timedelta
 import logging
 
@@ -12,10 +14,12 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+@limiter.limit("5/minute")  # Max 5 login attempts per minute
+async def login(request_obj: Request, request: LoginRequest):
     """
     Authentifie un utilisateur et retourne un token JWT
 

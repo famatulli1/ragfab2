@@ -1,12 +1,16 @@
 """
 Application principale FastAPI pour RAGFab Web Interface
 """
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
+from contextvars import ContextVar
 import logging
 import os
 import shutil
@@ -15,7 +19,6 @@ import sys
 import io
 import json
 import httpx
-from threading import Lock
 
 # Ajouter le path du rag-app pour importer les modules
 sys.path.insert(0, "/app/rag-app")
@@ -42,18 +45,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Variable globale thread-safe pour stocker les sources trouvées par le tool
-_tool_sources: List[dict] = []
-_tool_sources_lock = Lock()
+# Context variable pour stocker les sources par requête (thread-safe et async-compatible)
+_request_sources: ContextVar[List[dict]] = ContextVar('request_sources', default=[])
+
+# Rate limiter configuration
+limiter = Limiter(key_func=get_remote_address)
 
 # Créer l'application FastAPI avec limite d'upload augmentée
 app = FastAPI(
     title="RAGFab Web API",
-    description="API pour l'interface web de RAGFab - Chat et Administration",
+    description="""
+    ## API pour RAGFab - Système RAG Français Dual-Provider
+
+    ### Fonctionnalités
+    - 🔐 **Authentification JWT** avec rate limiting
+    - 💬 **Chat RAG** avec providers Mistral & Chocolatine
+    - 📄 **Gestion documentaire** avec ingestion multi-format
+    - 🔍 **Recherche vectorielle** avec PostgreSQL + PGVector
+    - 📊 **Administration** des conversations et documents
+
+    ### Rate Limits
+    - Login: 5 tentatives/minute
+    - Chat: 20 messages/minute
+    - Upload: 10 fichiers/heure
+    """,
     version="1.0.0",
-    # Augmenter la limite de taille de requête à 100 MB
+    docs_url="/api/docs",  # Swagger UI
+    redoc_url="/api/redoc",  # ReDoc alternative
+    contact={
+        "name": "RAGFab Support",
+        "url": "https://github.com/famatulli1/ragfab",
+    },
+    license_info={
+        "name": "MIT",
+    },
     swagger_ui_parameters={"defaultModelsExpandDepth": -1}
 )
+
+# Add rate limit state and handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configuration CORS
 app.add_middleware(
@@ -216,7 +247,9 @@ async def get_document_view(document_id: UUID):
 
 
 @app.post("/api/documents/upload")
+@limiter.limit("10/hour")  # Max 10 uploads per hour
 async def upload_document(
+    req: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_admin_user)
@@ -429,7 +462,8 @@ async def get_conversation_messages(
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def send_message(request: ChatRequest):
+@limiter.limit("20/minute")  # Max 20 messages per minute
+async def send_message(req: Request, request: ChatRequest):
     """
     Envoie un message et obtient une réponse du RAG agent
 
@@ -919,9 +953,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             )
 
         if not results:
-            global _tool_sources
-            with _tool_sources_lock:
-                _tool_sources = []
+            _request_sources.set([])
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
         # Stocker les sources avec métadonnées pour le frontend
@@ -939,17 +971,15 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             })
             response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
 
-        # Sauvegarder les sources dans la variable globale
-        with _tool_sources_lock:
-            _tool_sources = sources.copy()
-        logger.info(f"✅ {len(sources)} sources sauvegardées (global)")
+        # Sauvegarder les sources dans le contexte de la requête
+        _request_sources.set(sources.copy())
+        logger.info(f"✅ {len(sources)} sources sauvegardées (request context)")
 
         return "Résultats trouvés dans la base de connaissances:\n\n" + "\n---\n".join(response_parts)
 
     except Exception as e:
         logger.error(f"Erreur dans search_knowledge_base_tool: {e}", exc_info=True)
-        with _tool_sources_lock:
-            _tool_sources = []
+        _request_sources.set([])
         return f"Erreur lors de la recherche: {str(e)}"
 
 
@@ -965,10 +995,8 @@ async def execute_rag_agent(
         from utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
 
-        # Initialiser les sources à vide
-        global _tool_sources
-        with _tool_sources_lock:
-            _tool_sources = []
+        # Initialiser les sources à vide dans le contexte de la requête
+        _request_sources.set([])
         sources = []
 
         # Pour Chocolatine : recherche manuelle + injection dans le prompt
@@ -976,8 +1004,7 @@ async def execute_rag_agent(
             # Faire la recherche avec notre tool local (stocke les sources dans le contexte)
             search_results = await search_knowledge_base_tool(message, limit=5)
             # Récupérer les sources stockées par le tool
-            with _tool_sources_lock:
-                sources = _tool_sources.copy()
+            sources = _request_sources.get().copy()
 
             # Créer le system prompt avec le contexte
             system_prompt = f"""Tu es un assistant intelligent basé sur la documentation Medimail Webmail.
@@ -1038,11 +1065,10 @@ Réponds en français de manière concise en te basant UNIQUEMENT sur les résul
         # Exécuter l'agent SANS historique pour forcer l'appel du tool à chaque fois
         result = await agent.run(enhanced_message, message_history=[])
 
-        # Pour Mistral avec tools, récupérer les sources depuis la variable globale
+        # Pour Mistral avec tools, récupérer les sources depuis le contexte de la requête
         # (le tool les a sauvegardées lors de son exécution)
         if provider == "mistral" and use_tools:
-            with _tool_sources_lock:
-                sources = _tool_sources.copy()
+            sources = _request_sources.get().copy()
             logger.info(f"📚 Sources récupérées du tool: {len(sources)} sources")
 
         return {
