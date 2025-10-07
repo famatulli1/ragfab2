@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical, Check, X } from 'lucide-react';
 import { useTheme } from '../App';
 import api from '../api/client';
 import type { Conversation, Message, Provider } from '../types';
@@ -18,6 +18,9 @@ export default function ChatPage() {
   const [provider, setProvider] = useState<Provider>('mistral');
   const [useTools, setUseTools] = useState(true);
   const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkId: string } | null>(null);
+  const [editingConversation, setEditingConversation] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Charger les conversations
@@ -36,6 +39,15 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Fermer le menu contextuel quand on clique ailleurs
+  useEffect(() => {
+    const handleClickOutside = () => setMenuOpen(null);
+    if (menuOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   const loadConversations = async () => {
     try {
@@ -144,6 +156,52 @@ export default function ChatPage() {
     }
   };
 
+  const handleRenameConversation = async (id: string, newTitle: string) => {
+    if (!newTitle.trim()) {
+      setEditingConversation(null);
+      return;
+    }
+
+    try {
+      const updated = await api.updateConversation(id, { title: newTitle });
+      setConversations(convs =>
+        convs.map(c => c.id === id ? { ...c, title: updated.title } : c)
+      );
+      if (currentConversation?.id === id) {
+        setCurrentConversation({ ...currentConversation, title: updated.title });
+      }
+      setEditingConversation(null);
+    } catch (error) {
+      console.error('Error renaming conversation:', error);
+      alert('Erreur lors du renommage');
+    }
+  };
+
+  const handleDeleteConversation = async (id: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette conversation ?')) {
+      return;
+    }
+
+    try {
+      await api.deleteConversation(id);
+      setConversations(convs => convs.filter(c => c.id !== id));
+
+      // Si c'est la conversation active, sélectionner une autre ou créer une nouvelle
+      if (currentConversation?.id === id) {
+        const remaining = conversations.filter(c => c.id !== id);
+        if (remaining.length > 0) {
+          setCurrentConversation(remaining[0]);
+        } else {
+          await createNewConversation();
+        }
+      }
+      setMenuOpen(null);
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      alert('Erreur lors de la suppression');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
@@ -164,20 +222,87 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
           {conversations.map(conv => (
-            <button
+            <div
               key={conv.id}
-              onClick={() => setCurrentConversation(conv)}
-              className={`w-full text-left px-3 py-2 rounded-lg mb-1 transition-colors ${
+              className={`relative group rounded-lg mb-1 transition-colors ${
                 currentConversation?.id === conv.id
                   ? 'bg-gray-700'
                   : 'hover:bg-gray-800'
               }`}
             >
-              <div className="text-sm font-medium truncate">{conv.title}</div>
-              <div className="text-xs text-gray-400">
-                {conv.message_count} messages
-              </div>
-            </button>
+              <button
+                onClick={() => setCurrentConversation(conv)}
+                className="w-full text-left px-3 py-2"
+              >
+                {editingConversation === conv.id ? (
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onBlur={() => handleRenameConversation(conv.id, editTitle)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleRenameConversation(conv.id, editTitle);
+                      } else if (e.key === 'Escape') {
+                        setEditingConversation(null);
+                      }
+                    }}
+                    autoFocus
+                    className="w-full bg-gray-600 text-sm font-medium px-2 py-1 rounded border border-gray-500 focus:outline-none focus:border-blue-500"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <div className="text-sm font-medium truncate pr-8">{conv.title}</div>
+                    <div className="text-xs text-gray-400">
+                      {conv.message_count} messages
+                    </div>
+                  </>
+                )}
+              </button>
+
+              {/* Menu contextuel */}
+              {editingConversation !== conv.id && (
+                <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen(menuOpen === conv.id ? null : conv.id);
+                    }}
+                    className="p-1 hover:bg-gray-600 rounded"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+
+                  {menuOpen === conv.id && (
+                    <div className="absolute right-0 top-8 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 z-10 w-40">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditTitle(conv.title);
+                          setEditingConversation(conv.id);
+                          setMenuOpen(null);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2 text-sm"
+                      >
+                        <Edit2 size={14} />
+                        Renommer
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteConversation(conv.id);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2 text-sm text-red-400"
+                      >
+                        <Trash2 size={14} />
+                        Supprimer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
