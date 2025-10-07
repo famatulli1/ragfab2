@@ -300,7 +300,7 @@ async def list_conversations(
     async with database.db_pool.acquire() as conn:
         query = """
             SELECT * FROM conversation_stats
-            WHERE ($3 = true OR is_archived = false)
+            WHERE ($3 = true OR archived = false)
             ORDER BY updated_at DESC
             LIMIT $1 OFFSET $2
         """
@@ -352,7 +352,7 @@ async def update_conversation(
         param_count += 1
 
     if request.is_archived is not None:
-        updates.append(f"is_archived = ${param_count}")
+        updates.append(f"archived = ${param_count}")
         values.append(request.is_archived)
         param_count += 1
 

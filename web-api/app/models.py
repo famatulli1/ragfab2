@@ -110,7 +110,7 @@ class Conversation(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
-    is_archived: bool = False
+    archived: bool = False
 
 
 class ConversationWithStats(Conversation):
