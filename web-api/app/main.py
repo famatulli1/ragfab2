@@ -844,6 +844,108 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
         return f"Erreur lors de la recherche: {str(e)}"
 
 
+async def reformulate_question_with_context(
+    current_question: str,
+    history: List[dict],
+    max_history_pairs: int = 2
+) -> str:
+    """
+    Reformule une question en intégrant le contexte conversationnel nécessaire.
+
+    Args:
+        current_question: Question actuelle posée par l'utilisateur
+        history: Historique de la conversation (messages alternés user/assistant)
+        max_history_pairs: Nombre maximum de paires question/réponse à considérer
+
+    Returns:
+        Question reformulée de manière autonome et compréhensible sans contexte
+    """
+    # Si pas d'historique ou question déjà complète, retourner telle quelle
+    if not history or len(history) < 2:
+        logger.info(f"🔄 Pas de reformulation nécessaire (historique vide)")
+        return current_question
+
+    # Détecter si la question contient des références contextuelles
+    contextual_keywords = ["celle", "celui", "ceux", "ça", "cela", "ce", "cette", "il", "elle", "ils", "elles", "le", "la", "les", "y", "en"]
+    has_reference = any(word in current_question.lower().split() for word in contextual_keywords)
+
+    if not has_reference:
+        logger.info(f"🔄 Pas de reformulation nécessaire (pas de référence détectée)")
+        return current_question
+
+    logger.info(f"🔄 Reformulation nécessaire (référence contextuelle détectée)")
+
+    # Extraire les derniers échanges pertinents
+    num_pairs = min(max_history_pairs, len(history) // 2)
+    recent_history = history[-(num_pairs * 2):]
+
+    # Construire le contexte pour la reformulation
+    context_lines = []
+    for i in range(0, len(recent_history), 2):
+        if i + 1 < len(recent_history):
+            user_msg = recent_history[i]["content"][:300]
+            assistant_msg = recent_history[i + 1]["content"][:300]
+            context_lines.append(f"Question précédente: {user_msg}")
+            context_lines.append(f"Réponse: {assistant_msg}")
+
+    context_str = "\n".join(context_lines)
+
+    # Prompt de reformulation
+    reformulation_prompt = f"""Tu es un assistant qui reformule des questions pour les rendre autonomes.
+
+CONTEXTE DE LA CONVERSATION:
+{context_str}
+
+NOUVELLE QUESTION (contient des références au contexte):
+{current_question}
+
+TÂCHE:
+Reformule la nouvelle question pour qu'elle soit complète et compréhensible SANS le contexte ci-dessus.
+Remplace les références (celle, celui, ça, ce, etc.) par les termes explicites du contexte.
+
+RÈGLES:
+- Réponds UNIQUEMENT avec la question reformulée
+- Pas d'explications, pas de préambule
+- Garde le même sens et la même intention
+- Reste concis
+
+Question reformulée:"""
+
+    try:
+        # Appel API Mistral direct pour la reformulation
+        from utils.mistral_provider import get_mistral_model
+
+        model = get_mistral_model()
+        api_url = model.api_url.rstrip('/')
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{api_url}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {model.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model.model_name,
+                    "messages": [{"role": "user", "content": reformulation_prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 200
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            reformulated = result["choices"][0]["message"]["content"].strip()
+            logger.info(f"✅ Question reformulée: '{current_question}' → '{reformulated}'")
+
+            return reformulated
+
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur lors de la reformulation: {e}")
+        logger.info(f"🔄 Fallback: utilisation de la question originale")
+        return current_question
+
+
 async def execute_rag_agent(
     message: str,
     history: List[dict],
@@ -927,12 +1029,15 @@ INSTRUCTIONS:
             model = get_mistral_model()
             agent = Agent(model, system_prompt=system_prompt)
 
-        # Pour Mistral avec tools: NE JAMAIS passer de contexte ou d'historique
-        # Sinon il pense pouvoir répondre sans chercher dans la base de connaissances
+        # Pour Mistral avec tools: reformuler la question avec le contexte conversationnel
+        # puis envoyer SANS historique pour forcer l'appel du tool
         if provider == "mistral" and use_tools:
-            # Uniquement le message brut, sans contexte
-            logger.info(f"🎯 Mistral avec tools: message brut sans contexte pour forcer l'appel du tool")
-            result = await agent.run(message, message_history=[])
+            # Reformuler la question pour intégrer les références contextuelles
+            reformulated_message = await reformulate_question_with_context(message, history)
+
+            # Envoyer la question reformulée SANS historique pour forcer l'appel du tool
+            logger.info(f"🎯 Mistral avec tools: question reformulée envoyée sans historique")
+            result = await agent.run(reformulated_message, message_history=[])
         else:
             # Pour Chocolatine et Mistral sans tools: on peut injecter un résumé du contexte
             if history and len(history) > 0:
