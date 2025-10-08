@@ -10,3 +10,4 @@ docling>=2.55.0
 sentence-transformers>=3.3.0
 transformers>=4.47.0
 torch>=2.5.0
+PyMuPDF==1.25.1  # For extracting images from PDFs
