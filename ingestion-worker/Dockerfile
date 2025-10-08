@@ -9,19 +9,18 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy worker requirements
-COPY requirements.txt .
+# Copy worker requirements and code
+COPY ingestion-worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy rag-app code (needed for ingestion imports)
+COPY rag-app /app/rag-app
+
 # Copy worker code
-COPY worker.py .
+COPY ingestion-worker/worker.py .
 
 # Create uploads directory
 RUN mkdir -p /app/uploads
-
-# The rag-app directory will be mounted as a volume
-# so we can import ingestion modules
-VOLUME ["/app/rag-app"]
 
 # Run worker
 CMD ["python", "-u", "worker.py"]
