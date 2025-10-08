@@ -3,8 +3,8 @@ version: '3.8'
 services:
   ragfab-backend:
     build:
-      context: .
-      dockerfile: coolify/2-backend/Dockerfile
+      context: ./web-api
+      dockerfile: Dockerfile
     container_name: ragfab-backend
     environment:
       # Python path
