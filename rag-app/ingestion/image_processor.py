@@ -17,6 +17,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from PIL import Image
 import httpx
+import fitz  # PyMuPDF
 
 from docling_core.types.doc import DoclingDocument, PictureItem
 from dotenv import load_dotenv
@@ -180,7 +181,8 @@ class ImageProcessor:
     async def extract_images_from_document(
         self,
         docling_doc: DoclingDocument,
-        job_id: str
+        job_id: str,
+        pdf_path: Optional[str] = None
     ) -> List[ImageMetadata]:
         """
         Extract all images from a DoclingDocument.
@@ -188,6 +190,7 @@ class ImageProcessor:
         Args:
             docling_doc: Parsed document from Docling
             job_id: Unique job identifier for organizing images
+            pdf_path: Optional path to original PDF for image extraction
 
         Returns:
             List of ImageMetadata objects
@@ -233,7 +236,8 @@ class ImageProcessor:
                     picture_item=item,
                     page_number=page_num,
                     job_dir=job_dir,
-                    image_index=image_count
+                    image_index=image_count,
+                    pdf_path=pdf_path
                 )
 
                 if image_metadata:
@@ -247,12 +251,69 @@ class ImageProcessor:
         logger.info(f"Extracted {len(extracted_images)} images from document (job: {job_id})")
         return extracted_images
 
+    def _extract_image_from_pdf(
+        self,
+        pdf_path: str,
+        page_number: int,
+        picture_item: PictureItem
+    ) -> Optional[Image.Image]:
+        """
+        Extract image from PDF using PyMuPDF at the coordinates specified by PictureItem.
+
+        Args:
+            pdf_path: Path to the PDF file
+            page_number: Page number (1-indexed)
+            picture_item: PictureItem with bbox coordinates
+
+        Returns:
+            PIL Image or None if extraction failed
+        """
+        try:
+            # Open PDF
+            doc = fitz.open(pdf_path)
+
+            # Get page (PyMuPDF uses 0-indexed pages)
+            page = doc[page_number - 1]
+
+            # Get bbox from PictureItem provenance
+            if not picture_item.prov or not picture_item.prov[0].bbox:
+                logger.warning(f"No bbox in PictureItem for page {page_number}")
+                return None
+
+            bbox = picture_item.prov[0].bbox
+
+            # Convert Docling bbox (BOTTOMLEFT origin) to PyMuPDF rect (TOPLEFT origin)
+            # Docling: (l, t, r, b) from bottom-left
+            # PyMuPDF: (x0, y0, x1, y1) from top-left
+            page_height = page.rect.height
+            rect = fitz.Rect(
+                bbox.l,
+                page_height - bbox.t,  # Convert from bottom-left to top-left
+                bbox.r,
+                page_height - bbox.b
+            )
+
+            # Extract image as pixmap
+            pix = page.get_pixmap(clip=rect, dpi=150)
+
+            # Convert pixmap to PIL Image
+            img_data = pix.tobytes("png")
+            pil_image = Image.open(io.BytesIO(img_data))
+
+            doc.close()
+            return pil_image
+
+        except Exception as e:
+            logger.error(f"Failed to extract image from PDF page {page_number}: {e}")
+            return None
+
     async def _process_image(
         self,
         picture_item: PictureItem,
         page_number: int,
         job_dir: Path,
-        image_index: int
+        image_index: int,
+        pdf_path: Optional[str] = None
     ) -> Optional[ImageMetadata]:
         """
         Process a single image: save, encode, analyze.
@@ -262,6 +323,7 @@ class ImageProcessor:
             page_number: Page number in document
             job_dir: Directory for this job's images
             image_index: Index of this image
+            pdf_path: Optional path to PDF for extracting images
 
         Returns:
             ImageMetadata or None if processing failed
@@ -271,19 +333,25 @@ class ImageProcessor:
         image_path = job_dir / image_filename
 
         # Extract image data from PictureItem
-        # Docling PictureItem has .data attribute with image bytes or PIL Image
+        pil_image = None
+
         try:
+            # Try Docling's embedded image data first
             if hasattr(picture_item, 'data') and picture_item.data:
-                # If data is bytes, convert to PIL Image
                 if isinstance(picture_item.data, bytes):
                     pil_image = Image.open(io.BytesIO(picture_item.data))
                 else:
                     pil_image = picture_item.data
-            elif hasattr(picture_item, 'image'):
+            elif hasattr(picture_item, 'image') and picture_item.image:
                 pil_image = picture_item.image
-            else:
-                logger.warning(f"No image data in PictureItem (page {page_number}, index {image_index})")
-                return None
+
+            # If no embedded data, extract from PDF using bbox coordinates
+            if not pil_image and pdf_path and os.path.exists(pdf_path):
+                pil_image = self._extract_image_from_pdf(
+                    pdf_path=pdf_path,
+                    page_number=page_number,
+                    picture_item=picture_item
+                )
 
             if not pil_image:
                 logger.warning(f"Failed to load image (page {page_number}, index {image_index})")

@@ -11,6 +11,7 @@ transformers==4.57.0
 tiktoken==0.8.0
 docling==2.15.0
 # docling-core will be installed automatically with correct version
+PyMuPDF==1.25.1  # For extracting images from PDFs
 
 # Additional utilities
 tqdm==4.67.1

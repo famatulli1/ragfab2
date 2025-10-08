@@ -213,7 +213,8 @@ class DocumentIngestionPipeline:
                 job_id = f"doc_{document_title.replace(' ', '_')[:50]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 images = await self.image_processor.extract_images_from_document(
                     docling_doc=docling_doc,
-                    job_id=job_id
+                    job_id=job_id,
+                    pdf_path=file_path
                 )
                 logger.info(f"Extracted {len(images)} images from document")
             except Exception as e:

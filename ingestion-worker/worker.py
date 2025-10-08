@@ -299,7 +299,8 @@ class IngestionWorker:
                     logger.info("📷 Extracting images from document...")
                     images = await self.pipeline.image_processor.extract_images_from_document(
                         docling_doc=docling_doc,
-                        job_id=job_id
+                        job_id=job_id,
+                        pdf_path=str(file_path)
                     )
                     if images:
                         logger.info(f"✅ Extracted {len(images)} images from document")
