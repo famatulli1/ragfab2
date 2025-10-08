@@ -54,6 +54,7 @@ MISTRAL_MODEL_NAME = os.getenv("MISTRAL_MODEL_NAME", "mistral-small-latest")
 # Note: Pas de problème de concurrence car FastAPI traite les requêtes séquentiellement avec async
 _current_request_sources: List[dict] = []
 _current_conversation_id: Optional[UUID] = None
+_current_reranking_enabled: Optional[bool] = None
 
 # Rate limiter configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -485,6 +486,7 @@ async def send_message(request: Request, chat_request: ChatRequest):
     # Déterminer le provider à utiliser
     provider = chat_request.provider or conversation["provider"]
     use_tools = chat_request.use_tools if chat_request.use_tools is not None else conversation["use_tools"]
+    reranking_enabled = chat_request.reranking_enabled if chat_request.reranking_enabled is not None else conversation.get("reranking_enabled")
 
     # Créer le message utilisateur
     async with database.db_pool.acquire() as conn:
@@ -517,7 +519,8 @@ async def send_message(request: Request, chat_request: ChatRequest):
             history=[{"role": msg["role"], "content": msg["content"]} for msg in history],
             provider=provider,
             use_tools=use_tools,
-            conversation_id=chat_request.conversation_id
+            conversation_id=chat_request.conversation_id,
+            reranking_enabled=reranking_enabled
         )
     except Exception as e:
         logger.error(f"Erreur RAG agent: {e}", exc_info=True)
@@ -864,14 +867,18 @@ async def rerank_results(query: str, results: List[dict]) -> List[dict]:
 
 async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     """Tool pour rechercher dans la base de connaissances - version web-api sans docling"""
-    global _current_request_sources, _current_conversation_id
+    global _current_request_sources, _current_conversation_id, _current_reranking_enabled
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
-        # Déterminer si le reranking est activé (priorité: conversation > env var)
+        # Déterminer si le reranking est activé (priorité: request > conversation > env var)
         reranker_enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
 
-        # Si conversation_id fourni via variable globale, vérifier la préférence de la conversation
-        if _current_conversation_id:
+        # Priorité 1: Valeur passée explicitement dans la requête via variable globale
+        if _current_reranking_enabled is not None:
+            reranker_enabled = _current_reranking_enabled
+            logger.info(f"🎚️ Préférence requête: reranking={reranker_enabled}")
+        # Priorité 2: Préférence de la conversation
+        elif _current_conversation_id:
             async with database.db_pool.acquire() as conn:
                 conv = await conn.fetchrow(
                     "SELECT reranking_enabled FROM conversations WHERE id = $1",
@@ -885,6 +892,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     # NULL ou conversation non trouvée: utiliser la variable d'environnement
                     logger.info(f"🌐 Préférence globale (env): reranking={reranker_enabled}")
         else:
+            # Priorité 3: Variable d'environnement
             logger.info(f"🌐 Préférence globale (env): reranking={reranker_enabled}")
 
         # Ajuster la limite de recherche selon le mode
@@ -1106,18 +1114,20 @@ async def execute_rag_agent(
     history: List[dict],
     provider: str,
     use_tools: bool,
-    conversation_id: Optional[UUID] = None
+    conversation_id: Optional[UUID] = None,
+    reranking_enabled: Optional[bool] = None
 ) -> dict:
     """Exécute le RAG agent et retourne la réponse"""
     try:
         from pydantic_ai import Agent, RunContext
         from pydantic_ai.models.mistral import MistralModel
 
-        global _current_request_sources, _current_conversation_id
+        global _current_request_sources, _current_conversation_id, _current_reranking_enabled
 
         # Initialiser le contexte pour cette requête
         _current_request_sources = []
         _current_conversation_id = conversation_id
+        _current_reranking_enabled = reranking_enabled
         sources = []
 
         # Pour Chocolatine : pas supporté pour l'instant, fallback sur Mistral
