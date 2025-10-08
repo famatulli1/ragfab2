@@ -203,9 +203,33 @@ class ImageProcessor:
         extracted_images = []
         image_count = 0
 
+        # Verify that pages is iterable and contains page objects
+        if not hasattr(docling_doc, 'pages'):
+            logger.error(f"DoclingDocument has no 'pages' attribute. Type: {type(docling_doc)}")
+            return []
+
+        # Check if pages is actually iterable (not just an int)
+        pages = docling_doc.pages
+        if isinstance(pages, int):
+            logger.error(f"docling_doc.pages is an int ({pages}), not a list of pages!")
+            return []
+
+        try:
+            pages_list = list(pages) if hasattr(pages, '__iter__') else []
+        except Exception as e:
+            logger.error(f"Could not iterate docling_doc.pages: {e}")
+            return []
+
+        logger.info(f"Found {len(pages_list)} pages to scan for images")
+
         # Iterate through document pages
-        for page_num, page in enumerate(docling_doc.pages, start=1):
+        for page_num, page in enumerate(pages_list, start=1):
             logger.debug(f"Scanning page {page_num} for images...")
+
+            # Verify page has assembled attribute
+            if not hasattr(page, 'assembled') or not hasattr(page.assembled, 'elements'):
+                logger.warning(f"Page {page_num} has no assembled.elements attribute, skipping")
+                continue
 
             # Find all PictureItem elements in the page
             for item in page.assembled.elements:
