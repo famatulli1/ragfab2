@@ -292,6 +292,26 @@ class IngestionWorker:
             # Update progress: 80% (embeddings generated)
             await self.update_job_progress(job_id, 80)
 
+            # Extract images if VLM is enabled and docling_doc exists
+            images = []
+            if docling_doc and self.pipeline.image_processor:
+                try:
+                    logger.info("📷 Extracting images from document...")
+                    images = await self.pipeline.image_processor.extract_images_from_document(
+                        docling_doc=docling_doc,
+                        job_id=job_id
+                    )
+                    if images:
+                        logger.info(f"✅ Extracted {len(images)} images from document")
+                    else:
+                        logger.info("No images found in document")
+                except Exception as e:
+                    logger.warning(f"⚠️ Image extraction failed: {e}")
+                    images = []
+
+            # Update progress: 85% (images extracted)
+            await self.update_job_progress(job_id, 85)
+
             # Save to PostgreSQL
             logger.info("Saving to database...")
             document_id = await self.pipeline._save_to_postgres(
@@ -299,7 +319,8 @@ class IngestionWorker:
                 document_source,
                 document_content,
                 embedded_chunks,
-                document_metadata
+                document_metadata,
+                images
             )
 
             logger.info(f"Saved document with ID: {document_id}")
