@@ -325,7 +325,6 @@ export default function ChatPage() {
             </h1>
             {currentConversation && (
               <RerankingToggle
-                conversationId={currentConversation.id}
                 initialValue={currentConversation.reranking_enabled}
                 onUpdate={(value) => {
                   // Update local conversation state

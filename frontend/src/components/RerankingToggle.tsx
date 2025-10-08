@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 interface RerankingToggleProps {
-  conversationId: string;
   initialValue?: boolean | null;
   onUpdate?: (value: boolean) => void;
 }
@@ -13,7 +12,7 @@ interface RerankingToggleProps {
  * - true (ON): Reranking enabled
  * - false (OFF): Reranking disabled
  */
-export default function RerankingToggle({ conversationId, initialValue = false, onUpdate }: RerankingToggleProps) {
+export default function RerankingToggle({ initialValue = false, onUpdate }: RerankingToggleProps) {
   // Convert null to false for simple toggle
   const [rerankingEnabled, setRerankingEnabled] = useState<boolean>(initialValue === true);
   const [isLoading, setIsLoading] = useState(false);
