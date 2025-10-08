@@ -1064,7 +1064,7 @@ Question reformulée:"""
 
     try:
         # Appel API Mistral direct pour la reformulation
-        from utils.mistral_provider import get_mistral_model
+        from app.utils.mistral_provider import get_mistral_model
 
         model = get_mistral_model()
         api_url = model.api_url.rstrip('/')
@@ -1106,8 +1106,8 @@ async def execute_rag_agent(
 ) -> dict:
     """Exécute le RAG agent et retourne la réponse"""
     try:
-        from utils.chocolatine_provider import get_chocolatine_model
-        from utils.mistral_provider import get_mistral_model
+        from app.utils.chocolatine_provider import get_chocolatine_model
+        from app.utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
 
         global _current_request_sources, _current_conversation_id
