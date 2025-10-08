@@ -50,6 +50,7 @@ def validate_file(file: UploadFile) -> tuple[bool, str]:
 
 @router.post("/documents/upload")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_admin_user)
 ):
@@ -135,6 +136,7 @@ async def upload_document(
 
 @router.get("/documents/jobs/{job_id}", response_model=IngestionJob)
 async def get_ingestion_job(
+    request: Request,
     job_id: UUID,
     current_user: dict = Depends(get_current_admin_user)
 ):
@@ -175,6 +177,7 @@ async def get_ingestion_job(
 
 @router.get("/documents/jobs", response_model=List[IngestionJob])
 async def list_ingestion_jobs(
+    request: Request,
     limit: int = 50,
     offset: int = 0,
     status_filter: str = None,
@@ -231,6 +234,7 @@ async def list_ingestion_jobs(
 
 @router.delete("/documents/jobs/{job_id}")
 async def delete_ingestion_job(
+    request: Request,
     job_id: UUID,
     current_user: dict = Depends(get_current_admin_user)
 ):
