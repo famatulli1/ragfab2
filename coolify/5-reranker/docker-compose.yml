@@ -4,7 +4,7 @@ services:
   ragfab-reranker:
     build:
       context: .
-      dockerfile: coolify/5-reranker/Dockerfile
+      dockerfile: ./coolify/5-reranker/Dockerfile
     container_name: ragfab-reranker
     environment:
       # Modèle de reranking (CrossEncoder)

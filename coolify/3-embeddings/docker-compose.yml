@@ -4,7 +4,7 @@ services:
   ragfab-embeddings:
     build:
       context: .
-      dockerfile: coolify/3-embeddings/Dockerfile
+      dockerfile: ./coolify/3-embeddings/Dockerfile
     container_name: ragfab-embeddings
     environment:
       # Modèle d'embeddings (ne pas changer sans recalculer tous les embeddings)

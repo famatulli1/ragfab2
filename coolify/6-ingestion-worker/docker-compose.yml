@@ -3,8 +3,8 @@ version: '3.8'
 services:
   ragfab-ingestion-worker:
     build:
-      context: .
-      dockerfile: coolify/6-ingestion-worker/Dockerfile
+      context: ./ingestion-worker
+      dockerfile: Dockerfile
     container_name: ragfab-ingestion-worker
     environment:
       # Database connection
