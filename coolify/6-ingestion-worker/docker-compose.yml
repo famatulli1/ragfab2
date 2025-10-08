@@ -61,10 +61,10 @@ services:
       - coolify
 
 volumes:
-  # Volume partagé pour les uploads (à créer avec le même nom dans ragfab-api)
+  # Volume partagé pour les uploads (utilise le volume existant de ragfab-backend)
   uploads_shared:
     external: true
-    name: ragfab_uploads
+    name: wc0ssk40gw44sgkk0o8c8gog_uploads
 
   # Cache local pour les modèles ML
   model_cache:
