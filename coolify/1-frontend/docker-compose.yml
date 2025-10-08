@@ -3,8 +3,8 @@ version: '3.8'
 services:
   ragfab-frontend:
     build:
-      context: .
-      dockerfile: coolify/1-frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: ragfab-frontend
     restart: unless-stopped
     environment:
