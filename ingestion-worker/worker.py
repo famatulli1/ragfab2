@@ -254,14 +254,6 @@ class IngestionWorker:
             logger.info("Reading document...")
             document_content, docling_doc = self.pipeline._read_document(str(file_path))
 
-            # DEBUG: Check what we actually got back
-            logger.info(f"🔍 DEBUG: docling_doc type = {type(docling_doc)}")
-            logger.info(f"🔍 DEBUG: docling_doc value = {docling_doc}")
-            if docling_doc is not None:
-                logger.info(f"🔍 DEBUG: docling_doc has 'pages' attribute? {hasattr(docling_doc, 'pages')}")
-                if hasattr(docling_doc, 'pages'):
-                    logger.info(f"🔍 DEBUG: number of pages = {len(docling_doc.pages) if docling_doc.pages else 0}")
-
             # Update progress: 30% (file read)
             await self.update_job_progress(job_id, 30)
 
