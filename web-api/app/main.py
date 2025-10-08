@@ -45,6 +45,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configuration Mistral API
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+MISTRAL_MODEL_NAME = os.getenv("MISTRAL_MODEL_NAME", "mistral-small-latest")
+
 # Variables globales pour stocker le contexte de la requête en cours
 # Plus fiables que ContextVar qui peuvent être perdus dans les appels async de PydanticAI
 # Note: Pas de problème de concurrence car FastAPI traite les requêtes séquentiellement avec async
