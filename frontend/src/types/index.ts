@@ -103,6 +103,7 @@ export interface ChatRequest {
   message: string;
   provider?: 'mistral' | 'chocolatine';
   use_tools?: boolean;
+  reranking_enabled?: boolean | null;
 }
 
 export interface ChatResponse {

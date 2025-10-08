@@ -98,6 +98,7 @@ export default function ChatPage() {
         message: userMessage,
         provider,
         use_tools: useTools,
+        reranking_enabled: currentConversation.reranking_enabled,
       });
 
       setMessages([...messages, response.user_message, response.assistant_message]);
