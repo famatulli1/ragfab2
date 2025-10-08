@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 
 from ..auth import get_current_admin_user
-from ..database import db_pool
+from .. import database
 from ..models import IngestionJob
 from ..config import settings
 
@@ -101,7 +101,7 @@ async def upload_document(
         logger.info(f"✅ File saved: {file_path} ({total_size} bytes)")
 
         # Create ingestion job in database
-        async with db_pool.acquire() as conn:
+        async with database.db_pool.acquire() as conn:
             job = await conn.fetchrow("""
                 INSERT INTO ingestion_jobs (id, filename, file_size, status, progress)
                 VALUES ($1::uuid, $2, $3, 'pending', 0)
@@ -145,7 +145,7 @@ async def get_ingestion_job(
 
     Utilisé par le frontend pour le polling et l'affichage de la progression.
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         job = await conn.fetchrow("""
             SELECT id, filename, file_size, status, progress,
                    document_id, chunks_created, error_message,
@@ -191,7 +191,7 @@ async def list_ingestion_jobs(
         offset: Offset pour la pagination
         status_filter: Filtrer par statut (pending, processing, completed, failed)
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         if status_filter:
             query = """
                 SELECT id, filename, file_size, status, progress,
@@ -244,7 +244,7 @@ async def delete_ingestion_job(
     ⚠️ N'empêche pas le traitement si le job est déjà en cours.
     Utilisez uniquement pour nettoyer les jobs terminés ou échoués.
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         # Check if job exists and get status
         job = await conn.fetchrow("""
             SELECT status FROM ingestion_jobs WHERE id = $1::uuid
