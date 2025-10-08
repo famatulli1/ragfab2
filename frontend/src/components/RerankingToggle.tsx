@@ -1,87 +1,69 @@
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
-import api from '../api/client';
 
 interface RerankingToggleProps {
   conversationId: string;
   initialValue?: boolean | null;
-  onUpdate?: (value: boolean | null) => void;
+  onUpdate?: (value: boolean) => void;
 }
 
 /**
- * Toggle component for per-conversation reranking control
+ * Simple ON/OFF toggle for reranking control
  *
- * Three states:
- * - null (grey): Use global environment variable
- * - true (green): Force enable reranking
- * - false (red): Force disable reranking
+ * Two states:
+ * - true (ON): Reranking enabled
+ * - false (OFF): Reranking disabled
  */
-export default function RerankingToggle({ conversationId, initialValue = null, onUpdate }: RerankingToggleProps) {
-  const [rerankingEnabled, setRerankingEnabled] = useState<boolean | null>(initialValue);
+export default function RerankingToggle({ conversationId, initialValue = false, onUpdate }: RerankingToggleProps) {
+  // Convert null to false for simple toggle
+  const [rerankingEnabled, setRerankingEnabled] = useState<boolean>(initialValue === true);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleToggle = async () => {
     setIsLoading(true);
-    try {
-      // Cycle through states: null → true → false → null
-      let newValue: boolean | null;
-      if (rerankingEnabled === null) {
-        newValue = true;
-      } else if (rerankingEnabled === true) {
-        newValue = false;
-      } else {
-        newValue = null;
-      }
+    const newValue = !rerankingEnabled;
 
-      await api.updateConversation(conversationId, { reranking_enabled: newValue });
+    try {
       setRerankingEnabled(newValue);
       onUpdate?.(newValue);
     } catch (error) {
       console.error('Error updating reranking setting:', error);
+      // Revert on error
+      setRerankingEnabled(!newValue);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Determine button appearance based on state
-  const getButtonState = () => {
-    if (rerankingEnabled === null) {
-      return {
-        bgColor: 'bg-gray-400 dark:bg-gray-600',
-        label: 'Reranking: Global',
-        title: 'Using global environment variable (click to force enable)',
-      };
-    } else if (rerankingEnabled === true) {
-      return {
-        bgColor: 'bg-green-500 dark:bg-green-600',
-        label: 'Reranking: ON',
-        title: 'Reranking enabled for this conversation (click to disable)',
-      };
-    } else {
-      return {
-        bgColor: 'bg-red-500 dark:bg-red-600',
-        label: 'Reranking: OFF',
-        title: 'Reranking disabled for this conversation (click to use global)',
-      };
-    }
-  };
-
-  const state = getButtonState();
-
   return (
-    <button
-      onClick={handleToggle}
-      disabled={isLoading}
-      title={state.title}
-      className={`
-        flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-sm font-medium
-        transition-all duration-200
-        ${state.bgColor}
-        ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}
-      `}
-    >
-      <Sparkles className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-      <span>{state.label}</span>
-    </button>
+    <div className="flex items-center gap-3">
+      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        Reranking
+      </span>
+      <button
+        onClick={handleToggle}
+        disabled={isLoading}
+        className={`
+          relative inline-flex h-6 w-11 items-center rounded-full
+          transition-colors duration-200 ease-in-out
+          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+          ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          ${rerankingEnabled
+            ? 'bg-green-500 dark:bg-green-600'
+            : 'bg-gray-300 dark:bg-gray-600'
+          }
+        `}
+        role="switch"
+        aria-checked={rerankingEnabled}
+        title={rerankingEnabled ? 'Reranking enabled (click to disable)' : 'Reranking disabled (click to enable)'}
+      >
+        <span
+          className={`
+            inline-block h-4 w-4 transform rounded-full bg-white
+            transition-transform duration-200 ease-in-out
+            ${rerankingEnabled ? 'translate-x-6' : 'translate-x-1'}
+          `}
+        />
+      </button>
+    </div>
   );
 }
