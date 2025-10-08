@@ -118,7 +118,7 @@ class APIClient {
     const formData = new FormData();
     formData.append('file', file);
 
-    const { data } = await this.client.post('/api/documents/upload', formData, {
+    const { data } = await this.client.post('/api/admin/documents/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -127,7 +127,7 @@ class APIClient {
   }
 
   async getIngestionJob(jobId: string): Promise<IngestionJob> {
-    const { data } = await this.client.get<IngestionJob>(`/api/documents/jobs/${jobId}`);
+    const { data } = await this.client.get<IngestionJob>(`/api/admin/documents/jobs/${jobId}`);
     return data;
   }
 
