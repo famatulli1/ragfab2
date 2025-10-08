@@ -6,7 +6,7 @@ from typing import List
 from uuid import UUID
 import json
 
-from ..database import get_db_connection
+from .. import database
 from ..models import ImageMetadata, ImageResponse
 from ..auth import get_current_user
 
@@ -27,7 +27,7 @@ async def get_chunk_images(
     Returns:
         List of images linked to this chunk
     """
-    async with get_db_connection() as conn:
+    async with database.db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT
@@ -48,7 +48,7 @@ async def get_chunk_images(
             images.append(ImageResponse(
                 id=row["id"],
                 page_number=row["page_number"],
-                position=json.loads(row["position"]),
+                position=json.loads(row["position"]) if row["position"] else {},
                 description=row["description"],
                 ocr_text=row["ocr_text"],
                 image_base64=row["image_base64"]
@@ -71,7 +71,7 @@ async def get_document_images(
     Returns:
         List of all images in this document
     """
-    async with get_db_connection() as conn:
+    async with database.db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT
@@ -95,7 +95,7 @@ async def get_document_images(
                 document_id=row["document_id"],
                 chunk_id=row["chunk_id"],
                 page_number=row["page_number"],
-                position=json.loads(row["position"]),
+                position=json.loads(row["position"]) if row["position"] else {},
                 image_path=row["image_path"],
                 image_base64=row["image_base64"],
                 image_format=row["image_format"],
@@ -103,7 +103,7 @@ async def get_document_images(
                 description=row["description"],
                 ocr_text=row["ocr_text"],
                 confidence_score=row["confidence_score"],
-                metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+                metadata=json.loads(row["metadata"]) if row["metadata"] else {},
                 created_at=row["created_at"]
             ))
 
@@ -124,7 +124,7 @@ async def get_image(
     Returns:
         Image metadata
     """
-    async with get_db_connection() as conn:
+    async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             SELECT
@@ -145,7 +145,7 @@ async def get_image(
             document_id=row["document_id"],
             chunk_id=row["chunk_id"],
             page_number=row["page_number"],
-            position=json.loads(row["position"]),
+            position=json.loads(row["position"]) if row["position"] else {},
             image_path=row["image_path"],
             image_base64=row["image_base64"],
             image_format=row["image_format"],
@@ -153,6 +153,6 @@ async def get_image(
             description=row["description"],
             ocr_text=row["ocr_text"],
             confidence_score=row["confidence_score"],
-            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
             created_at=row["created_at"]
         )
