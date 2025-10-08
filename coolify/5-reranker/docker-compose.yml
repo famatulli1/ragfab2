@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  ragfab-reranker:
+    build:
+      context: .
+      dockerfile: coolify/5-reranker/Dockerfile
+    container_name: ragfab-reranker
+    environment:
+      # Modèle de reranking (CrossEncoder)
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+
+      # Cache Hugging Face
+      TRANSFORMERS_CACHE: ${TRANSFORMERS_CACHE:-/home/reranker/.cache/huggingface}
+
+      # Logs
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    # Expose port 8002 pour communication interne (pas de ports publics)
+    expose:
+      - "8002"
+
+    volumes:
+      # Persistance du cache du modèle (évite re-téléchargement)
+      - model_cache:/home/reranker/.cache
+
+    restart: unless-stopped
+
+    # Limites de ressources (ajuster selon votre serveur)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - coolify
+
+volumes:
+  model_cache:
+    driver: local
+
+networks:
+  coolify:
+    external: true
+    name: coolify
