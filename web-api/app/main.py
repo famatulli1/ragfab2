@@ -36,6 +36,7 @@ from .models import (
     ExportRequest
 )
 from .routes import auth
+from .routes import admin
 
 # Configuration logging
 logging.basicConfig(
@@ -99,6 +100,7 @@ app.add_middleware(
 
 # Inclure les routes
 app.include_router(auth.router)
+app.include_router(admin.router)
 
 
 # ============================================================================
