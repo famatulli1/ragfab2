@@ -5,6 +5,7 @@ import api from '../api/client';
 import type { Conversation, Message, Provider } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
+import RerankingToggle from '../components/RerankingToggle';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -311,7 +312,7 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <div className="h-14 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 bg-white dark:bg-gray-800">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="btn-ghost"
@@ -321,6 +322,29 @@ export default function ChatPage() {
             <h1 className="font-semibold text-lg">
               {currentConversation?.title || 'RAGFab'}
             </h1>
+            {currentConversation && (
+              <RerankingToggle
+                conversationId={currentConversation.id}
+                initialValue={currentConversation.reranking_enabled}
+                onUpdate={(value) => {
+                  // Update local conversation state
+                  if (currentConversation) {
+                    setCurrentConversation({
+                      ...currentConversation,
+                      reranking_enabled: value,
+                    });
+                    // Update in conversations list
+                    setConversations(convs =>
+                      convs.map(c =>
+                        c.id === currentConversation.id
+                          ? { ...c, reranking_enabled: value }
+                          : c
+                      )
+                    );
+                  }
+                }}
+              />
+            )}
           </div>
 
           <div className="flex items-center gap-2">

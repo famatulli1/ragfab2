@@ -13,6 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/02_web_schema.sql:/docker-entrypoint-initdb.d/02_web_schema.sql:ro
+      - ./database/04_auto_migration_reranking.sh:/docker-entrypoint-initdb.d/04_auto_migration_reranking.sh:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -51,6 +52,34 @@ services:
         reservations:
           cpus: '2'
           memory: 4G
+
+  # Service de reranking
+  reranker:
+    build:
+      context: ./reranker-server
+      dockerfile: Dockerfile
+    container_name: ragfab-reranker
+    environment:
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+    ports:
+      - "${RERANKER_PORT:-8002}:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   # Application RAG (CLI mode - démarrage manuel)
   rag-app:
@@ -94,6 +123,10 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       EMBEDDINGS_API_URL: http://embeddings:8001
+      RERANKER_ENABLED: ${RERANKER_ENABLED:-false}
+      RERANKER_API_URL: http://reranker:8002
+      RERANKER_TOP_K: ${RERANKER_TOP_K:-20}
+      RERANKER_RETURN_K: ${RERANKER_RETURN_K:-5}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
       CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}

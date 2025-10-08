@@ -1,425 +1,387 @@
-# Session Claude Code - RAGFab avec Mistral Function Calling
+# CLAUDE.md
 
-**Date:** 5 octobre 2025
-**Objectif:** Implémenter le function calling avec l'API Mistral pour le système RAG
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## Project Overview
 
-## 🎯 Résultat Final
+RAGFab is a dual-provider RAG (Retrieval Augmented Generation) system optimized for French, with both a CLI application and a web interface. The system supports two LLM providers:
+- **Chocolatine** (local vLLM): Manual context injection
+- **Mistral** (API): Automatic function calling with tools
 
-✅ **Système RAG complet avec function calling opérationnel**
-- Provider Mistral avec tool calling automatique
-- Ingestion PDF avec Docling HybridChunker
-- Recherche vectorielle intelligente
-- Réponses structurées avec citations des sources
+## Architecture
 
----
+### Component Overview
 
-## 📋 Travaux Réalisés
-
-### 1. **Création du Provider Mistral** (`utils/mistral_provider.py`)
-
-**Fonctionnalités implémentées :**
-- `MistralModel` : Provider de base compatible PydanticAI
-- `MistralAgentModel` : Provider avec support des tools
-- Conversion automatique des tools PydanticAI → format Mistral API
-- Gestion complète du workflow de function calling
-
-**Corrections techniques :**
-- Import `ArgsDict` depuis `pydantic_ai.messages` (pas depuis `models`)
-- Sérialisation des arguments : `part.args.args_dict` au lieu de `part.args`
-- Traitement des `ToolReturnPart` dans `ModelRequest` (pas dans `ModelResponse`)
-- Messages formatés correctement pour l'ordre attendu par Mistral API
-
-**Fichier créé :** [utils/mistral_provider.py](rag-app/utils/mistral_provider.py)
-
----
-
-### 2. **Mise à Jour de l'Agent RAG** (`rag_agent.py`)
-
-**Dual-provider system :**
-```python
-# Sélection automatique du provider via variable d'environnement
-RAG_PROVIDER = "mistral"  # ou "chocolatine"
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      DOCKER / COOLIFY                           │
+│                                                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐ │
+│  │ Embeddings API   │  │ Reranker API     │  │ PostgreSQL   │ │
+│  │ (E5-Large)       │  │ (BGE-M3)         │  │ + PGVector   │ │
+│  │ Port: 8001       │  │ Port: 8002       │  │ Port: 5432   │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └──────┬───────┘ │
+│           │                     │                    │         │
+│           └─────────────────────┼────────────────────┘         │
+│                                 │                              │
+│                       ┌─────────▼─────────┐                    │
+│                       │ Web API (FastAPI) │                    │
+│                       │ Port: 8000        │                    │
+│                       └─────────┬─────────┘                    │
+│                                 │                              │
+│                       ┌─────────▼─────────┐                    │
+│                       │ Frontend (React)  │                    │
+│                       │ Port: 5173        │                    │
+│                       └───────────────────┘                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Modes disponibles :**
-- **Mistral** : Function calling automatique avec `search_knowledge_base` tool
-- **Chocolatine** : Injection manuelle du contexte (pour vLLM local)
+### Key Data Flow
 
-**Modifications :**
-- Factory function `get_rag_provider()` pour basculer entre providers
-- Mode non-streaming pour Mistral (`run()` au lieu de `run_stream()`)
-- Nettoyage UTF-8 des chunks pour éviter les erreurs d'encodage
+**Question Reformulation (Mistral with tools only)**:
+1. User sends question → `reformulate_question_with_context()` detects contextual references
+2. If reference detected → Calls Mistral API to reformulate question autonomously
+3. Reformulated question sent to RAG agent → Forces tool calling (no history passed)
+4. Tool `search_knowledge_base_tool()` is called → Performs vector search (optionally with reranking)
+5. Sources stored in `_current_request_sources` global variable
+6. Final response generated with sources displayed in frontend
 
-**Fichier modifié :** [rag_agent.py](rag-app/rag_agent.py:116-213)
+**Vector Search + Reranking Pipeline** (when `RERANKER_ENABLED=true`):
+1. Question → Embedding (E5-Large) → Vector similarity search (top-20 candidates)
+2. Top-20 candidates → Reranker service (BGE-reranker-v2-m3) → CrossEncoder scoring
+3. Reranked results (top-5 most relevant) → LLM context
+4. If reranker fails → Graceful fallback to top-5 from vector search
 
----
+**Vector Search Only Pipeline** (when `RERANKER_ENABLED=false`):
+1. Question → Embedding (E5-Large) → Vector similarity search (top-5 direct)
+2. Top-5 results → LLM context
 
-### 3. **Configuration Environment** (`.env`)
+**Critical Pattern**: Global variable `_current_request_sources` is used instead of `ContextVar` because PydanticAI's async tool execution loses ContextVar state between calls.
 
-**Nouvelles variables ajoutées :**
+## Development Commands
+
+### Docker Setup
+
 ```bash
-# Provider RAG
-RAG_PROVIDER=mistral
+# Start core services (PostgreSQL + Embeddings + Reranker)
+docker-compose up -d postgres embeddings reranker
 
-# API Mistral
-MISTRAL_API_KEY=0SINPnbC1ebzLbEzxrRmUaPBkVo9Fhvf
-MISTRAL_API_URL=https://api.mistral.ai
-MISTRAL_MODEL_NAME=mistral-small-latest
-MISTRAL_TIMEOUT=120.0
+# Start web stack (includes frontend + web-api)
+docker-compose --profile web up -d
 
-# Logs
-LOG_LEVEL=INFO
+# Rebuild after code changes
+docker-compose build web-api
+docker-compose build frontend
+docker-compose build reranker
+
+# View logs
+docker-compose logs -f web-api
+docker-compose logs -f frontend
+docker-compose logs -f reranker
 ```
 
-**Fichier modifié :** [.env](\.env:40-71)
+### Testing
 
----
-
-### 4. **Docker Compose** (`docker-compose.yml`)
-
-**Variables d'environnement rag-app :**
-```yaml
-environment:
-  RAG_PROVIDER: ${RAG_PROVIDER:-chocolatine}
-  MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-  MISTRAL_API_URL: ${MISTRAL_API_URL:-https://api.mistral.ai}
-  MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
-  MISTRAL_TIMEOUT: ${MISTRAL_TIMEOUT:-120.0}
-```
-
-**Fichier modifié :** [docker-compose.yml](docker-compose.yml:64-71)
-
----
-
-### 5. **Optimisations Ingestion**
-
-#### **A. Fix détection fichiers PDF** (`ingestion/ingest.py`)
-
-**Problème :** Le glob pattern `**/*.pdf` ne trouvait pas les PDFs à la racine du dossier `documents/`
-
-**Solution :**
-```python
-for pattern in patterns:
-    # Chercher à la racine du dossier
-    files.extend(glob.glob(os.path.join(self.documents_folder, pattern)))
-    # Chercher dans les sous-dossiers
-    files.extend(glob.glob(os.path.join(self.documents_folder, "**", pattern), recursive=True))
-```
-
-**Fichier modifié :** [ingestion/ingest.py](rag-app/ingestion/ingest.py:251-258)
-
-#### **B. Optimisation batch embeddings** (`ingestion/embedder.py`)
-
-**Problème :** Timeouts lors du traitement de 51 chunks en un seul batch
-
-**Solution :**
-- `batch_size: 100 → 20` chunks par batch
-- `timeout: 60s → 90s` par requête
-- Le système génère maintenant 3 batches au lieu d'un seul
-
-**Résultat :** Moins de timeouts, fallback individuel uniquement en cas d'erreur réelle
-
-**Fichier modifié :** [ingestion/embedder.py](rag-app/ingestion/embedder.py:32-35)
-
-#### **C. Nettoyage caractères UTF-8** (`rag_agent.py`)
-
-**Problème :** Caractères surrogates UTF-8 invalides dans les chunks PDF causaient des erreurs
-
-**Solution :**
-```python
-# Nettoyer le contenu des caractères mal encodés
-clean_content = content.encode('utf-8', errors='replace').decode('utf-8')
-clean_title = doc_title.encode('utf-8', errors='replace').decode('utf-8')
-```
-
-**Fichier modifié :** [rag_agent.py](rag-app/rag_agent.py:98-108)
-
----
-
-### 6. **Logs Debug Désactivés** (`utils/mistral_provider.py`)
-
-Pour une sortie console plus propre, les logs debug ont été commentés :
-- `logger.debug(f"Mistral API payload: ...")` → commenté
-- `logger.debug(f"Formatting {len(messages)} messages:")` → commenté
-
-**Fichier modifié :** [utils/mistral_provider.py](rag-app/utils/mistral_provider.py:188-297)
-
----
-
-## 🔧 Problèmes Résolus
-
-### Erreur 1: `ImportError: cannot import name 'ModelResponsePart'`
-**Cause :** Mauvais module d'import
-**Solution :** Importer depuis `pydantic_ai.messages` au lieu de `pydantic_ai.models`
-
-### Erreur 2: `'dict' object has no attribute 'args_dict'`
-**Cause :** Tentative d'accès à `.args_dict` sur un dict brut
-**Solution :** Créer `ArgsDict(args_dict=args_data)` au lieu de passer le dict directement
-
-### Erreur 3: `Object of type ArgsDict is not JSON serializable`
-**Cause :** Sérialisation directe de l'objet `ArgsDict`
-**Solution :** Extraire le dict avec `part.args.args_dict` avant `json.dumps()`
-
-### Erreur 4: `Expected last role User or Tool but got assistant`
-**Cause :** `ToolReturnPart` traité dans `ModelResponse` au lieu de `ModelRequest`
-**Solution :** Déplacer le traitement dans la section `ModelRequest`
-
-### Erreur 5: Timeout batch embeddings
-**Cause :** 51 chunks trop lourd pour un seul batch de 60s
-**Solution :** Réduire `batch_size` à 20 et augmenter `timeout` à 90s
-
-### Erreur 6: `'utf-8' codec can't encode character '\udcc3'`
-**Cause :** Caractères surrogates UTF-8 invalides dans le PDF
-**Solution :** Nettoyage avec `encode('utf-8', errors='replace')`
-
-### Erreur 7: PDFs non détectés lors de l'ingestion
-**Cause :** Pattern glob `**/*.pdf` ne trouve pas les fichiers à la racine
-**Solution :** Ajouter un glob pour la racine + un pour les sous-dossiers
-
----
-
-## 📊 Test du Système
-
-### Document ingéré
-- **Fichier :** `mes_manuel_utilisateur_medimail_webmail_v1.5.pdf` (1.1 MB)
-- **Chunks créés :** 51 chunks avec HybridChunker
-- **Temps de conversion Docling :** ~135 secondes
-- **Qualité :** Chunks cohérents et bien structurés
-
-### Exemples de questions testées
-
-**Q1:** "Qu'est-ce que RAGFab ?"
-✅ Réponse structurée complète avec architecture, fonctionnalités, déploiement
-
-**Q2:** "Comment accéder à Medimail ?"
-✅ Réponse avec 3 méthodes d'accès + durée de conservation
-
-**Q3:** "Quels sont les dossiers par défaut dans Medimail ?"
-✅ Liste exacte des 4 dossiers + info sur sous-dossiers
-
-### Workflow observé
-```
-Question utilisateur
-    ↓
-Mistral API (tool_choice: auto)
-    ↓
-Tool call détecté: search_knowledge_base(query="...", limit=5)
-    ↓
-Embeddings de la query (multilingual-e5-large)
-    ↓
-Recherche vectorielle PostgreSQL (similarité cosinus)
-    ↓
-Top 5 chunks retournés
-    ↓
-Tool results envoyés à Mistral
-    ↓
-Réponse finale structurée avec citations
-```
-
----
-
-## 🚀 Commandes Utiles
-
-### Démarrer les services
 ```bash
-cd c:\Users\famat\Documents\rag-cole\ragfab
-docker-compose up -d postgres embeddings
+# Backend tests (rag-app)
+cd rag-app
+pytest -m unit  # Unit tests only
+pytest -m "unit and not embeddings"  # Exclude embeddings tests
+pytest --cov=. --cov-report=html  # With coverage
+
+# Backend tests (web-api)
+cd web-api
+pytest -m unit
+pytest --cov=app --cov-report=term --cov-fail-under=20
+
+# Frontend
+cd frontend
+npm test  # Run tests
+npm run lint  # ESLint
 ```
 
-### Lancer l'agent RAG (mode interactif)
-```bash
-docker-compose --profile app run --rm rag-app
-```
+**Important**: Coverage threshold is currently set to 20% (realistic baseline). Tests requiring the embeddings service are marked with `@pytest.mark.embeddings` and excluded from CI.
 
-### Ingérer un document PDF
+### Document Ingestion
+
 ```bash
-# Placer le PDF dans rag-app/documents/
+# Place PDFs in rag-app/documents/ then:
 docker-compose --profile app run --rm rag-app python -m ingestion.ingest
-```
 
-### Vérifier les documents ingérés
-```bash
+# Verify ingestion
 docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT title, COUNT(c.id) as chunks FROM documents d LEFT JOIN chunks c ON d.id = c.document_id GROUP BY d.id, title;"
 ```
 
-### Voir le contenu des chunks
+### Frontend Development
+
 ```bash
-docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT LEFT(content, 200) FROM chunks ORDER BY chunk_index LIMIT 5;"
+cd frontend
+npm install
+npm run dev  # Starts Vite dev server on port 5173
+npm run build  # Production build
+npm run preview  # Preview production build
 ```
 
-### Rebuild après modifications
+## Critical Implementation Details
+
+### Mistral Provider with PydanticAI
+
+**File**: `rag-app/utils/mistral_provider.py`
+
+Key implementation notes:
+- `ArgsDict` must be imported from `pydantic_ai.messages` (NOT `pydantic_ai.models`)
+- Tool arguments must be extracted with `part.args.args_dict` before JSON serialization
+- `ToolReturnPart` must be processed in `ModelRequest` formatting (NOT `ModelResponse`)
+- Message order is strict: system → user → assistant (with tool_calls) → tool (with results)
+
+### Question Reformulation System
+
+**File**: `web-api/app/main.py` (lines 847-946)
+
+Detects contextual references and reformulates questions before RAG execution:
+
+**Strong references** (always reformulated): celle, celui, celles, ceux
+**Medium references** (only if question <8 words): ça, cela, ce, cette, ces
+**Pronouns at start** (only if first word): il, elle, ils, elles, y, en
+**Pattern matching**: Questions starting with "et celle", "et celui", "et ça"
+
+Generic articles ("le", "la", "les") are NOT treated as references to avoid false positives.
+
+### Global State Management
+
+**Critical**: `_current_request_sources` is a global variable (List[dict]) used to pass sources between `search_knowledge_base_tool()` and the response handler.
+
+**Why not ContextVar?**: PydanticAI's async tool execution context loses ContextVar state between the tool call and result retrieval. Global variable works because FastAPI processes requests sequentially with async.
+
+Location: `web-api/app/main.py` line 50
+
+### Dual Provider System
+
+**Environment variable**: `RAG_PROVIDER` (values: "mistral" or "chocolatine")
+
+**Mistral mode** (`provider="mistral"` and `use_tools=True`):
+- Question reformulated if contextual references detected
+- Agent created with `tools=[search_knowledge_base_tool]`
+- NO history passed to agent (forces tool calling every time)
+- Sources retrieved from global variable after execution
+
+**Chocolatine/Mistral without tools**:
+- Manual search executed BEFORE agent creation
+- Context injected into system prompt
+- History summary can be included (doesn't interfere with tool calling)
+
+### Database Schema
+
+**Important dimensions**:
+- Embedding dimension: **1024** (multilingual-e5-large)
+- Vector type in schema: `vector(1024)`
+
+Changing embedding models requires:
+1. Update `EMBEDDING_DIMENSION` in `.env`
+2. Modify `database/schema.sql` vector dimensions
+3. Drop and recreate `chunks` table
+
+Schema files:
+- `database/schema.sql`: Core RAG tables (documents, chunks)
+- `database/02_web_schema.sql`: Web interface tables (conversations, messages, ratings)
+
+### Chunking Strategy
+
+**Docling HybridChunker** (preferred):
+- Respects document structure (headings, paragraphs, tables)
+- Falls back to SimpleChunker on error
+- Configuration: `CHUNK_SIZE=1500`, `CHUNK_OVERLAP=200`
+
+**SimpleChunker** (fallback):
+- Splits on paragraph breaks (`\n\n`), NOT character count
+- Test expectations must use multi-paragraph content
+
+**Batch embedding**: 20 chunks per batch (timeout: 90s) to avoid API timeouts
+
+### UTF-8 Handling
+
+PDF documents often contain invalid UTF-8 surrogate characters. All chunk content must be cleaned:
+
+```python
+clean_content = content.encode('utf-8', errors='replace').decode('utf-8')
+```
+
+Location: Applied in both `rag_agent.py` and `web-api/app/main.py`
+
+## Environment Configuration
+
+### Critical Variables
+
 ```bash
-docker-compose build rag-app
+# Provider selection
+RAG_PROVIDER=mistral  # or "chocolatine"
+
+# Database (update for Coolify with .internal suffix)
+DATABASE_URL=postgresql://raguser:pass@postgres:5432/ragdb
+POSTGRES_HOST=postgres  # Change to postgres.internal on Coolify
+
+# Embeddings
+EMBEDDINGS_API_URL=http://embeddings:8001
+EMBEDDING_DIMENSION=1024
+
+# Reranking (NEW - Activable à la demande)
+RERANKER_ENABLED=false  # true pour activer le reranking (recommandé pour doc médicale/technique)
+RERANKER_API_URL=http://reranker:8002
+RERANKER_MODEL=BAAI/bge-reranker-v2-m3  # Modèle multilingue excellent pour le français
+RERANKER_TOP_K=20  # Nombre de candidats avant reranking
+RERANKER_RETURN_K=5  # Nombre de résultats finaux après reranking
+
+# Mistral API
+MISTRAL_API_KEY=your_key_here
+MISTRAL_MODEL_NAME=mistral-small-latest  # Better function calling than open-mistral-7b
+MISTRAL_TIMEOUT=120.0
+
+# Chocolatine API (if using chocolatine provider)
+CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
+CHOCOLATINE_API_KEY=  # Optional
 ```
 
----
+### Coolify Deployment Notes
 
-## 📁 Fichiers Modifiés/Créés
+When deploying on Coolify:
+1. Container names must have unique prefixes (e.g., `ragfab-postgres`, `ragfab-embeddings`, `ragfab-reranker`)
+2. Use `postgres.internal` instead of `postgres` for DATABASE_URL
+3. Use `reranker.internal` instead of `reranker` for RERANKER_API_URL
+4. Update Traefik router names to match new container names
+5. Set environment variables via Coolify interface
 
-| Fichier | Type | Description |
-|---------|------|-------------|
-| `rag-app/utils/mistral_provider.py` | **CRÉÉ** | Provider Mistral avec function calling |
-| `rag-app/rag_agent.py` | Modifié | Dual-provider + nettoyage UTF-8 |
-| `rag-app/ingestion/ingest.py` | Modifié | Fix détection PDFs racine |
-| `rag-app/ingestion/embedder.py` | Modifié | Optimisation batch size |
-| `.env` | Modifié | Variables Mistral ajoutées |
-| `docker-compose.yml` | Modifié | Env vars Mistral pour rag-app |
+Recent fix: All containers renamed with `ragfab-` prefix to avoid conflicts.
 
----
+### Reranking System (NEW)
 
-## 🎓 Concepts Clés Utilisés
+**When to use reranking** (`RERANKER_ENABLED=true`):
+- Documentation technique avec terminologie similaire (médical, juridique, scientifique)
+- Beaucoup de concepts qui se chevauchent sémantiquement
+- Base documentaire >1000 documents
+- Besoin de précision maximale sur les résultats
 
-### PydanticAI Framework
-- `Agent` : Agent conversationnel avec tools
-- `Model` / `AgentModel` : Providers pour différents LLMs
-- `ToolDefinition` : Définition des tools disponibles
-- `ModelRequest` / `ModelResponse` : Format des messages
-- `ArgsDict` : Wrapper pour arguments de tool calls
+**Performance impact**:
+- Latence additionnelle: +100-300ms par requête
+- Ressources: ~4GB RAM pour le service reranker
+- Avantage: Meilleure pertinence des résultats (jusqu'à 20-30% d'amélioration)
 
-### Mistral API
-- Format OpenAI-compatible
-- `tools` : Liste des fonctions disponibles
-- `tool_choice: "auto"` : LLM décide quand appeler les tools
-- `tool_calls` : Appels de fonctions dans la réponse
-- Messages role `"tool"` : Résultats des tools
+**How it works**:
+1. Vector search récupère top-20 candidats (au lieu de 5)
+2. CrossEncoder (BGE-reranker-v2-m3) analyse finement chaque paire (question, document)
+3. Top-5 documents vraiment pertinents sont retournés au LLM
+4. Fallback gracieux si le service reranker échoue (utilise top-5 du vector search)
 
-### Docling
-- **HybridChunker** : Chunking intelligent respectant la structure du document
-- **DocumentConverter** : Conversion PDF → Markdown
-- **DoclingDocument** : Représentation interne du document avec structure préservée
-
-### Embeddings
-- **Modèle :** multilingual-e5-large (1024 dimensions)
-- **Serveur :** FastAPI autonome sur port 8001
-- **Batch processing :** 20 chunks par batch pour éviter timeouts
-
----
-
-## 🔄 Workflow Function Calling
-
-### Étape 1: Requête initiale
-```json
-{
-  "model": "mistral-small-latest",
-  "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "Qu'est-ce que RAGFab ?"}
-  ],
-  "tools": [{
-    "type": "function",
-    "function": {
-      "name": "search_knowledge_base",
-      "parameters": {...}
-    }
-  }],
-  "tool_choice": "auto"
-}
+**Configuration**:
+```bash
+RERANKER_ENABLED=true  # Activer le reranking
+RERANKER_TOP_K=20      # Augmenter si base très large (max 50)
+RERANKER_RETURN_K=5    # Nombre final de chunks pour le LLM
 ```
 
-### Étape 2: Réponse Mistral avec tool call
-```json
-{
-  "role": "assistant",
-  "tool_calls": [{
-    "id": "call_xyz",
-    "function": {
-      "name": "search_knowledge_base",
-      "arguments": "{\"query\": \"RAGFab\", \"limit\": 5}"
-    }
-  }]
-}
+## Common Pitfalls
+
+### PydanticAI Tools
+- ❌ Don't use `run_stream()` with tools - it detects but doesn't execute them automatically
+- ✅ Use `run()` for automatic tool execution workflow
+- ❌ Don't pass history when you need tool calling - model will skip tool and answer from context
+- ✅ Pass empty `message_history=[]` to force tool calls
+
+### Test Failures
+- Pydantic v2 strictly validates types and **rejects MagicMock** objects
+- Don't mock tokenizers in tests - use real tokenizers (~200ms load time acceptable)
+- `DocumentChunk` requires: content, index, start_char, end_char, metadata, token_count (NOT id, source, title)
+
+### Glob Patterns
+- Pattern `**/*.pdf` does NOT find files at root directory
+- Always use two globs: one for root, one for subdirectories
+
+### Container Naming
+- Coolify environments may have multiple projects
+- Always use unique prefixes (e.g., `ragfab-postgres` instead of just `postgres`)
+- Update DATABASE_URL and service references when renaming containers
+
+## Frontend Architecture
+
+**Stack**: React 18 + TypeScript + Vite + TailwindCSS
+**Key libraries**: react-router-dom, axios, react-markdown, lucide-react
+
+**State management**: No global state library - uses React hooks and local component state
+
+**API integration**: Axios client in `frontend/src/lib/api.ts`
+
+**Document viewing**: Supports source document viewing with chunk highlighting
+
+**Markdown rendering**: Uses react-markdown with syntax highlighting (react-syntax-highlighter)
+
+## Testing Philosophy
+
+- Unit tests focus on business logic, not implementation details
+- Integration tests require actual services (marked with `@pytest.mark.embeddings`)
+- Coverage threshold: 20% (realistic baseline, not aspirational 70%)
+- Tests should use real dependencies when possible (e.g., real tokenizers, not mocks)
+
+## Git Workflow
+
+All commits should include:
+- Clear description of problem solved
+- Technical solution explanation
+- List of changes with file references
+- Standardized footer:
+
+```
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
-### Étape 3: Exécution du tool par PydanticAI
-```python
-# PydanticAI exécute automatiquement search_knowledge_base
-results = await search_knowledge_base(ctx, query="RAGFab", limit=5)
-```
+## Common Development Scenarios
 
-### Étape 4: Envoi des résultats à Mistral
-```json
-{
-  "messages": [
-    {...système...},
-    {...user...},
-    {...assistant avec tool_calls...},
-    {
-      "role": "tool",
-      "tool_call_id": "call_xyz",
-      "content": "Trouvé 2 résultats pertinents:\n[Source: Guide]..."
-    }
-  ]
-}
-```
+### Adding a New LLM Provider
 
-### Étape 5: Réponse finale de Mistral
-```json
-{
-  "role": "assistant",
-  "content": "RAGFab est un système RAG optimisé pour le français..."
-}
-```
+1. Create provider file in `rag-app/utils/` or `web-api/app/utils/`
+2. Implement `Model` or `AgentModel` interface from PydanticAI
+3. Add factory function (e.g., `get_provider_model()`)
+4. Update `execute_rag_agent()` in `web-api/app/main.py` with new provider logic
+5. Add environment variables to `.env.example` and `docker-compose.yml`
+6. Update documentation
 
----
+### Modifying Chunking Strategy
 
-## 💡 Leçons Apprises
+1. Edit `rag-app/ingestion/chunker.py`
+2. Update `ChunkingConfig` dataclass if adding parameters
+3. Modify environment variables in `.env`
+4. Re-ingest all documents to apply new strategy
+5. Update tests in `rag-app/tests/unit/test_chunker.py`
 
-1. **PydanticAI streaming ne supporte pas bien les tools** → Utiliser `run()` au lieu de `run_stream()`
+### Adding New Database Tables
 
-2. **ArgsDict n'est pas un dict** → Toujours extraire avec `.args_dict` avant sérialisation JSON
+1. Add schema to `database/02_web_schema.sql` (or create new file `03_*.sql`)
+2. Ensure files are mounted in `docker-compose.yml` under postgres volumes
+3. Files execute in alphabetical order - use numeric prefixes
+4. Recreate database or run migration manually for existing deployments
 
-3. **L'ordre des messages Mistral est strict** → Tool results doivent être dans des messages séparés avec role "tool"
+### Debugging Sources Not Appearing
 
-4. **Les caractères UTF-8 invalides sont fréquents dans les PDFs** → Toujours nettoyer avec `errors='replace'`
+Check in order:
+1. `_current_request_sources` is properly initialized at request start
+2. Tool execution saves sources to global variable
+3. Sources retrieved from global variable after agent execution
+4. Frontend correctly displays sources array from API response
+5. Check logs for "📚 Sources récupérées" messages
 
-5. **Glob patterns `**/*` ne trouvent pas les fichiers à la racine** → Ajouter un pattern pour la racine explicitement
+### Performance Tuning
 
-6. **Les batches d'embeddings trop gros timeout** → Batch size de 20 est un bon compromis
+**Embeddings service**:
+- Adjust batch size in `rag-app/ingestion/embedder.py` (currently 20)
+- Increase timeout if needed (currently 90s)
+- Monitor memory usage - model requires ~4-8GB RAM
 
-7. **Docling HybridChunker est excellent** → Chunks beaucoup plus cohérents que le découpage caractère simple
+**PostgreSQL**:
+- Index on `embedding` column uses HNSW (configured in schema)
+- Adjust `match_count` parameter for search results (default 5)
+- Monitor query performance with `EXPLAIN ANALYZE`
 
----
-
-## 🎯 Prochaines Étapes Possibles
-
-- [ ] Ajouter support pour plus de modèles Mistral (large, codestral)
-- [ ] Implémenter le streaming avec tools (complexe avec PydanticAI)
-- [ ] Ajouter d'autres tools (résumé de document, extraction d'entités)
-- [ ] Monitoring des coûts API Mistral (tokens utilisés)
-- [ ] Cache des embeddings pour éviter regeneration
-- [ ] Interface web Streamlit/Gradio pour démo
-- [ ] Multi-turn conversation avec contexte enrichi
-- [ ] Support de plusieurs langues simultanément
-
----
-
-## 📝 Notes Techniques
-
-### Pourquoi Mistral Small Latest ?
-- `open-mistral-7b` inventait des réponses au lieu d'appeler les tools
-- `mistral-small-latest` a un meilleur support du function calling
-- Bon compromis coût/performance pour le français
-
-### Pourquoi non-streaming ?
-- `run_stream()` de PydanticAI détecte les tool calls mais ne les exécute pas automatiquement
-- Il faudrait gérer manuellement l'exécution des tools et le renvoi des résultats
-- `run()` gère tout le workflow automatiquement
-
-### Structure des ArgsDict
-```python
-# Création
-args = ArgsDict(args_dict={"query": "test", "limit": 5})
-
-# Accès
-args.args_dict  # → {"query": "test", "limit": 5}
-
-# Sérialisation JSON
-json.dumps(args.args_dict)  # ✅ OK
-json.dumps(args)            # ❌ TypeError
-```
-
----
-
-**Fin de session - Système RAGFab opérationnel avec Mistral function calling ! 🎉**
+**Vector Search**:
+- Similarity threshold: 0.0 (no filtering by default)
+- Uses cosine distance: `embedding <=> query_embedding`
+- Results ordered by similarity (closest first)

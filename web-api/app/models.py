@@ -95,11 +95,13 @@ class ConversationCreate(BaseModel):
     title: Optional[str] = "Nouvelle conversation"
     provider: str = "mistral"  # mistral, chocolatine
     use_tools: bool = True
+    reranking_enabled: Optional[bool] = None  # None=global, True=on, False=off
 
 
 class ConversationUpdate(BaseModel):
     title: Optional[str] = None
     is_archived: Optional[bool] = None
+    reranking_enabled: Optional[bool] = None  # Update reranking preference
 
 
 class Conversation(BaseModel):
@@ -111,6 +113,7 @@ class Conversation(BaseModel):
     updated_at: datetime
     message_count: int = 0
     archived: bool = False
+    reranking_enabled: Optional[bool] = None  # None=use env var, True/False=explicit
 
 
 class ConversationWithStats(Conversation):
@@ -147,6 +150,7 @@ class ChatRequest(BaseModel):
     message: str
     provider: Optional[str] = None  # Override conversation provider
     use_tools: Optional[bool] = None  # Override conversation use_tools
+    reranking_enabled: Optional[bool] = None  # Override conversation reranking setting
 
 
 class ChatResponse(BaseModel):

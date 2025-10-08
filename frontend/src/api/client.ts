@@ -160,7 +160,7 @@ class APIClient {
     return data;
   }
 
-  async updateConversation(id: string, updates: { title?: string; is_archived?: boolean }): Promise<Conversation> {
+  async updateConversation(id: string, updates: { title?: string; is_archived?: boolean; reranking_enabled?: boolean | null }): Promise<Conversation> {
     const { data } = await this.client.patch<Conversation>(`/api/conversations/${id}`, updates);
     return data;
   }

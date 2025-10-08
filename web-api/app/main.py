@@ -44,10 +44,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Variable globale pour stocker les sources de la requête en cours
-# Plus fiable que ContextVar qui peut être perdu dans les appels async de PydanticAI
+# Variables globales pour stocker le contexte de la requête en cours
+# Plus fiables que ContextVar qui peuvent être perdus dans les appels async de PydanticAI
 # Note: Pas de problème de concurrence car FastAPI traite les requêtes séquentiellement avec async
 _current_request_sources: List[dict] = []
+_current_conversation_id: Optional[UUID] = None
 
 # Rate limiter configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -325,15 +326,15 @@ async def list_conversations(
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: ConversationCreate):
-    """Crée une nouvelle conversation"""
+    """Crée une nouvelle conversation avec options de reranking"""
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO conversations (title, provider, use_tools)
-            VALUES ($1, $2, $3)
+            INSERT INTO conversations (title, provider, use_tools, reranking_enabled)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
             """,
-            request.title, request.provider, request.use_tools
+            request.title, request.provider, request.use_tools, request.reranking_enabled
         )
         return Conversation(**dict(row))
 
@@ -356,7 +357,14 @@ async def update_conversation(
     conversation_id: UUID,
     request: ConversationUpdate
 ):
-    """Met à jour une conversation"""
+    """
+    Met à jour une conversation (titre, archivage, reranking)
+
+    Le champ reranking_enabled permet de contrôler le reranking par conversation :
+    - None (null) : Utilise la variable d'environnement RERANKER_ENABLED
+    - True : Active le reranking pour cette conversation
+    - False : Désactive le reranking pour cette conversation
+    """
     updates = []
     values = []
     param_count = 1
@@ -369,6 +377,12 @@ async def update_conversation(
     if request.is_archived is not None:
         updates.append(f"archived = ${param_count}")
         values.append(request.is_archived)
+        param_count += 1
+
+    # Support explicite pour reranking_enabled (y compris None pour reset)
+    if "reranking_enabled" in request.model_dump(exclude_unset=True):
+        updates.append(f"reranking_enabled = ${param_count}")
+        values.append(request.reranking_enabled)
         param_count += 1
 
     if not updates:
@@ -386,6 +400,8 @@ async def update_conversation(
         row = await conn.fetchrow(query, *values)
         if not row:
             raise HTTPException(status_code=404, detail="Conversation not found")
+
+        logger.info(f"📝 Conversation {conversation_id} updated - reranking_enabled: {row['reranking_enabled']}")
         return Conversation(**dict(row))
 
 
@@ -494,7 +510,8 @@ async def send_message(request: Request, chat_request: ChatRequest):
             message=chat_request.message,
             history=[{"role": msg["role"], "content": msg["content"]} for msg in history],
             provider=provider,
-            use_tools=use_tools
+            use_tools=use_tools,
+            conversation_id=chat_request.conversation_id
         )
     except Exception as e:
         logger.error(f"Erreur RAG agent: {e}", exc_info=True)
@@ -581,7 +598,8 @@ async def regenerate_message(message_id: UUID):
             message=user_msg["content"],
             history=[],  # TODO: Récupérer l'historique correct
             provider=conversation["provider"],
-            use_tools=conversation["use_tools"]
+            use_tools=conversation["use_tools"],
+            conversation_id=original["conversation_id"]
         )
     except Exception as e:
         logger.error(f"Erreur RAG agent: {e}", exc_info=True)
@@ -774,11 +792,103 @@ async def get_search_sources(query: str, limit: int = 5) -> List[dict]:
         return []
 
 
+async def rerank_results(query: str, results: List[dict]) -> List[dict]:
+    """
+    Rerank les résultats de recherche vectorielle pour améliorer la pertinence.
+
+    Args:
+        query: La question de l'utilisateur
+        results: Liste des résultats de la recherche vectorielle
+
+    Returns:
+        Liste des résultats reranked (triés par pertinence)
+    """
+    reranker_url = os.getenv("RERANKER_API_URL", "http://reranker:8002")
+
+    try:
+        # Préparer les documents pour le reranking
+        documents = []
+        for row in results:
+            documents.append({
+                "chunk_id": str(row["chunk_id"]),
+                "document_id": str(row["document_id"]),
+                "document_title": row["document_title"],
+                "document_source": row["document_source"],
+                "chunk_index": row["chunk_index"],
+                "content": row["content"],
+                "similarity": float(row["similarity"])
+            })
+
+        # Appeler le service de reranking
+        return_k = int(os.getenv("RERANKER_RETURN_K", "5"))
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{reranker_url}/rerank",
+                json={
+                    "query": query,
+                    "documents": documents,
+                    "top_k": return_k
+                },
+                timeout=60.0
+            )
+            response.raise_for_status()
+            reranked_data = response.json()
+
+        logger.info(f"✅ Reranking effectué en {reranked_data['processing_time']:.3f}s, "
+                   f"{reranked_data['count']} documents retournés")
+
+        return reranked_data["documents"]
+
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur lors du reranking (fallback vers vector search): {e}")
+        # Fallback gracieux : retourner les résultats originaux
+        return [
+            {
+                "chunk_id": str(row["chunk_id"]),
+                "document_id": str(row["document_id"]),
+                "document_title": row["document_title"],
+                "document_source": row["document_source"],
+                "chunk_index": row["chunk_index"],
+                "content": row["content"],
+                "similarity": float(row["similarity"])
+            }
+            for row in results[:int(os.getenv("RERANKER_RETURN_K", "5"))]
+        ]
+
+
 async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     """Tool pour rechercher dans la base de connaissances - version web-api sans docling"""
-    global _current_request_sources
+    global _current_request_sources, _current_conversation_id
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
+        # Déterminer si le reranking est activé (priorité: conversation > env var)
+        reranker_enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
+
+        # Si conversation_id fourni via variable globale, vérifier la préférence de la conversation
+        if _current_conversation_id:
+            async with database.db_pool.acquire() as conn:
+                conv = await conn.fetchrow(
+                    "SELECT reranking_enabled FROM conversations WHERE id = $1",
+                    _current_conversation_id
+                )
+                if conv and conv['reranking_enabled'] is not None:
+                    # Préférence explicite de la conversation (True ou False)
+                    reranker_enabled = conv['reranking_enabled']
+                    logger.info(f"🎚️ Préférence conversation {_current_conversation_id}: reranking={reranker_enabled}")
+                else:
+                    # NULL ou conversation non trouvée: utiliser la variable d'environnement
+                    logger.info(f"🌐 Préférence globale (env): reranking={reranker_enabled}")
+        else:
+            logger.info(f"🌐 Préférence globale (env): reranking={reranker_enabled}")
+
+        # Ajuster la limite de recherche selon le mode
+        if reranker_enabled:
+            search_limit = int(os.getenv("RERANKER_TOP_K", "20"))
+            logger.info(f"🔄 Reranking activé: recherche de {search_limit} candidats")
+        else:
+            search_limit = limit
+            logger.info(f"📊 Reranking désactivé: recherche vectorielle directe (top-{limit})")
+
         # Générer l'embedding via le service
         embeddings_url = os.getenv("EMBEDDINGS_API_URL", "http://ragfab-embeddings:8001")
         async with httpx.AsyncClient() as client:
@@ -810,27 +920,47 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                 LIMIT $2
                 """,
                 embedding_str,
-                limit
+                search_limit
             )
 
         if not results:
             _current_request_sources = []
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
-        # Stocker les sources avec métadonnées pour le frontend
-        sources = []
-        response_parts = []
-        for row in results:
-            sources.append({
-                "chunk_id": str(row["chunk_id"]),
-                "document_id": str(row["document_id"]),
-                "document_title": row["document_title"],
-                "document_source": row["document_source"],
-                "chunk_index": row["chunk_index"],
-                "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
-                "similarity": float(row["similarity"])
-            })
-            response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
+        # Si reranking activé, appliquer le reranking
+        if reranker_enabled:
+            logger.info(f"🎯 Application du reranking sur {len(results)} candidats")
+            reranked_docs = await rerank_results(query, results)
+
+            # Stocker les sources avec métadonnées pour le frontend
+            sources = []
+            response_parts = []
+            for doc in reranked_docs:
+                sources.append({
+                    "chunk_id": doc["chunk_id"],
+                    "document_id": doc["document_id"],
+                    "document_title": doc["document_title"],
+                    "document_source": doc["document_source"],
+                    "chunk_index": doc["chunk_index"],
+                    "content": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"],
+                    "similarity": doc["similarity"]
+                })
+                response_parts.append(f"[Source: {doc['document_title']}]\n{doc['content']}\n")
+        else:
+            # Mode normal sans reranking
+            sources = []
+            response_parts = []
+            for row in results:
+                sources.append({
+                    "chunk_id": str(row["chunk_id"]),
+                    "document_id": str(row["document_id"]),
+                    "document_title": row["document_title"],
+                    "document_source": row["document_source"],
+                    "chunk_index": row["chunk_index"],
+                    "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
+                    "similarity": float(row["similarity"])
+                })
+                response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
 
         # Sauvegarder les sources dans la variable globale
         _current_request_sources = sources.copy()
@@ -969,7 +1099,8 @@ async def execute_rag_agent(
     message: str,
     history: List[dict],
     provider: str,
-    use_tools: bool
+    use_tools: bool,
+    conversation_id: Optional[UUID] = None
 ) -> dict:
     """Exécute le RAG agent et retourne la réponse"""
     try:
@@ -977,10 +1108,11 @@ async def execute_rag_agent(
         from utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
 
-        global _current_request_sources
+        global _current_request_sources, _current_conversation_id
 
-        # Initialiser les sources pour cette requête
+        # Initialiser le contexte pour cette requête
         _current_request_sources = []
+        _current_conversation_id = conversation_id
         sources = []
 
         # Pour Chocolatine : recherche manuelle + injection dans le prompt

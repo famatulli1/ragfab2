@@ -64,6 +64,7 @@ export interface Conversation {
   updated_at: string;
   message_count: number;
   is_archived: boolean;
+  reranking_enabled?: boolean | null; // null = use global env var, true/false = override
 }
 
 export interface ConversationWithStats extends Conversation {
