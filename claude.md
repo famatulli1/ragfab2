@@ -13,27 +13,29 @@ RAGFab is a dual-provider RAG (Retrieval Augmented Generation) system optimized 
 ### Component Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      DOCKER / COOLIFY                           │
-│                                                                 │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐ │
-│  │ Embeddings API   │  │ Reranker API     │  │ PostgreSQL   │ │
-│  │ (E5-Large)       │  │ (BGE-M3)         │  │ + PGVector   │ │
-│  │ Port: 8001       │  │ Port: 8002       │  │ Port: 5432   │ │
-│  └────────┬─────────┘  └────────┬─────────┘  └──────┬───────┘ │
-│           │                     │                    │         │
-│           └─────────────────────┼────────────────────┘         │
-│                                 │                              │
-│                       ┌─────────▼─────────┐                    │
-│                       │ Web API (FastAPI) │                    │
-│                       │ Port: 8000        │                    │
-│                       └─────────┬─────────┘                    │
-│                                 │                              │
-│                       ┌─────────▼─────────┐                    │
-│                       │ Frontend (React)  │                    │
-│                       │ Port: 5173        │                    │
-│                       └───────────────────┘                    │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         DOCKER / COOLIFY                             │
+│                                                                      │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────┐ │
+│  │ Embeddings API │  │ Reranker API   │  │ PostgreSQL + PGVector  │ │
+│  │ (E5-Large)     │  │ (BGE-M3)       │  │ (documents + chunks)   │ │
+│  │ Port: 8001     │  │ Port: 8002     │  │ Port: 5432             │ │
+│  └────────┬───────┘  └────────┬───────┘  └───────────┬────────────┘ │
+│           │                   │                       │              │
+│           └───────────────────┼───────────────────────┤              │
+│                               │                       │              │
+│                   ┌───────────▼──────┐    ┌──────────▼────────────┐ │
+│                   │ Web API (FastAPI)│    │ Ingestion Worker      │ │
+│                   │ - Chat           │◄───┤ - Poll jobs (3s)      │ │
+│                   │ - Upload         │    │ - Process documents   │ │
+│                   │ Port: 8000       │    │ - Generate embeddings │ │
+│                   └──────────┬───────┘    └───────────────────────┘ │
+│                              │                   Shared Volume:      │
+│                   ┌──────────▼───────┐          /app/uploads        │
+│                   │ Frontend (React) │                              │
+│                   │ Port: 5173       │                              │
+│                   └──────────────────┘                              │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Data Flow
@@ -56,6 +58,25 @@ RAGFab is a dual-provider RAG (Retrieval Augmented Generation) system optimized 
 1. Question → Embedding (E5-Large) → Vector similarity search (top-5 direct)
 2. Top-5 results → LLM context
 
+**Document Ingestion Pipeline** (via interface admin):
+1. User uploads document → Web API validates (type, size < 100MB)
+2. File saved to `/app/uploads/{job_id}/filename.pdf` (shared volume)
+3. Job created in `ingestion_jobs` table with `status='pending'`
+4. Ingestion Worker polls PostgreSQL every 3s → Claims pending job
+5. Worker processes document: Docling parsing → Chunking → Embeddings → DB save
+6. Progress updated in real-time (0-100%) → Frontend polls job status
+7. Job completed: `status='completed'`, document appears in admin interface
+
+**Image Extraction Pipeline** (when `VLM_ENABLED=true`):
+1. Document parsing with Docling → Detects images in PDF pages
+2. For each image detected:
+   - Extract image data → Save to `/app/uploads/images/{job_id}/{image_id}.png`
+   - Encode to base64 for inline display
+   - Call VLM API (OpenAI-compatible) → Get description + OCR text
+   - Extract position metadata (page, x, y, width, height)
+3. Store in `document_images` table with link to parent chunk (matched by page_number)
+4. Images included in RAG search results → Displayed inline in chat interface
+
 **Critical Pattern**: Global variable `_current_request_sources` is used instead of `ContextVar` because PydanticAI's async tool execution loses ContextVar state between calls.
 
 ## Development Commands
@@ -66,18 +87,18 @@ RAGFab is a dual-provider RAG (Retrieval Augmented Generation) system optimized 
 # Start core services (PostgreSQL + Embeddings + Reranker)
 docker-compose up -d postgres embeddings reranker
 
-# Start web stack (includes frontend + web-api)
-docker-compose --profile web up -d
+# Start full stack (API + Frontend + Ingestion Worker)
+docker-compose up -d
 
 # Rebuild after code changes
-docker-compose build web-api
-docker-compose build frontend
-docker-compose build reranker
+docker-compose build ragfab-api
+docker-compose build ragfab-frontend
+docker-compose build ingestion-worker
 
 # View logs
-docker-compose logs -f web-api
-docker-compose logs -f frontend
-docker-compose logs -f reranker
+docker-compose logs -f ragfab-api
+docker-compose logs -f ragfab-frontend
+docker-compose logs -f ingestion-worker
 ```
 
 ### Testing
@@ -104,12 +125,57 @@ npm run lint  # ESLint
 
 ### Document Ingestion
 
+#### Via Interface Admin (Recommended)
+
+```bash
+# 1. Start services (includes ingestion worker)
+docker-compose up -d
+
+# 2. Access admin interface
+open http://localhost:3000/admin
+# Login: admin / admin
+
+# 3. Upload documents via drag & drop
+# - Supported: PDF, DOCX, MD, TXT, HTML
+# - Max size: 100MB per file
+# - Progress shown in real-time
+
+# 4. Monitor ingestion worker
+docker-compose logs -f ingestion-worker
+
+# 5. Verify ingestion
+docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT title, COUNT(c.id) as chunks FROM documents d LEFT JOIN chunks c ON d.id = c.document_id GROUP BY d.id, title;"
+```
+
+**Key Features**:
+- Real-time progress tracking (0-100%)
+- Automatic error handling and retry
+- Frontend polling every 2s for status updates
+- Worker processes documents asynchronously
+- Shared volume between API and worker
+
+**Troubleshooting**:
+```bash
+# Check worker status
+docker-compose ps ingestion-worker
+
+# View worker logs
+docker-compose logs -f ingestion-worker
+
+# Restart worker if stuck
+docker-compose restart ingestion-worker
+
+# Check job status in database
+docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT id, filename, status, progress, chunks_created FROM ingestion_jobs ORDER BY created_at DESC LIMIT 10;"
+```
+
+#### CLI Ingestion (Legacy)
+
 ```bash
 # Place PDFs in rag-app/documents/ then:
 docker-compose --profile app run --rm rag-app python -m ingestion.ingest
 
-# Verify ingestion
-docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT title, COUNT(c.id) as chunks FROM documents d LEFT JOIN chunks c ON d.id = c.document_id GROUP BY d.id, title;"
+# This method bypasses the job queue and processes directly
 ```
 
 ### Frontend Development
@@ -277,6 +343,106 @@ RERANKER_ENABLED=true  # Activer le reranking
 RERANKER_TOP_K=20      # Augmenter si base très large (max 50)
 RERANKER_RETURN_K=5    # Nombre final de chunks pour le LLM
 ```
+
+### VLM (Vision Language Model) System - Image Extraction (NEW)
+
+**When to use VLM** (`VLM_ENABLED=true`):
+- PDFs containing diagrams, charts, tables, or graphical content
+- Technical documentation with visual elements
+- Medical/scientific documents with images
+- Need to extract text from images (OCR)
+- Want visual context in RAG responses
+
+**Architecture**:
+- **Remote VLM API** (OpenAI-compatible): No local GPU required
+- **Docling integration**: Automatic image detection during PDF parsing
+- **Dual storage**: Filesystem (original) + base64 (inline display)
+- **Database linking**: Images linked to chunks via `page_number` matching
+
+**Configuration**:
+```bash
+# Enable/disable VLM image extraction
+VLM_ENABLED=false  # Set to true to activate
+
+# VLM API configuration (remote service)
+VLM_API_URL=https://your-vlm-api.com/v1
+VLM_API_KEY=your_api_key
+VLM_MODEL_NAME=SmolDocling-256M  # Recommended: fast, ~6s/page
+VLM_TIMEOUT=60.0
+
+# Image processing settings
+IMAGE_STORAGE_PATH=/app/uploads/images
+IMAGE_MAX_SIZE_MB=10
+IMAGE_QUALITY=85
+IMAGE_OUTPUT_FORMAT=png
+```
+
+**Recommended VLM models**:
+1. `SmolDocling-256M` - Fast, optimized for documents (~6s/page)
+2. `Qwen2.5-VL-3B` - Balanced quality/speed (~23s/page)
+3. `pixtral-12b` - High quality, slower (~300s/page)
+4. `granite-vision-3.2-2b` - Good alternative (~105s/page)
+
+**How it works**:
+1. **Ingestion**: Docling detects images during PDF parsing
+2. **Extraction**: Images saved to `/app/uploads/images/{job_id}/{image_id}.png`
+3. **Analysis**: VLM API called for each image → Description + OCR text
+4. **Storage**: Metadata in `document_images` table + base64 encoding
+5. **Linking**: Images linked to chunks via `page_number` match
+6. **Display**: RAG search includes images → Frontend shows inline thumbnails
+
+**Database schema**:
+```sql
+CREATE TABLE document_images (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES chunks(id),  -- Linked via page_number
+    page_number INTEGER,
+    position JSONB,  -- {x, y, width, height}
+    image_path VARCHAR(500),
+    image_base64 TEXT,  -- For inline display
+    description TEXT,  -- VLM-generated description
+    ocr_text TEXT,  -- Extracted text from image
+    confidence_score FLOAT,
+    created_at TIMESTAMP
+);
+```
+
+**Frontend integration**:
+- `ImageViewer.tsx`: Component for displaying image thumbnails and full-size modal
+- Thumbnails shown inline with sources in chat responses
+- Click to enlarge with zoom controls
+- Download individual images
+- Display VLM description + OCR text
+
+**Performance impact**:
+- Additional time during ingestion: +6-60s per image (model dependent)
+- Storage: ~50-500KB per image (base64 + metadata)
+- No runtime impact: Images pre-processed during ingestion
+- Network: One API call per image to VLM service
+
+**Troubleshooting**:
+```bash
+# Check if images are being extracted
+docker-compose logs -f ingestion-worker | grep "image"
+
+# Verify VLM API connectivity
+curl -X POST $VLM_API_URL/chat/completions \
+  -H "Authorization: Bearer $VLM_API_KEY" \
+  -H "Content-Type: application/json"
+
+# Check image storage
+ls -lh /app/uploads/images/
+
+# Query images in database
+docker-compose exec postgres psql -U raguser -d ragdb \
+  -c "SELECT document_id, COUNT(*) FROM document_images GROUP BY document_id;"
+```
+
+**API endpoints** (new):
+- `GET /api/chunks/{chunk_id}/images` - Get images for a chunk
+- `GET /api/documents/{document_id}/images` - Get all images from document
+- `GET /api/images/{image_id}` - Get specific image metadata
 
 ## Common Pitfalls
 

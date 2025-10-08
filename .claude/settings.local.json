@@ -9,7 +9,12 @@
       "Bash(git push:*)",
       "Bash(ping:*)",
       "Bash(git commit:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker compose build:*)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(echo \"=== $file ===\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

@@ -37,6 +37,7 @@ from .models import (
 )
 from .routes import auth
 from .routes import admin
+from .routes import images
 
 # Configuration logging
 logging.basicConfig(
@@ -106,6 +107,7 @@ app.add_middleware(
 # Inclure les routes
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(images.router, prefix="/api", tags=["images"])
 
 
 # ============================================================================
@@ -118,8 +120,9 @@ async def startup_event():
     logger.info("🚀 Démarrage de l'API RAGFab...")
     await initialize_database()
 
-    # Créer le répertoire d'uploads
+    # Créer le répertoire d'uploads et images
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    os.makedirs(os.path.join(settings.UPLOAD_DIR, "images"), exist_ok=True)
 
     logger.info("✅ API RAGFab prête")
 
@@ -941,40 +944,102 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             _current_request_sources = []
             return "Aucune information pertinente trouvée dans la base de connaissances."
 
+        # Récupérer les images pour tous les chunks trouvés
+        chunk_ids = [str(row["chunk_id"]) for row in results]
+        chunk_images_map = {}  # Map chunk_id -> list of images
+
+        if chunk_ids:
+            async with database.db_pool.acquire() as conn:
+                image_rows = await conn.fetch(
+                    """
+                    SELECT
+                        chunk_id, id as image_id, page_number, position,
+                        description, ocr_text, image_base64
+                    FROM document_images
+                    WHERE chunk_id = ANY($1::uuid[])
+                    ORDER BY page_number, (position->>'y')::float
+                    """,
+                    chunk_ids
+                )
+
+                for img_row in image_rows:
+                    chunk_id = str(img_row["chunk_id"])
+                    if chunk_id not in chunk_images_map:
+                        chunk_images_map[chunk_id] = []
+
+                    chunk_images_map[chunk_id].append({
+                        "id": str(img_row["image_id"]),
+                        "page_number": img_row["page_number"],
+                        "position": json.loads(img_row["position"]) if img_row["position"] else {},
+                        "description": img_row["description"],
+                        "ocr_text": img_row["ocr_text"],
+                        "image_base64": img_row["image_base64"]
+                    })
+
         # Si reranking activé, appliquer le reranking
         if reranker_enabled:
             logger.info(f"🎯 Application du reranking sur {len(results)} candidats")
             reranked_docs = await rerank_results(query, results)
 
-            # Stocker les sources avec métadonnées pour le frontend
+            # Stocker les sources avec métadonnées + images pour le frontend
             sources = []
             response_parts = []
             for doc in reranked_docs:
+                chunk_id = doc["chunk_id"]
+                images = chunk_images_map.get(chunk_id, [])
+
                 sources.append({
-                    "chunk_id": doc["chunk_id"],
+                    "chunk_id": chunk_id,
                     "document_id": doc["document_id"],
                     "document_title": doc["document_title"],
                     "document_source": doc["document_source"],
                     "chunk_index": doc["chunk_index"],
                     "content": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"],
-                    "similarity": doc["similarity"]
+                    "similarity": doc["similarity"],
+                    "images": images  # Include associated images
                 })
-                response_parts.append(f"[Source: {doc['document_title']}]\n{doc['content']}\n")
+
+                # Add image descriptions to response if available
+                response_part = f"[Source: {doc['document_title']}]\n{doc['content']}\n"
+                if images:
+                    response_part += f"\n📷 Images associées ({len(images)}):\n"
+                    for img in images:
+                        if img.get("description"):
+                            response_part += f"  - {img['description']}\n"
+                        if img.get("ocr_text"):
+                            response_part += f"    Texte: {img['ocr_text'][:100]}...\n"
+
+                response_parts.append(response_part)
         else:
             # Mode normal sans reranking
             sources = []
             response_parts = []
             for row in results:
+                chunk_id = str(row["chunk_id"])
+                images = chunk_images_map.get(chunk_id, [])
+
                 sources.append({
-                    "chunk_id": str(row["chunk_id"]),
+                    "chunk_id": chunk_id,
                     "document_id": str(row["document_id"]),
                     "document_title": row["document_title"],
                     "document_source": row["document_source"],
                     "chunk_index": row["chunk_index"],
                     "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
-                    "similarity": float(row["similarity"])
+                    "similarity": float(row["similarity"]),
+                    "images": images  # Include associated images
                 })
-                response_parts.append(f"[Source: {row['document_title']}]\n{row['content']}\n")
+
+                # Add image descriptions to response if available
+                response_part = f"[Source: {row['document_title']}]\n{row['content']}\n"
+                if images:
+                    response_part += f"\n📷 Images associées ({len(images)}):\n"
+                    for img in images:
+                        if img.get("description"):
+                            response_part += f"  - {img['description']}\n"
+                        if img.get("ocr_text"):
+                            response_part += f"    Texte: {img['ocr_text'][:100]}...\n"
+
+                response_parts.append(response_part)
 
         # Sauvegarder les sources dans la variable globale
         _current_request_sources = sources.copy()

@@ -65,6 +65,43 @@ class ChunkResponse(BaseModel):
 
 
 # ============================================================================
+# Image Models
+# ============================================================================
+
+class ImageMetadata(BaseModel):
+    """Metadata for an extracted document image."""
+    id: UUID
+    document_id: UUID
+    chunk_id: Optional[UUID] = None
+    page_number: int
+    position: Dict[str, float]  # {x, y, width, height}
+    image_path: str
+    image_base64: Optional[str] = None  # For inline display
+    image_format: str
+    image_size_bytes: int
+    description: Optional[str] = None
+    ocr_text: Optional[str] = None
+    confidence_score: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class ImageResponse(BaseModel):
+    """Simplified image response for API."""
+    id: UUID
+    page_number: int
+    position: Dict[str, float]
+    description: Optional[str] = None
+    ocr_text: Optional[str] = None
+    image_base64: str  # Always included for inline display
+
+
+class ChunkWithImages(ChunkResponse):
+    """Chunk response with associated images."""
+    images: List[ImageResponse] = []
+
+
+# ============================================================================
 # Ingestion Job Models
 # ============================================================================
 

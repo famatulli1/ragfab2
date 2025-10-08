@@ -13,6 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/02_web_schema.sql:/docker-entrypoint-initdb.d/02_web_schema.sql:ro
+      - ./database/03_images_schema.sql:/docker-entrypoint-initdb.d/03_images_schema.sql:ro
       - ./database/04_auto_migration_reranking.sh:/docker-entrypoint-initdb.d/04_auto_migration_reranking.sh:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -127,6 +128,16 @@ services:
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-3}
       WORKER_TIMEOUT_MINUTES: ${WORKER_TIMEOUT_MINUTES:-30}
       UPLOADS_DIR: /app/uploads
+      VLM_ENABLED: ${VLM_ENABLED:-false}
+      VLM_API_URL: ${VLM_API_URL:-}
+      VLM_API_KEY: ${VLM_API_KEY:-}
+      VLM_MODEL_NAME: ${VLM_MODEL_NAME:-SmolDocling-256M}
+      VLM_TIMEOUT: ${VLM_TIMEOUT:-60.0}
+      VLM_PROMPT: ${VLM_PROMPT:-Décris cette image en détail en français. Extrais tout le texte visible.}
+      IMAGE_STORAGE_PATH: ${IMAGE_STORAGE_PATH:-/app/uploads/images}
+      IMAGE_MAX_SIZE_MB: ${IMAGE_MAX_SIZE_MB:-10}
+      IMAGE_QUALITY: ${IMAGE_QUALITY:-85}
+      IMAGE_OUTPUT_FORMAT: ${IMAGE_OUTPUT_FORMAT:-png}
     volumes:
       - ./rag-app:/app/rag-app:ro  # Monter rag-app pour importer les modules d'ingestion
       - api_uploads:/app/uploads  # Partager le volume d'uploads avec l'API

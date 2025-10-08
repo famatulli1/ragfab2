@@ -1,0 +1,399 @@
+"""
+Image extraction and processing module for RAGFab.
+
+This module handles:
+- Image detection and extraction from DoclingDocument
+- VLM analysis (description + OCR) via remote API
+- Image storage (filesystem + base64 encoding)
+- Metadata preservation (position, page number, etc.)
+"""
+
+import os
+import logging
+import base64
+import io
+from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+from dataclasses import dataclass
+from PIL import Image
+import httpx
+
+from docling_core.types.doc import DoclingDocument, PictureItem
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ImageMetadata:
+    """Metadata for an extracted image."""
+    page_number: int
+    position: Dict[str, float]  # {x, y, width, height}
+    image_path: str  # Relative path
+    image_base64: str  # Encoded for inline display
+    image_format: str  # png, jpeg
+    image_size_bytes: int
+    description: Optional[str] = None
+    ocr_text: Optional[str] = None
+    confidence_score: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class VLMClient:
+    """Client for remote VLM API (OpenAI-compatible)."""
+
+    def __init__(
+        self,
+        api_url: str,
+        api_key: Optional[str] = None,
+        model_name: str = "SmolDocling-256M",
+        timeout: float = 60.0,
+        prompt: str = "Décris cette image en détail en français. Extrais tout le texte visible."
+    ):
+        """
+        Initialize VLM client.
+
+        Args:
+            api_url: Base URL of VLM API (e.g., https://api.com/v1)
+            api_key: Optional API key
+            model_name: Model to use
+            timeout: Request timeout in seconds
+            prompt: Prompt for image analysis
+        """
+        self.api_url = api_url.rstrip('/')
+        self.api_key = api_key
+        self.model_name = model_name
+        self.timeout = timeout
+        self.prompt = prompt
+
+        logger.info(f"VLM Client initialized: {api_url}, model={model_name}")
+
+    async def analyze_image(self, image_base64: str) -> Tuple[str, Optional[float]]:
+        """
+        Analyze image with VLM to get description and OCR text.
+
+        Args:
+            image_base64: Base64 encoded image
+
+        Returns:
+            Tuple of (combined_text, confidence_score)
+        """
+        headers = {
+            "Content-Type": "application/json"
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        # OpenAI-compatible API format
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": self.prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 1000,
+            "temperature": 0.0
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.api_url}/chat/completions",
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+
+                # Extract confidence if available (some APIs provide this)
+                confidence = None
+                if "confidence" in result:
+                    confidence = result["confidence"]
+
+                return content, confidence
+
+        except httpx.TimeoutException:
+            logger.error(f"VLM API timeout after {self.timeout}s")
+            return "[VLM Timeout]", None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"VLM API error: {e.response.status_code} - {e.response.text}")
+            return "[VLM Error]", None
+        except Exception as e:
+            logger.error(f"VLM analysis failed: {e}")
+            return "[VLM Failed]", None
+
+
+class ImageProcessor:
+    """Processor for extracting and analyzing images from documents."""
+
+    def __init__(
+        self,
+        storage_path: str = "/app/uploads/images",
+        max_size_mb: int = 10,
+        image_quality: int = 85,
+        output_format: str = "png",
+        vlm_enabled: bool = False,
+        vlm_client: Optional[VLMClient] = None
+    ):
+        """
+        Initialize image processor.
+
+        Args:
+            storage_path: Base path for storing extracted images
+            max_size_mb: Maximum image size in MB
+            image_quality: JPEG quality (1-100)
+            output_format: Output format (png, jpeg)
+            vlm_enabled: Enable VLM analysis
+            vlm_client: VLM client instance
+        """
+        self.storage_path = Path(storage_path)
+        self.max_size_mb = max_size_mb
+        self.image_quality = image_quality
+        self.output_format = output_format.lower()
+        self.vlm_enabled = vlm_enabled
+        self.vlm_client = vlm_client
+
+        # Create storage directory if needed
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            f"ImageProcessor initialized: "
+            f"storage={storage_path}, "
+            f"vlm_enabled={vlm_enabled}, "
+            f"format={output_format}"
+        )
+
+    async def extract_images_from_document(
+        self,
+        docling_doc: DoclingDocument,
+        job_id: str
+    ) -> List[ImageMetadata]:
+        """
+        Extract all images from a DoclingDocument.
+
+        Args:
+            docling_doc: Parsed document from Docling
+            job_id: Unique job identifier for organizing images
+
+        Returns:
+            List of ImageMetadata objects
+        """
+        if not docling_doc:
+            logger.warning("No DoclingDocument provided for image extraction")
+            return []
+
+        # Create job-specific directory
+        job_dir = self.storage_path / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        extracted_images = []
+        image_count = 0
+
+        # Iterate through document pages
+        for page_num, page in enumerate(docling_doc.pages, start=1):
+            logger.debug(f"Scanning page {page_num} for images...")
+
+            # Find all PictureItem elements in the page
+            for item in page.assembled.elements:
+                if isinstance(item, PictureItem):
+                    try:
+                        image_metadata = await self._process_image(
+                            picture_item=item,
+                            page_number=page_num,
+                            job_dir=job_dir,
+                            image_index=image_count
+                        )
+
+                        if image_metadata:
+                            extracted_images.append(image_metadata)
+                            image_count += 1
+
+                    except Exception as e:
+                        logger.error(f"Failed to process image on page {page_num}: {e}")
+                        continue
+
+        logger.info(f"Extracted {len(extracted_images)} images from document (job: {job_id})")
+        return extracted_images
+
+    async def _process_image(
+        self,
+        picture_item: PictureItem,
+        page_number: int,
+        job_dir: Path,
+        image_index: int
+    ) -> Optional[ImageMetadata]:
+        """
+        Process a single image: save, encode, analyze.
+
+        Args:
+            picture_item: Docling PictureItem
+            page_number: Page number in document
+            job_dir: Directory for this job's images
+            image_index: Index of this image
+
+        Returns:
+            ImageMetadata or None if processing failed
+        """
+        # Generate filename
+        image_filename = f"image_{image_index:03d}.{self.output_format}"
+        image_path = job_dir / image_filename
+
+        # Extract image data from PictureItem
+        # Docling PictureItem has .data attribute with image bytes or PIL Image
+        try:
+            if hasattr(picture_item, 'data') and picture_item.data:
+                # If data is bytes, convert to PIL Image
+                if isinstance(picture_item.data, bytes):
+                    pil_image = Image.open(io.BytesIO(picture_item.data))
+                else:
+                    pil_image = picture_item.data
+            elif hasattr(picture_item, 'image'):
+                pil_image = picture_item.image
+            else:
+                logger.warning(f"No image data in PictureItem (page {page_number}, index {image_index})")
+                return None
+
+            if not pil_image:
+                logger.warning(f"Failed to load image (page {page_number}, index {image_index})")
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to extract image from PictureItem: {e}")
+            return None
+
+        # Check image size
+        img_bytes = io.BytesIO()
+        pil_image.save(img_bytes, format=self.output_format.upper(), quality=self.image_quality)
+        img_bytes.seek(0)
+        image_size_bytes = len(img_bytes.getvalue())
+
+        # Skip if too large
+        if image_size_bytes > self.max_size_mb * 1024 * 1024:
+            logger.warning(
+                f"Image too large ({image_size_bytes / 1024 / 1024:.2f}MB), "
+                f"skipping (max: {self.max_size_mb}MB)"
+            )
+            return None
+
+        # Save image to filesystem
+        pil_image.save(image_path, format=self.output_format.upper(), quality=self.image_quality)
+        logger.debug(f"Saved image: {image_path}")
+
+        # Encode to base64 for inline display
+        img_bytes.seek(0)
+        image_base64 = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
+
+        # Get position from PictureItem bounding box
+        bbox = picture_item.prov[0].bbox if picture_item.prov else None
+        position = {
+            "x": bbox.l if bbox else 0,
+            "y": bbox.t if bbox else 0,
+            "width": bbox.width if bbox else 0,
+            "height": bbox.height if bbox else 0
+        }
+
+        # Analyze with VLM if enabled
+        description = None
+        ocr_text = None
+        confidence = None
+
+        if self.vlm_enabled and self.vlm_client:
+            try:
+                logger.debug(f"Analyzing image {image_index} with VLM...")
+                combined_text, confidence = await self.vlm_client.analyze_image(image_base64)
+
+                # Split description and OCR (simplified - VLM returns combined text)
+                # In production, you might want to use structured output or parsing
+                description = combined_text
+                ocr_text = combined_text  # VLM output includes both description and text
+
+                logger.info(f"VLM analysis complete for image {image_index}")
+
+            except Exception as e:
+                logger.error(f"VLM analysis failed for image {image_index}: {e}")
+
+        # Create metadata object
+        relative_path = f"images/{job_dir.name}/{image_filename}"
+
+        return ImageMetadata(
+            page_number=page_number,
+            position=position,
+            image_path=relative_path,
+            image_base64=image_base64,
+            image_format=self.output_format,
+            image_size_bytes=image_size_bytes,
+            description=description,
+            ocr_text=ocr_text,
+            confidence_score=confidence,
+            metadata={
+                "image_index": image_index,
+                "original_width": pil_image.width,
+                "original_height": pil_image.height
+            }
+        )
+
+
+def create_image_processor() -> Optional[ImageProcessor]:
+    """
+    Factory function to create ImageProcessor from environment variables.
+
+    Returns:
+        ImageProcessor instance or None if VLM is disabled
+    """
+    vlm_enabled = os.getenv("VLM_ENABLED", "false").lower() == "true"
+
+    if not vlm_enabled:
+        logger.info("VLM disabled, image extraction will be skipped")
+        return None
+
+    # VLM configuration
+    vlm_api_url = os.getenv("VLM_API_URL", "")
+    vlm_api_key = os.getenv("VLM_API_KEY", "")
+    vlm_model = os.getenv("VLM_MODEL_NAME", "SmolDocling-256M")
+    vlm_timeout = float(os.getenv("VLM_TIMEOUT", "60.0"))
+    vlm_prompt = os.getenv(
+        "VLM_PROMPT",
+        "Décris cette image en détail en français. Extrais tout le texte visible."
+    )
+
+    if not vlm_api_url:
+        logger.warning("VLM_ENABLED=true but VLM_API_URL not set, disabling image extraction")
+        return None
+
+    # Create VLM client
+    vlm_client = VLMClient(
+        api_url=vlm_api_url,
+        api_key=vlm_api_key if vlm_api_key else None,
+        model_name=vlm_model,
+        timeout=vlm_timeout,
+        prompt=vlm_prompt
+    )
+
+    # Image processing configuration
+    storage_path = os.getenv("IMAGE_STORAGE_PATH", "/app/uploads/images")
+    max_size_mb = int(os.getenv("IMAGE_MAX_SIZE_MB", "10"))
+    image_quality = int(os.getenv("IMAGE_QUALITY", "85"))
+    output_format = os.getenv("IMAGE_OUTPUT_FORMAT", "png")
+
+    return ImageProcessor(
+        storage_path=storage_path,
+        max_size_mb=max_size_mb,
+        image_quality=image_quality,
+        output_format=output_format,
+        vlm_enabled=True,
+        vlm_client=vlm_client
+    )

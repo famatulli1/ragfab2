@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from .chunker import ChunkingConfig, create_chunker, DocumentChunk
 from .embedder import create_embedder
+from .image_processor import create_image_processor, ImageMetadata
 
 # Import utilities
 try:
@@ -67,7 +68,8 @@ class DocumentIngestionPipeline:
         
         self.chunker = create_chunker(self.chunker_config)
         self.embedder = create_embedder()
-        
+        self.image_processor = create_image_processor()  # None if VLM disabled
+
         self._initialized = False
     
     async def initialize(self):
@@ -201,16 +203,33 @@ class DocumentIngestionPipeline:
         # Generate embeddings
         embedded_chunks = await self.embedder.embed_chunks(chunks)
         logger.info(f"Generated embeddings for {len(embedded_chunks)} chunks")
-        
-        # Save to PostgreSQL
+
+        # Extract images if VLM is enabled
+        images = []
+        if self.image_processor and docling_doc:
+            try:
+                logger.info("Extracting images from document...")
+                # Use a job ID based on document title
+                job_id = f"doc_{document_title.replace(' ', '_')[:50]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                images = await self.image_processor.extract_images_from_document(
+                    docling_doc=docling_doc,
+                    job_id=job_id
+                )
+                logger.info(f"Extracted {len(images)} images from document")
+            except Exception as e:
+                logger.error(f"Image extraction failed: {e}")
+                images = []
+
+        # Save to PostgreSQL (including images)
         document_id = await self._save_to_postgres(
             document_title,
             document_source,
             document_content,
             embedded_chunks,
-            document_metadata
+            document_metadata,
+            images
         )
-        
+
         logger.info(f"Saved document to PostgreSQL with ID: {document_id}")
         
         # Knowledge graph functionality removed
@@ -404,9 +423,10 @@ class DocumentIngestionPipeline:
         source: str,
         content: str,
         chunks: List[DocumentChunk],
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        images: List[ImageMetadata] = None
     ) -> str:
-        """Save document and chunks to PostgreSQL."""
+        """Save document, chunks, and images to PostgreSQL."""
         async with db_pool.acquire() as conn:
             async with conn.transaction():
                 # Insert document
@@ -421,21 +441,23 @@ class DocumentIngestionPipeline:
                     content,
                     json.dumps(metadata)
                 )
-                
+
                 document_id = document_result["id"]
-                
+
                 # Insert chunks
+                chunk_id_map = {}  # Map chunk index to UUID for image linking
                 for chunk in chunks:
                     # Convert embedding to PostgreSQL vector string format
                     embedding_data = None
                     if hasattr(chunk, 'embedding') and chunk.embedding:
                         # PostgreSQL vector format: '[1.0,2.0,3.0]' (no spaces after commas)
                         embedding_data = '[' + ','.join(map(str, chunk.embedding)) + ']'
-                    
-                    await conn.execute(
+
+                    chunk_result = await conn.fetchrow(
                         """
                         INSERT INTO chunks (document_id, content, embedding, chunk_index, metadata, token_count)
                         VALUES ($1::uuid, $2, $3::vector, $4, $5, $6)
+                        RETURNING id::text
                         """,
                         document_id,
                         chunk.content,
@@ -444,8 +466,72 @@ class DocumentIngestionPipeline:
                         json.dumps(chunk.metadata),
                         chunk.token_count
                     )
-                
+
+                    chunk_id_map[chunk.index] = chunk_result["id"]
+
+                # Insert images if any
+                if images:
+                    for image in images:
+                        # Find corresponding chunk (match by page number or proximity)
+                        chunk_id = self._find_chunk_for_image(image, chunks, chunk_id_map)
+
+                        await conn.execute(
+                            """
+                            INSERT INTO document_images (
+                                document_id, chunk_id, image_path, image_base64,
+                                image_format, image_size_bytes, page_number, position,
+                                description, ocr_text, confidence_score, metadata
+                            )
+                            VALUES (
+                                $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                            )
+                            """,
+                            document_id,
+                            chunk_id,
+                            image.image_path,
+                            image.image_base64,
+                            image.image_format,
+                            image.image_size_bytes,
+                            image.page_number,
+                            json.dumps(image.position),
+                            image.description,
+                            image.ocr_text,
+                            image.confidence_score,
+                            json.dumps(image.metadata) if image.metadata else '{}'
+                        )
+
+                    logger.info(f"Saved {len(images)} images to database")
+
                 return document_id
+
+    def _find_chunk_for_image(
+        self,
+        image: ImageMetadata,
+        chunks: List[DocumentChunk],
+        chunk_id_map: Dict[int, str]
+    ) -> Optional[str]:
+        """
+        Find the most appropriate chunk for an image based on page number and position.
+
+        Args:
+            image: Image metadata
+            chunks: List of document chunks
+            chunk_id_map: Mapping of chunk index to UUID
+
+        Returns:
+            Chunk UUID or None
+        """
+        # Simple heuristic: match by page number if available in chunk metadata
+        for chunk in chunks:
+            chunk_page = chunk.metadata.get("page_number")
+            if chunk_page == image.page_number:
+                return chunk_id_map.get(chunk.index)
+
+        # Fallback: return first chunk (images will be accessible via document anyway)
+        if chunks:
+            return chunk_id_map.get(chunks[0].index)
+
+        return None
     
     async def _clean_databases(self):
         """Clean existing data from databases."""

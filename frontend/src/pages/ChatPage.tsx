@@ -6,6 +6,7 @@ import type { Conversation, Message, Provider } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
+import ImageViewer from '../components/ImageViewer';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -439,23 +440,34 @@ export default function ChatPage() {
                           </svg>
                           Sources ({message.sources.length})
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {message.sources.map((source: any, i: number) => (
-                            <div
-                              key={i}
-                              onClick={() => setSelectedDocument({ documentId: source.document_id, chunkId: source.chunk_id })}
-                              className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
-                            >
-                              <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
-                                📄 {source.document_title}
-                                <span className="text-xs text-gray-400">→ Voir le document</span>
+                            <div key={i} className="space-y-2">
+                              <div
+                                onClick={() => setSelectedDocument({ documentId: source.document_id, chunkId: source.chunk_id })}
+                                className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+                              >
+                                <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                                  📄 {source.document_title}
+                                  <span className="text-xs text-gray-400">→ Voir le document</span>
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Chunk #{source.chunk_index} • Similarité: {(source.similarity * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
+                                  "{source.content}"
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                Chunk #{source.chunk_index} • Similarité: {(source.similarity * 100).toFixed(1)}%
-                              </div>
-                              <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
-                                "{source.content}"
-                              </div>
+
+                              {/* Display images inline if available */}
+                              {source.images && source.images.length > 0 && (
+                                <div className="pl-2">
+                                  <ImageViewer
+                                    images={source.images}
+                                    documentTitle={source.document_title}
+                                  />
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

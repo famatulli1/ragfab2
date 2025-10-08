@@ -86,10 +86,20 @@ export interface Message {
   rating?: -1 | 1 | null;
 }
 
+export interface ImageData {
+  id: string;
+  page_number: number;
+  position: { x: number; y: number; width: number; height: number };
+  description?: string;
+  ocr_text?: string;
+  image_base64: string;
+}
+
 export interface Source {
   title: string;
   content: string;
   similarity?: number;
+  images?: ImageData[];  // Images associated with this source
 }
 
 export interface TokenUsage {
