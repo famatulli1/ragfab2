@@ -30,4 +30,5 @@ EXPOSE 8000
 
 # Commande de démarrage
 # Note: la limite de taille de body est gérée par FastAPI avec File(...)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Écoute sur :: (IPv6 qui accepte aussi IPv4 via dual-stack)
+CMD ["uvicorn", "app.main:app", "--host", "::", "--port", "8000", "--reload"]
