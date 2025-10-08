@@ -25,7 +25,7 @@ services:
       UPLOADS_DIR: ${UPLOADS_DIR:-/app/uploads}
 
       # Cache Hugging Face (pour les modèles ML)
-      TRANSFORMERS_CACHE: ${TRANSFORMERS_CACHE:-/home/worker/.cache/huggingface}
+      HF_HOME: ${HF_HOME:-/home/worker/.cache/huggingface}
 
       # Logs
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

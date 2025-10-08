@@ -2,6 +2,7 @@
 # Core dependencies
 asyncpg==0.29.0
 python-dotenv==1.0.0
+httpx>=0.27.0
 
 # Ingestion pipeline dependencies (from rag-app)
 # These are needed to run DocumentIngestionPipeline
