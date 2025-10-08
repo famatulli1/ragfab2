@@ -32,8 +32,8 @@ services:
 
     # Volume partagé avec l'API backend pour les fichiers uploadés
     volumes:
-      # Uploads (doit être le même que ragfab-api)
-      - uploads_shared:/app/uploads
+      # Uploads (doit être le même que ragfab-backend)
+      - uploads:/app/uploads
       # Cache des modèles ML
       - model_cache:/home/worker/.cache
 
@@ -62,7 +62,7 @@ services:
 
 volumes:
   # Volume partagé pour les uploads (utilise le volume existant de ragfab-backend)
-  uploads_shared:
+  uploads:
     external: true
     name: wc0ssk40gw44sgkk0o8c8gog_uploads
 

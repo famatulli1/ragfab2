@@ -57,7 +57,8 @@ services:
 
 volumes:
   uploads:
-    driver: local
+    external: true
+    name: wc0ssk40gw44sgkk0o8c8gog_uploads
 
 networks:
   coolify:
