@@ -42,8 +42,8 @@ services:
       - "8000"
 
     volumes:
-      # Persistance des fichiers uploadés
-      - uploads:/app/uploads
+      # Persistance des fichiers uploadés (bind mount sur répertoire hôte)
+      - /opt/ragfab/uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -54,11 +54,6 @@ services:
 
     networks:
       - coolify
-
-volumes:
-  uploads:
-    external: true
-    name: wc0ssk40gw44sgkk0o8c8gog_uploads
 
 networks:
   coolify:
