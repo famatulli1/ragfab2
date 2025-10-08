@@ -1106,9 +1106,8 @@ async def execute_rag_agent(
 ) -> dict:
     """Exécute le RAG agent et retourne la réponse"""
     try:
-        from app.utils.chocolatine_provider import get_chocolatine_model
-        from app.utils.mistral_provider import get_mistral_model
         from pydantic_ai import Agent, RunContext
+        from pydantic_ai.models.mistral import MistralModel
 
         global _current_request_sources, _current_conversation_id
 
@@ -1117,31 +1116,18 @@ async def execute_rag_agent(
         _current_conversation_id = conversation_id
         sources = []
 
-        # Pour Chocolatine : recherche manuelle + injection dans le prompt
+        # Pour Chocolatine : pas supporté pour l'instant, fallback sur Mistral
         if provider == "chocolatine":
-            # Faire la recherche avec notre tool local (stocke les sources dans la variable globale)
-            search_results = await search_knowledge_base_tool(message, limit=5)
-            # Récupérer les sources stockées par le tool
-            sources = _current_request_sources.copy()
+            logger.warning("⚠️ Chocolatine provider non disponible, utilisation de Mistral")
+            provider = "mistral"
+            use_tools = True
 
-            # Créer le system prompt avec le contexte
-            system_prompt = f"""Tu es un assistant intelligent basé sur la documentation Medimail Webmail.
-
-CONTEXTE DE LA BASE DE CONNAISSANCES:
-{search_results}
-
-INSTRUCTIONS:
-- Utilise UNIQUEMENT les informations du contexte ci-dessus pour répondre
-- Si l'information n'est pas dans le contexte, dis-le clairement
-- Réponds en français de manière concise et précise
-- Cite toujours tes sources entre crochets [Source: ...]"""
-
-            model = get_chocolatine_model()
-            agent = Agent(model, system_prompt=system_prompt)
-
-        elif provider == "mistral" and use_tools:
+        if provider == "mistral" and use_tools:
             # Mistral avec tools
-            model = get_mistral_model()
+            model = MistralModel(
+                model_name=MISTRAL_MODEL_NAME,
+                api_key=MISTRAL_API_KEY
+            )
             system_prompt = """Tu es un assistant qui répond UNIQUEMENT en utilisant une base de connaissances documentaire.
 
 RÈGLES ABSOLUES - AUCUNE EXCEPTION :
@@ -1179,7 +1165,10 @@ INSTRUCTIONS:
 - Si l'information n'est pas dans le contexte, dis-le clairement
 - Réponds en français de manière concise et précise"""
 
-            model = get_mistral_model()
+            model = MistralModel(
+                model_name=MISTRAL_MODEL_NAME,
+                api_key=MISTRAL_API_KEY
+            )
             agent = Agent(model, system_prompt=system_prompt)
 
         # Pour Mistral avec tools: reformuler la question avec le contexte conversationnel
