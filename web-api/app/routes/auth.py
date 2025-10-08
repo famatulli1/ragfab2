@@ -19,12 +19,13 @@ limiter = Limiter(key_func=get_remote_address)
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")  # Max 5 login attempts per minute
-async def login(request_obj: Request, request: LoginRequest):
+async def login(request: Request, login_data: LoginRequest):
     """
     Authentifie un utilisateur et retourne un token JWT
 
     Args:
-        request: Credentials (username + password)
+        request: FastAPI Request object (for rate limiting)
+        login_data: Credentials (username + password)
 
     Returns:
         Token JWT
@@ -32,10 +33,10 @@ async def login(request_obj: Request, request: LoginRequest):
     Raises:
         HTTPException: Si les credentials sont invalides
     """
-    user = await authenticate_user(request.username, request.password)
+    user = await authenticate_user(login_data.username, login_data.password)
 
     if not user:
-        logger.warning(f"Tentative de connexion échouée pour: {request.username}")
+        logger.warning(f"Tentative de connexion échouée pour: {login_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
