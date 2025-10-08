@@ -12,6 +12,7 @@ import os
 import logging
 import base64
 import io
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass
@@ -108,34 +109,63 @@ class VLMClient:
             "temperature": 0.0
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.api_url}/chat/completions",
-                    json=payload,
-                    headers=headers
-                )
-                response.raise_for_status()
+        # Retry logic for rate limiting
+        max_retries = 3
+        base_delay = 2.0  # seconds
 
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        f"{self.api_url}/chat/completions",
+                        json=payload,
+                        headers=headers
+                    )
 
-                # Extract confidence if available (some APIs provide this)
-                confidence = None
-                if "confidence" in result:
-                    confidence = result["confidence"]
+                    # Handle rate limiting (429)
+                    if response.status_code == 429:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)  # Exponential backoff
+                            logger.warning(f"Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error("Max retries reached for rate limiting")
+                            raise httpx.HTTPStatusError(
+                                f"Rate limit exceeded after {max_retries} attempts",
+                                request=response.request,
+                                response=response
+                            )
 
-                return content, confidence
+                    response.raise_for_status()
 
-        except httpx.TimeoutException:
-            logger.error(f"VLM API timeout after {self.timeout}s")
-            return "[VLM Timeout]", None
-        except httpx.HTTPStatusError as e:
-            logger.error(f"VLM API error: {e.response.status_code} - {e.response.text}")
-            return "[VLM Error]", None
-        except Exception as e:
-            logger.error(f"VLM analysis failed: {e}")
-            return "[VLM Failed]", None
+                    result = response.json()
+                    content = result["choices"][0]["message"]["content"]
+
+                    # Extract confidence if available (some APIs provide this)
+                    confidence = None
+                    if "confidence" in result:
+                        confidence = result["confidence"]
+
+                    return content, confidence
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    continue  # Already handled above
+                raise  # Re-raise for other errors
+            except httpx.TimeoutException:
+                logger.error(f"VLM API timeout after {self.timeout}s")
+                return "[VLM Timeout]", None
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"VLM request failed, retrying: {e}")
+                    await asyncio.sleep(base_delay)
+                    continue
+                logger.error(f"VLM analysis failed after {max_retries} attempts: {e}")
+                return "[VLM Failed]", None
+
+        # Should not reach here
+        return "[VLM Failed]", None
 
 
 class ImageProcessor:
@@ -243,6 +273,10 @@ class ImageProcessor:
                 if image_metadata:
                     extracted_images.append(image_metadata)
                     image_count += 1
+
+                # Add delay between images to avoid rate limiting
+                if self.vlm_enabled and idx < len(pictures) - 1:  # Don't delay after last image
+                    await asyncio.sleep(1.0)  # 1 second between VLM requests
 
             except Exception as e:
                 logger.error(f"Failed to process image {idx + 1} from page {page_num}: {e}")
