@@ -203,52 +203,46 @@ class ImageProcessor:
         extracted_images = []
         image_count = 0
 
-        # Verify that pages is iterable and contains page objects
-        if not hasattr(docling_doc, 'pages'):
-            logger.error(f"DoclingDocument has no 'pages' attribute. Type: {type(docling_doc)}")
+        # DoclingDocument stores images in the 'pictures' list, not in pages
+        if not hasattr(docling_doc, 'pictures'):
+            logger.warning(f"DoclingDocument has no 'pictures' attribute. Type: {type(docling_doc)}")
             return []
 
-        # Check if pages is actually iterable (not just an int)
-        pages = docling_doc.pages
-        if isinstance(pages, int):
-            logger.error(f"docling_doc.pages is an int ({pages}), not a list of pages!")
+        pictures = docling_doc.pictures
+        if not pictures:
+            logger.info("No pictures found in document")
             return []
 
-        try:
-            pages_list = list(pages) if hasattr(pages, '__iter__') else []
-        except Exception as e:
-            logger.error(f"Could not iterate docling_doc.pages: {e}")
-            return []
+        logger.info(f"Found {len(pictures)} pictures in document")
 
-        logger.info(f"Found {len(pages_list)} pages to scan for images")
-
-        # Iterate through document pages
-        for page_num, page in enumerate(pages_list, start=1):
-            logger.debug(f"Scanning page {page_num} for images...")
-
-            # Verify page has assembled attribute
-            if not hasattr(page, 'assembled') or not hasattr(page.assembled, 'elements'):
-                logger.warning(f"Page {page_num} has no assembled.elements attribute, skipping")
+        # Process each PictureItem
+        for idx, item in enumerate(pictures):
+            if not isinstance(item, PictureItem):
+                logger.warning(f"Item {idx} is not a PictureItem, skipping")
                 continue
 
-            # Find all PictureItem elements in the page
-            for item in page.assembled.elements:
-                if isinstance(item, PictureItem):
-                    try:
-                        image_metadata = await self._process_image(
-                            picture_item=item,
-                            page_number=page_num,
-                            job_dir=job_dir,
-                            image_index=image_count
-                        )
+            # Extract page number from provenance if available
+            page_num = 1  # Default
+            if hasattr(item, 'prov') and item.prov:
+                page_num = item.prov[0].page_no if item.prov else 1
 
-                        if image_metadata:
-                            extracted_images.append(image_metadata)
-                            image_count += 1
+            logger.debug(f"Processing picture {idx + 1}/{len(pictures)} from page {page_num}")
 
-                    except Exception as e:
-                        logger.error(f"Failed to process image on page {page_num}: {e}")
-                        continue
+            try:
+                image_metadata = await self._process_image(
+                    picture_item=item,
+                    page_number=page_num,
+                    job_dir=job_dir,
+                    image_index=image_count
+                )
+
+                if image_metadata:
+                    extracted_images.append(image_metadata)
+                    image_count += 1
+
+            except Exception as e:
+                logger.error(f"Failed to process image {idx + 1} from page {page_num}: {e}")
+                continue
 
         logger.info(f"Extracted {len(extracted_images)} images from document (job: {job_id})")
         return extracted_images
