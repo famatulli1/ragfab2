@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, createContext, useContext } from 'react';
 import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
+import LoginPage from './pages/LoginPage';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Theme Context
 interface ThemeContextType {
@@ -45,8 +47,19 @@ function App() {
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <BrowserRouter>
         <Routes>
+          {/* Route publique - Chat accessible sans auth */}
           <Route path="/" element={<ChatPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+
+          {/* Route de connexion admin */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Route admin protégée */}
+          <Route path="/admin" element={
+            <ProtectedRoute adminOnly>
+              <AdminPage />
+            </ProtectedRoute>
+          } />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

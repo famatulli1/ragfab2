@@ -38,6 +38,7 @@ from .models import (
 from .routes import auth
 from .routes import admin
 from .routes import images
+from .routes import users
 
 # Configuration logging
 logging.basicConfig(
@@ -108,6 +109,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(images.router, prefix="/api", tags=["images"])
+app.include_router(users.router)
 
 
 # ============================================================================

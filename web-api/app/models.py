@@ -224,3 +224,50 @@ class ExportFormat(str):
 
 class ExportRequest(BaseModel):
     format: str = "markdown"  # markdown or pdf
+
+
+# ============================================================================
+# User Management Models (Admin)
+# ============================================================================
+
+class UserCreate(BaseModel):
+    """Modèle pour créer un nouvel utilisateur"""
+    username: str = Field(..., min_length=3, max_length=50, description="Nom d'utilisateur unique")
+    email: Optional[str] = Field(None, max_length=255, description="Adresse email")
+    password: str = Field(..., min_length=8, description="Mot de passe (minimum 8 caractères)")
+    is_admin: bool = Field(default=False, description="Rôle administrateur")
+    is_active: bool = Field(default=True, description="Compte actif")
+
+
+class UserUpdate(BaseModel):
+    """Modèle pour mettre à jour un utilisateur"""
+    email: Optional[str] = Field(None, max_length=255, description="Adresse email")
+    is_active: Optional[bool] = Field(None, description="Statut actif/inactif")
+    is_admin: Optional[bool] = Field(None, description="Rôle administrateur")
+
+
+class UserResponse(BaseModel):
+    """Modèle de réponse pour un utilisateur"""
+    id: UUID
+    username: str
+    email: Optional[str] = None
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    last_login: Optional[datetime] = None
+
+
+class UserListResponse(BaseModel):
+    """Modèle de réponse pour la liste des utilisateurs"""
+    id: UUID
+    username: str
+    email: Optional[str] = None
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    last_login: Optional[datetime] = None
+
+
+class PasswordReset(BaseModel):
+    """Modèle pour réinitialiser le mot de passe"""
+    new_password: str = Field(..., min_length=8, description="Nouveau mot de passe (minimum 8 caractères)")

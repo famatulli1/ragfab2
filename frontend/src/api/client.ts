@@ -12,6 +12,11 @@ import type {
   ChatRequest,
   ChatResponse,
   RatingCreate,
+  UserCreate,
+  UserUpdate,
+  UserResponse,
+  UserListResponse,
+  PasswordReset,
 } from '../types';
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';
@@ -214,6 +219,42 @@ class APIClient {
   async healthCheck(): Promise<{ status: string; database: string; timestamp: string }> {
     const { data } = await this.client.get('/health');
     return data;
+  }
+
+  // ============================================================================
+  // User Management (Admin)
+  // ============================================================================
+
+  async listUsers(limit = 100, offset = 0, is_active?: boolean, is_admin?: boolean): Promise<UserListResponse[]> {
+    const params: any = { limit, offset };
+    if (is_active !== undefined) params.is_active = is_active;
+    if (is_admin !== undefined) params.is_admin = is_admin;
+
+    const { data } = await this.client.get<UserListResponse[]>('/api/admin/users', { params });
+    return data;
+  }
+
+  async createUser(userData: UserCreate): Promise<UserResponse> {
+    const { data } = await this.client.post<UserResponse>('/api/admin/users', userData);
+    return data;
+  }
+
+  async getUser(userId: string): Promise<UserResponse> {
+    const { data } = await this.client.get<UserResponse>(`/api/admin/users/${userId}`);
+    return data;
+  }
+
+  async updateUser(userId: string, updates: UserUpdate): Promise<UserResponse> {
+    const { data } = await this.client.patch<UserResponse>(`/api/admin/users/${userId}`, updates);
+    return data;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.client.delete(`/api/admin/users/${userId}`);
+  }
+
+  async resetUserPassword(userId: string, newPassword: string): Promise<void> {
+    await this.client.post(`/api/admin/users/${userId}/reset-password`, { new_password: newPassword });
   }
 }
 

@@ -147,3 +147,34 @@ export interface ProviderConfig {
   label: string;
   description: string;
 }
+
+// User Management Types
+export interface UserCreate {
+  username: string;
+  email?: string;
+  password: string;
+  is_admin: boolean;
+  is_active: boolean;
+}
+
+export interface UserUpdate {
+  email?: string;
+  is_active?: boolean;
+  is_admin?: boolean;
+}
+
+export interface UserResponse {
+  id: string;
+  username: string;
+  email?: string;
+  is_active: boolean;
+  is_admin: boolean;
+  created_at: string;
+  last_login?: string;
+}
+
+export interface UserListResponse extends UserResponse {}
+
+export interface PasswordReset {
+  new_password: string;
+}
