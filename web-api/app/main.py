@@ -1140,10 +1140,10 @@ RÈGLES:
 Question reformulée:"""
 
     try:
-        # Appel API Mistral direct pour la reformulation
-        from app.utils.mistral_provider import get_mistral_model
+        # Appel API LLM générique pour la reformulation
+        from app.utils.generic_llm_provider import get_generic_llm_model
 
-        model = get_mistral_model()
+        model = get_generic_llm_model()
         api_url = model.api_url.rstrip('/')
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -1174,6 +1174,83 @@ Question reformulée:"""
         return current_question
 
 
+def build_tool_system_prompt_with_json() -> str:
+    """
+    Construit un system prompt renforcé incluant la définition JSON explicite des tools.
+    Cette double approche (API tool_choice + JSON dans le prompt) maximise la fiabilité
+    du function calling en donnant au LLM une compréhension claire de ce qui est attendu.
+    """
+    tool_definition = {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base_tool",
+            "description": (
+                "Recherche sémantique dans la base de connaissances documentaire pour trouver les informations "
+                "pertinentes qui permettront de répondre à la question de l'utilisateur. Cet outil effectue une "
+                "recherche vectorielle parmi tous les documents ingérés (PDF, DOCX, MD, TXT, HTML) et retourne "
+                "les passages les plus pertinents avec leurs métadonnées (titre du document, source, page). "
+                "Utilise obligatoirement cet outil dès qu'une question porte sur des informations contenues dans "
+                "des documents (politique interne, rapport, contrat, documentation technique, etc.). "
+                "Le système applique automatiquement un reranking pour améliorer la pertinence des résultats si activé, "
+                "et enrichit les résultats avec les descriptions d'images extraites par VLM."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "La question ou requête de recherche à utiliser pour trouver les informations pertinentes "
+                            "dans la base de connaissances. Doit être une question claire et précise, idéalement "
+                            "reformulée pour être autonome (sans dépendre du contexte conversationnel). "
+                            "Exemples : 'Quelle est la politique de télétravail ?' ou "
+                            "'Quels sont les effets secondaires du médicament XYZ ?'"
+                        )
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": (
+                            "Nombre maximum de passages à retourner (par défaut: 5). Si le reranking est activé, "
+                            "ce paramètre est automatiquement ajusté (20 candidats recherchés, 5 finaux retournés après reranking)."
+                        ),
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    }
+
+    prompt = f"""Tu es un assistant qui répond UNIQUEMENT en utilisant une base de connaissances documentaire.
+
+OUTIL DISPONIBLE - DÉFINITION COMPLÈTE :
+{json.dumps([tool_definition], indent=2, ensure_ascii=False)}
+
+EXEMPLE D'UTILISATION CORRECTE :
+Question utilisateur: "Quelle est la politique de télétravail ?"
+→ ÉTAPE 1 - APPEL OBLIGATOIRE: search_knowledge_base_tool(query="Quelle est la politique de télétravail ?")
+→ ÉTAPE 2 - RÉCEPTION: [Résultats de la base de connaissances avec sources]
+→ ÉTAPE 3 - RÉPONSE: [Synthèse basée UNIQUEMENT sur les résultats de l'outil]
+
+RÈGLES ABSOLUES - AUCUNE EXCEPTION :
+1. Pour CHAQUE question de l'utilisateur, tu DOIS OBLIGATOIREMENT appeler l'outil 'search_knowledge_base_tool' AVANT de répondre
+2. Tu ne peux répondre QU'avec les informations retournées par l'outil - JAMAIS avec tes connaissances générales
+3. Si l'outil ne retourne aucune information pertinente, tu dois dire : "Je n'ai pas trouvé cette information dans la base de connaissances"
+4. Ne cite PAS les sources dans ta réponse (pas de [Source: ...]) car elles sont affichées séparément
+5. Même si tu penses connaître la réponse, tu DOIS d'abord chercher dans la base de connaissances
+
+COMPORTEMENTS INTERDITS :
+❌ Répondre sans avoir appelé l'outil de recherche
+❌ Utiliser tes connaissances générales ou pré-entraînées
+❌ Inventer ou supposer des informations
+❌ Répondre de manière générique
+❌ Ajouter [Source: ...] dans la réponse
+
+Réponds en français de manière concise en te basant UNIQUEMENT sur les résultats de recherche."""
+
+    return prompt
+
+
 async def execute_rag_agent(
     message: str,
     history: List[dict],
@@ -1182,10 +1259,21 @@ async def execute_rag_agent(
     conversation_id: Optional[UUID] = None,
     reranking_enabled: Optional[bool] = None
 ) -> dict:
-    """Exécute le RAG agent et retourne la réponse"""
+    """
+    Exécute le RAG agent et retourne la réponse.
+
+    Mode tools activé (use_tools=True):
+        - Utilise le provider générique avec function calling
+        - System prompt enrichi avec JSON explicite des tools
+        - Historique vide pour forcer l'appel du tool
+
+    Mode tools désactivé (use_tools=False):
+        - Injection manuelle du contexte dans le prompt
+        - Pas de function calling
+    """
     try:
         from pydantic_ai import Agent, RunContext
-        from pydantic_ai.models.mistral import MistralModel
+        from .utils.generic_llm_provider import get_generic_llm_model
 
         global _current_request_sources, _current_conversation_id, _current_reranking_enabled
 
@@ -1195,44 +1283,27 @@ async def execute_rag_agent(
         _current_reranking_enabled = reranking_enabled
         sources = []
 
-        # Pour Chocolatine : pas supporté pour l'instant, fallback sur Mistral
-        if provider == "chocolatine":
-            logger.warning("⚠️ Chocolatine provider non disponible, utilisation de Mistral")
-            provider = "mistral"
-            use_tools = True
+        # Déterminer si on utilise les tools (LLM_USE_TOOLS ou MISTRAL_USE_TOOLS)
+        llm_use_tools = os.getenv("LLM_USE_TOOLS", "").lower() == "true"
+        mistral_use_tools = os.getenv("RAG_PROVIDER", "mistral") == "mistral" and use_tools
+        use_function_calling = llm_use_tools or mistral_use_tools
 
-        if provider == "mistral" and use_tools:
-            # Mistral avec tools
-            model = MistralModel(
-                model_name=MISTRAL_MODEL_NAME,
-                api_key=MISTRAL_API_KEY
-            )
-            system_prompt = """Tu es un assistant qui répond UNIQUEMENT en utilisant une base de connaissances documentaire.
+        if use_function_calling:
+            # Mode function calling avec system prompt enrichi
+            logger.info(f"🔧 Création agent LLM générique avec function calling")
 
-RÈGLES ABSOLUES - AUCUNE EXCEPTION :
-1. Pour CHAQUE question de l'utilisateur, tu DOIS OBLIGATOIREMENT appeler l'outil 'search_knowledge_base_tool' AVANT de répondre
-2. Tu ne peux répondre QU'avec les informations retournées par l'outil - JAMAIS avec tes connaissances générales
-3. Si l'outil ne retourne aucune information pertinente, tu dois dire : "Je n'ai pas trouvé cette information dans la base de connaissances"
-4. Ne cite PAS les sources dans ta réponse (pas de [Source: ...]) car elles sont affichées séparément
-5. Même si tu penses connaître la réponse, tu DOIS d'abord chercher dans la base de connaissances
+            model = get_generic_llm_model()
+            system_prompt = build_tool_system_prompt_with_json()
 
-INTERDIT :
-❌ Répondre sans avoir appelé l'outil de recherche
-❌ Utiliser tes connaissances générales ou pré-entraînées
-❌ Inventer ou supposer des informations
-❌ Répondre de manière générique
-❌ Ajouter [Source: ...] dans la réponse
-
-Réponds en français de manière concise en te basant UNIQUEMENT sur les résultats de recherche."""
-            logger.info(f"🔧 Création agent Mistral avec tools: {[search_knowledge_base_tool]}")
+            logger.info(f"📋 System prompt avec JSON explicite des tools généré ({len(system_prompt)} chars)")
             agent = Agent(model, system_prompt=system_prompt, tools=[search_knowledge_base_tool])
-            logger.info(f"✅ Agent Mistral créé avec {len(agent._function_tools)} tools")
+            logger.info(f"✅ Agent créé avec {len(agent._function_tools)} tools")
         else:
-            # Mistral sans tools: faire recherche manuelle et injecter contexte (comme Chocolatine)
-            logger.info(f"🔍 Mistral sans tools: recherche manuelle activée")
+            # Mode injection manuelle (pas de function calling)
+            logger.info(f"🔍 Mode injection manuelle: recherche avant appel LLM")
             search_results = await search_knowledge_base_tool(message, limit=5)
             sources = _current_request_sources.copy()
-            logger.info(f"📚 {len(sources)} sources récupérées (recherche manuelle)")
+            logger.info(f"📚 {len(sources)} sources récupérées (injection manuelle)")
 
             system_prompt = f"""Tu es un assistant intelligent.
 
@@ -1244,23 +1315,23 @@ INSTRUCTIONS:
 - Si l'information n'est pas dans le contexte, dis-le clairement
 - Réponds en français de manière concise et précise"""
 
-            model = MistralModel(
-                model_name=MISTRAL_MODEL_NAME,
-                api_key=MISTRAL_API_KEY
-            )
+            model = get_generic_llm_model()
             agent = Agent(model, system_prompt=system_prompt)
 
-        # Pour Mistral avec tools: reformuler la question avec le contexte conversationnel
-        # puis envoyer SANS historique pour forcer l'appel du tool
-        if provider == "mistral" and use_tools:
+        # Exécution selon le mode
+        if use_function_calling:
             # Reformuler la question pour intégrer les références contextuelles
             reformulated_message = await reformulate_question_with_context(message, history)
 
             # Envoyer la question reformulée SANS historique pour forcer l'appel du tool
-            logger.info(f"🎯 Mistral avec tools: question reformulée envoyée sans historique")
+            logger.info(f"🎯 Function calling: question reformulée envoyée sans historique")
             result = await agent.run(reformulated_message, message_history=[])
+
+            # Récupérer les sources depuis la variable globale (le tool les a sauvegardées)
+            sources = _current_request_sources.copy()
+            logger.info(f"📚 Sources récupérées du tool: {len(sources)} sources")
         else:
-            # Pour Chocolatine et Mistral sans tools: on peut injecter un résumé du contexte
+            # Mode injection manuelle: on peut injecter un résumé du contexte conversationnel
             if history and len(history) > 0:
                 # Prendre seulement les 2 derniers échanges pour le contexte
                 recent_history = history[-4:] if len(history) >= 4 else history
@@ -1273,17 +1344,15 @@ INSTRUCTIONS:
                 enhanced_message = message
 
             result = await agent.run(enhanced_message, message_history=[])
+            # Les sources ont déjà été récupérées lors de la recherche manuelle
 
-        # Pour Mistral avec tools, récupérer les sources depuis la variable globale
-        # (le tool les a sauvegardées lors de son exécution)
-        if provider == "mistral" and use_tools:
-            sources = _current_request_sources.copy()
-            logger.info(f"📚 Sources récupérées du tool (function calling): {len(sources)} sources")
+        # Déterminer le nom du modèle pour le retour
+        model_name = os.getenv("LLM_MODEL_NAME") or os.getenv("MISTRAL_MODEL_NAME", "generic-llm")
 
         return {
             "content": result.data,
             "sources": sources,
-            "model_name": provider,
+            "model_name": model_name,
             "token_usage": None
         }
 

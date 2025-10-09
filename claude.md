@@ -279,8 +279,12 @@ Location: Applied in both `rag_agent.py` and `web-api/app/main.py`
 ### Critical Variables
 
 ```bash
-# Provider selection
-RAG_PROVIDER=mistral  # or "chocolatine"
+# Generic LLM Configuration (RECOMMENDED - NEW)
+LLM_API_URL=https://api.mistral.ai  # Any OpenAI-compatible API
+LLM_API_KEY=your_api_key_here
+LLM_MODEL_NAME=mistral-small-latest  # Model name for your provider
+LLM_USE_TOOLS=true  # true = function calling, false = manual context injection
+LLM_TIMEOUT=120.0
 
 # Database (update for Coolify with .internal suffix)
 DATABASE_URL=postgresql://raguser:pass@postgres:5432/ragdb
@@ -290,21 +294,65 @@ POSTGRES_HOST=postgres  # Change to postgres.internal on Coolify
 EMBEDDINGS_API_URL=http://embeddings:8001
 EMBEDDING_DIMENSION=1024
 
-# Reranking (NEW - Activable à la demande)
+# Reranking (Activable à la demande)
 RERANKER_ENABLED=false  # true pour activer le reranking (recommandé pour doc médicale/technique)
 RERANKER_API_URL=http://reranker:8002
 RERANKER_MODEL=BAAI/bge-reranker-v2-m3  # Modèle multilingue excellent pour le français
 RERANKER_TOP_K=20  # Nombre de candidats avant reranking
 RERANKER_RETURN_K=5  # Nombre de résultats finaux après reranking
 
-# Mistral API
-MISTRAL_API_KEY=your_key_here
-MISTRAL_MODEL_NAME=mistral-small-latest  # Better function calling than open-mistral-7b
-MISTRAL_TIMEOUT=120.0
+# Legacy Variables (Retained for backward compatibility)
+RAG_PROVIDER=mistral  # DEPRECATED: Use LLM_USE_TOOLS instead
+MISTRAL_API_KEY=your_key_here  # DEPRECATED: Use LLM_API_KEY
+MISTRAL_API_URL=https://api.mistral.ai  # DEPRECATED: Use LLM_API_URL
+MISTRAL_MODEL_NAME=mistral-small-latest  # DEPRECATED: Use LLM_MODEL_NAME
+MISTRAL_TIMEOUT=120.0  # DEPRECATED: Use LLM_TIMEOUT
+CHOCOLATINE_API_URL=https://apigpt.mynumih.fr  # DEPRECATED
+CHOCOLATINE_API_KEY=  # DEPRECATED
+```
 
-# Chocolatine API (if using chocolatine provider)
-CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
-CHOCOLATINE_API_KEY=  # Optional
+### Generic LLM System (NEW)
+
+RAGFab now supports **any OpenAI-compatible LLM API** through a generic provider system. This allows easy switching between different LLM providers without code changes.
+
+**Supported Providers**:
+- **Mistral AI**: `LLM_API_URL=https://api.mistral.ai`
+- **Chocolatine**: `LLM_API_URL=https://apigpt.mynumih.fr`
+- **Ollama**: `LLM_API_URL=http://localhost:11434`
+- **LiteLLM**: `LLM_API_URL=http://localhost:4000`
+- **OpenAI**: `LLM_API_URL=https://api.openai.com`
+- **Any OpenAI-compatible API**
+
+**Function Calling vs Manual Injection**:
+- `LLM_USE_TOOLS=true`: LLM uses function calling to automatically call `search_knowledge_base_tool`
+- `LLM_USE_TOOLS=false`: Manual context injection (search executed before LLM call)
+
+**System Prompt Enhancement**:
+The system now includes **explicit JSON tool definitions in the system prompt** to reinforce function calling behavior. This dual approach (API `tool_choice` + JSON in prompt) significantly improves tool usage reliability across different LLM providers.
+
+Example system prompt structure:
+```
+OUTIL DISPONIBLE - DÉFINITION COMPLÈTE :
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "search_knowledge_base_tool",
+      "description": "...",
+      "parameters": {...}
+    }
+  }
+]
+
+EXEMPLE D'UTILISATION CORRECTE :
+Question: "Quelle est la politique de télétravail ?"
+→ ÉTAPE 1 - APPEL OBLIGATOIRE: search_knowledge_base_tool(query="...")
+→ ÉTAPE 2 - RÉCEPTION: [Résultats]
+→ ÉTAPE 3 - RÉPONSE: [Synthèse]
+
+RÈGLES ABSOLUES :
+1. Tu DOIS appeler l'outil AVANT de répondre
+...
 ```
 
 ### Coolify Deployment Notes
