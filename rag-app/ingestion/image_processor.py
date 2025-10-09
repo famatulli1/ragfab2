@@ -82,32 +82,21 @@ class VLMClient:
         Returns:
             Tuple of (combined_text, confidence_score)
         """
-        headers = {
-            "Content-Type": "application/json"
+        # Decode base64 to bytes for multipart upload
+        image_bytes = base64.b64decode(image_base64)
+
+        # Prepare multipart form data
+        files = {
+            "image": ("image.png", io.BytesIO(image_bytes), "image/png")
         }
+        data = {
+            "temperature": 0.1  # Low temperature for consistent extraction
+        }
+
+        # Optional API key header
+        headers = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-
-        # OpenAI-compatible API format
-        payload = {
-            "model": self.model_name,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": self.prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{image_base64}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            "max_tokens": 1000,
-            "temperature": 0.0
-        }
 
         # Retry logic for rate limiting
         max_retries = 3
@@ -117,8 +106,9 @@ class VLMClient:
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(
-                        f"{self.api_url}/chat/completions",
-                        json=payload,
+                        f"{self.api_url}/extract-and-describe",
+                        files=files,
+                        data=data,
                         headers=headers
                     )
 
@@ -140,18 +130,30 @@ class VLMClient:
                     response.raise_for_status()
 
                     result = response.json()
-                    content = result["choices"][0]["message"]["content"]
 
-                    # Extract confidence if available (some APIs provide this)
-                    confidence = None
-                    if "confidence" in result:
-                        confidence = result["confidence"]
+                    # Extract description and OCR text from FastAPI response
+                    # Response format: {"description": "...", "ocr_text": "...", "confidence": 0.95}
+                    description = result.get("description", "")
+                    ocr_text = result.get("ocr_text", "")
+
+                    # Combine description and OCR text
+                    combined_parts = []
+                    if description:
+                        combined_parts.append(f"Description: {description}")
+                    if ocr_text:
+                        combined_parts.append(f"Texte extrait: {ocr_text}")
+
+                    content = "\n".join(combined_parts) if combined_parts else "[No content extracted]"
+
+                    # Extract confidence if available
+                    confidence = result.get("confidence", None)
 
                     return content, confidence
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
                     continue  # Already handled above
+                logger.error(f"VLM HTTP error: {e.response.status_code} - {e.response.text if hasattr(e.response, 'text') else 'No details'}")
                 raise  # Re-raise for other errors
             except httpx.TimeoutException:
                 logger.error(f"VLM API timeout after {self.timeout}s")

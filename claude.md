@@ -402,7 +402,8 @@ RERANKER_RETURN_K=5    # Nombre final de chunks pour le LLM
 - Want visual context in RAG responses
 
 **Architecture**:
-- **Remote VLM API** (OpenAI-compatible): No local GPU required
+- **Remote VLM API** (FastAPI format): No local GPU required
+- **API Format**: Multipart/form-data endpoints (`/extract-and-describe`, `/describe-image`, `/extract-text`)
 - **Docling integration**: Automatic image detection during PDF parsing
 - **Dual storage**: Filesystem (original) + base64 (inline display)
 - **Database linking**: Images linked to chunks via `page_number` matching
@@ -412,10 +413,10 @@ RERANKER_RETURN_K=5    # Nombre final de chunks pour le LLM
 # Enable/disable VLM image extraction
 VLM_ENABLED=false  # Set to true to activate
 
-# VLM API configuration (remote service)
-VLM_API_URL=https://your-vlm-api.com/v1
-VLM_API_KEY=your_api_key
-VLM_MODEL_NAME=SmolDocling-256M  # Recommended: fast, ~6s/page
+# VLM API configuration (FastAPI remote service)
+VLM_API_URL=https://apivlm.mynumih.fr  # API Vision Générique with InternVL3_5-8B
+VLM_API_KEY=  # Optional, leave empty if not required
+VLM_MODEL_NAME=OpenGVLab/InternVL3_5-8B  # Informational, configured server-side
 VLM_TIMEOUT=60.0
 
 # Image processing settings
@@ -425,11 +426,15 @@ IMAGE_QUALITY=85
 IMAGE_OUTPUT_FORMAT=png
 ```
 
-**Recommended VLM models**:
-1. `SmolDocling-256M` - Fast, optimized for documents (~6s/page)
-2. `Qwen2.5-VL-3B` - Balanced quality/speed (~23s/page)
-3. `pixtral-12b` - High quality, slower (~300s/page)
-4. `granite-vision-3.2-2b` - Good alternative (~105s/page)
+**Current VLM Provider**:
+- **API**: https://apivlm.mynumih.fr (API Vision Générique - vLLM Proxy)
+- **Model**: OpenGVLab/InternVL3_5-8B (optimized for document analysis)
+- **Endpoints**:
+  - `/extract-and-describe` - Combined description + OCR (used by default)
+  - `/describe-image` - Description only
+  - `/extract-text` - OCR only
+- **Performance**: ~10-15s per image
+- **No API key required**
 
 **How it works**:
 1. **Ingestion**: Docling detects images during PDF parsing
@@ -474,10 +479,17 @@ CREATE TABLE document_images (
 # Check if images are being extracted
 docker-compose logs -f ingestion-worker | grep "image"
 
-# Verify VLM API connectivity
-curl -X POST $VLM_API_URL/chat/completions \
-  -H "Authorization: Bearer $VLM_API_KEY" \
-  -H "Content-Type: application/json"
+# Verify VLM API connectivity (FastAPI format)
+curl -X POST https://apivlm.mynumih.fr/extract-and-describe \
+  -F "image=@test_image.png" \
+  -F "temperature=0.1"
+
+# Or test with describe-image endpoint
+curl -X POST https://apivlm.mynumih.fr/describe-image \
+  -F "image=@test_image.png"
+
+# Check API health
+curl https://apivlm.mynumih.fr/health
 
 # Check image storage
 ls -lh /app/uploads/images/

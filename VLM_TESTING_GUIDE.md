@@ -1,14 +1,14 @@
 # VLM Image Extraction - Testing Guide
 
-## Implementation Status: ✅ COMPLETE
+## Implementation Status: ✅ COMPLETE & MIGRATED
 
-All 5 phases of the VLM image extraction feature have been implemented and are ready for testing.
+All 5 phases of the VLM image extraction feature have been implemented and **migrated to API Vision Générique** (apivlm.mynumih.fr).
 
 ## What Was Implemented
 
 ### Backend Components
 - **Database Schema** (`database/03_images_schema.sql`): PostgreSQL table for storing image metadata, descriptions, OCR text, and base64 data
-- **Image Processor** (`rag-app/ingestion/image_processor.py`): Core VLM integration with remote API support
+- **Image Processor** (`rag-app/ingestion/image_processor.py`): Core VLM integration with **FastAPI multipart/form-data** support
 - **Ingestion Pipeline** (`rag-app/ingestion/ingest.py`): Modified to extract images during document processing
 - **Chunking Integration** (`rag-app/ingestion/chunker.py`): Enhanced to track page numbers for image-chunk linking
 - **API Routes** (`web-api/app/routes/images.py`): Endpoints for retrieving image data
@@ -21,34 +21,22 @@ All 5 phases of the VLM image extraction feature have been implemented and are r
 
 ## Configuration Required
 
-### Step 1: Set Up VLM API Service
+### Step 1: Use API Vision Générique (Recommended)
 
-You need a remote VLM API service (OpenAI-compatible). Options:
+**The project is now configured to use the custom FastAPI VLM service:**
 
-#### Option A: Deploy Local vLLM Server
-```bash
-# Using vLLM with SmolDocling-256M (recommended for performance)
-docker run -d \
-  --name vllm-vlm \
-  --gpus all \
-  -p 8003:8000 \
-  vllm/vllm-openai:latest \
-  --model ibm-granite/SmolDocling-256M-Instruct \
-  --trust-remote-code
-```
+- **API URL**: https://apivlm.mynumih.fr
+- **Model**: OpenGVLab/InternVL3_5-8B (optimized for document analysis)
+- **No API key required**
+- **Format**: FastAPI multipart/form-data (not OpenAI format)
+- **Endpoints**:
+  - `/extract-and-describe` - Combined description + OCR (default)
+  - `/describe-image` - Description only
+  - `/extract-text` - OCR only
+  - `/health` - Health check
+  - `/config` - Current configuration
 
-#### Option B: Use Ollama
-```bash
-# Pull a vision model
-ollama pull llava:7b
-
-# Ollama serves on http://localhost:11434/v1/chat/completions (OpenAI-compatible)
-```
-
-#### Option C: Use Cloud Provider
-- OpenAI GPT-4 Vision
-- Anthropic Claude 3 Vision
-- Google Gemini Vision
+**Performance**: ~10-15s per image
 
 ### Step 2: Configure Environment Variables
 
@@ -58,24 +46,20 @@ Edit your `.env` file or set environment variables in Coolify:
 # Enable VLM processing
 VLM_ENABLED=true
 
-# VLM API configuration (OpenAI-compatible endpoint)
-VLM_API_URL=http://localhost:8003/v1/chat/completions  # Adjust to your VLM service
-VLM_API_KEY=  # Optional, leave empty if not needed
-VLM_MODEL_NAME=ibm-granite/SmolDocling-256M-Instruct  # Or your chosen model
-VLM_TIMEOUT=120.0
-VLM_MAX_RETRIES=3
+# VLM API configuration (FastAPI format - API Vision Générique)
+VLM_API_URL=https://apivlm.mynumih.fr  # No /v1 suffix, direct endpoints
+VLM_API_KEY=  # Leave empty, no API key required
+VLM_MODEL_NAME=OpenGVLab/InternVL3_5-8B  # Informational only
+VLM_TIMEOUT=60.0  # 60s should be sufficient for InternVL3_5-8B
 
-# VLM prompts (optional, defaults provided)
-VLM_DESCRIPTION_PROMPT="Describe this image in detail, focusing on key visual elements, text, diagrams, and context."
-VLM_OCR_PROMPT="Extract all visible text from this image, preserving structure and formatting."
+# VLM prompt (used by /extract-and-describe endpoint)
+VLM_PROMPT="Décris cette image en détail en français. Extrais tout le texte visible."
 
 # Image storage
 IMAGE_STORAGE_PATH=/app/uploads/images  # Default location
-IMAGE_MAX_DIMENSION=2048  # Max width/height for stored images
+IMAGE_MAX_SIZE_MB=10  # Max size per image
 IMAGE_QUALITY=85  # JPEG quality (1-100)
-
-# Image processing thresholds
-IMAGE_MIN_AREA=10000  # Minimum image area in pixels (width * height)
+IMAGE_OUTPUT_FORMAT=png  # Output format
 ```
 
 ### Step 3: Restart Services
@@ -97,21 +81,23 @@ docker-compose logs -f ragfab-api
 
 ### 1. Verify VLM Service
 ```bash
-# Test VLM API directly
-curl -X POST http://localhost:8003/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "ibm-granite/SmolDocling-256M-Instruct",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {"type": "text", "text": "What is in this image?"},
-          {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KG..."}}
-        ]
-      }
-    ]
-  }'
+# Test VLM API health
+curl https://apivlm.mynumih.fr/health
+
+# Test VLM API config
+curl https://apivlm.mynumih.fr/config
+
+# Test with a sample image (multipart/form-data format)
+curl -X POST https://apivlm.mynumih.fr/extract-and-describe \
+  -F "image=@/path/to/test_image.png" \
+  -F "temperature=0.1"
+
+# Expected response format:
+# {
+#   "description": "Description de l'image...",
+#   "ocr_text": "Texte extrait de l'image...",
+#   "confidence": 0.95
+# }
 ```
 
 ### 2. Upload Test Document
@@ -271,29 +257,26 @@ IMAGE_QUALITY=75
 - Document with 10 images: ~2-5 MB additional storage
 - Negligible impact on query performance (images loaded only for returned chunks)
 
-## Recommended VLM Models
+## Current VLM Provider
 
-### Production Quality
-1. **SmolDocling-256M-Instruct** (Recommended)
-   - Best speed/quality balance
-   - Optimized for document understanding
-   - ~6s per image on modern GPU
+### API Vision Générique (apivlm.mynumih.fr)
+- **Model**: OpenGVLab/InternVL3_5-8B
+- **Backend**: vLLM server for optimized inference
+- **Performance**: ~10-15s per image
+- **Quality**: Excellent for document analysis and OCR
+- **Cost**: Free (internal service, no API key needed)
+- **Endpoints**:
+  - `/extract-and-describe` - Combined description + OCR (default)
+  - `/describe-image` - Description only
+  - `/extract-text` - OCR only
+- **Documentation**: https://apivlm.mynumih.fr/docs
 
-2. **Qwen2.5-VL-3B**
-   - Excellent accuracy
-   - Strong OCR capabilities
-   - ~23s per image
-
-3. **GPT-4 Vision (API)**
-   - Best quality, no infrastructure needed
-   - Requires API key and costs per request
-   - ~5-10s per image (API latency)
-
-### Development/Testing
-1. **LLaVA-7B** (via Ollama)
-   - Easy setup with Ollama
-   - Good quality for testing
-   - ~15s per image
+### Why InternVL3_5-8B?
+- Specifically optimized for document understanding
+- Excellent multilingual support (including French)
+- Strong OCR capabilities for technical documents
+- Balance between speed and quality
+- Lower resource requirements than larger models
 
 ## API Endpoints Added
 
