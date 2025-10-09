@@ -250,9 +250,9 @@ class IngestionWorker:
             # Update progress: 10% (file located)
             await self.update_job_progress(job_id, 10)
 
-            # Read and process document
+            # Read and process document (now extracts images BEFORE chunking)
             logger.info("Reading document...")
-            document_content, docling_doc = self.pipeline._read_document(str(file_path))
+            document_content, docling_doc, images = await self.pipeline._read_document(str(file_path))
 
             # Update progress: 30% (file read)
             await self.update_job_progress(job_id, 30)
@@ -292,25 +292,14 @@ class IngestionWorker:
             # Update progress: 80% (embeddings generated)
             await self.update_job_progress(job_id, 80)
 
-            # Extract images if VLM is enabled and docling_doc exists
-            images = []
-            if docling_doc and self.pipeline.image_processor:
-                try:
-                    logger.info("📷 Extracting images from document...")
-                    images = await self.pipeline.image_processor.extract_images_from_document(
-                        docling_doc=docling_doc,
-                        job_id=job_id,
-                        pdf_path=str(file_path)
-                    )
-                    if images:
-                        logger.info(f"✅ Extracted {len(images)} images from document")
-                    else:
-                        logger.info("No images found in document")
-                except Exception as e:
-                    logger.warning(f"⚠️ Image extraction failed: {e}")
-                    images = []
+            # Images were already extracted and enriched into markdown during _read_document()
+            # The images list already contains metadata from extraction
+            if images:
+                logger.info(f"✅ Using {len(images)} pre-extracted images (already enriched in markdown)")
+            else:
+                logger.info("No images extracted from document")
 
-            # Update progress: 85% (images extracted)
+            # Update progress: 85% (images ready)
             await self.update_job_progress(job_id, 85)
 
             # Save to PostgreSQL

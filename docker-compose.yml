@@ -122,8 +122,8 @@ services:
   # Worker d'ingestion permanent
   ingestion-worker:
     build:
-      context: ./ingestion-worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ingestion-worker/Dockerfile
     container_name: ragfab-ingestion-worker
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
