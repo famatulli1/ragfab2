@@ -72,7 +72,7 @@ class VLMClient:
 
         logger.info(f"VLM Client initialized: {api_url}, model={model_name}")
 
-    async def analyze_image(self, image_base64: str) -> Tuple[str, Optional[float]]:
+    async def analyze_image(self, image_base64: str) -> Tuple[str, str, Optional[float]]:
         """
         Analyze image with VLM to get description and OCR text.
 
@@ -80,7 +80,7 @@ class VLMClient:
             image_base64: Base64 encoded image
 
         Returns:
-            Tuple of (combined_text, confidence_score)
+            Tuple of (description, ocr_text, confidence_score)
         """
         # Decode base64 to bytes for multipart upload
         image_bytes = base64.b64decode(image_base64)
@@ -133,22 +133,14 @@ class VLMClient:
 
                     # Extract description and OCR text from FastAPI response
                     # Response format: {"description": "...", "extracted_text": "...", "confidence": 0.95}
-                    description = result.get("description", "")
-                    ocr_text = result.get("extracted_text", "")
-
-                    # Combine description and OCR text
-                    combined_parts = []
-                    if description:
-                        combined_parts.append(f"Description: {description}")
-                    if ocr_text:
-                        combined_parts.append(f"Texte extrait: {ocr_text}")
-
-                    content = "\n".join(combined_parts) if combined_parts else "[No content extracted]"
+                    description = result.get("description", "") or ""
+                    ocr_text = result.get("extracted_text", "") or ""
 
                     # Extract confidence if available
                     confidence = result.get("confidence", None)
 
-                    return content, confidence
+                    # Return description and OCR text separately (no labels here)
+                    return description, ocr_text, confidence
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
@@ -436,12 +428,7 @@ class ImageProcessor:
         if self.vlm_enabled and self.vlm_client:
             try:
                 logger.debug(f"Analyzing image {image_index} with VLM...")
-                combined_text, confidence = await self.vlm_client.analyze_image(image_base64)
-
-                # Split description and OCR (simplified - VLM returns combined text)
-                # In production, you might want to use structured output or parsing
-                description = combined_text
-                ocr_text = combined_text  # VLM output includes both description and text
+                description, ocr_text, confidence = await self.vlm_client.analyze_image(image_base64)
 
                 logger.info(f"VLM analysis complete for image {image_index}")
 
