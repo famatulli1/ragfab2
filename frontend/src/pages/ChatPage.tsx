@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical, LogOut, Shield } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, LogOut, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
@@ -19,8 +19,8 @@ export default function ChatPage() {
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
-  const [provider, setProvider] = useState<Provider>('mistral');
+  // const [showSettings, setShowSettings] = useState(false); // Hidden - kept for future reactivation
+  const [provider, setProvider] = useState<Provider>('chocolatine');
   const [useTools, setUseTools] = useState(true);
   const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkId: string } | null>(null);
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
@@ -426,7 +426,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Settings Panel */}
+        {/* Settings Panel - Hidden but kept for future reactivation
         {showSettings && (
           <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800">
             <div className="flex gap-4">
@@ -456,6 +456,7 @@ export default function ChatPage() {
             </div>
           </div>
         )}
+        */}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
