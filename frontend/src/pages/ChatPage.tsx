@@ -372,6 +372,7 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Settings button hidden - kept for future reactivation
             <button
               onClick={() => setShowSettings(!showSettings)}
               className="btn-ghost"
@@ -379,6 +380,7 @@ export default function ChatPage() {
             >
               <Settings size={20} />
             </button>
+            */}
             {currentConversation && (
               <button
                 onClick={() => exportConversation('markdown')}
