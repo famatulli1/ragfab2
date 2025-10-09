@@ -132,9 +132,9 @@ class VLMClient:
                     result = response.json()
 
                     # Extract description and OCR text from FastAPI response
-                    # Response format: {"description": "...", "ocr_text": "...", "confidence": 0.95}
+                    # Response format: {"description": "...", "extracted_text": "...", "confidence": 0.95}
                     description = result.get("description", "")
-                    ocr_text = result.get("ocr_text", "")
+                    ocr_text = result.get("extracted_text", "")
 
                     # Combine description and OCR text
                     combined_parts = []
