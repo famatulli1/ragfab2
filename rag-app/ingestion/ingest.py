@@ -267,36 +267,50 @@ class DocumentIngestionPipeline:
     
     def _enrich_markdown_with_images(self, markdown: str, images: List) -> str:
         """
-        Replace <!-- image --> tags in markdown with actual image descriptions and OCR text.
-        This makes image content searchable in RAG.
+        Inject image descriptions and OCR text into markdown to make them searchable.
+        Since Docling doesn't insert <!-- image --> placeholders, we group images by page
+        and append them at the end of the document.
 
         Args:
-            markdown: Original markdown with <!-- image --> placeholders
+            markdown: Original markdown from Docling
             images: List of ImageMetadata objects with descriptions and OCR text
 
         Returns:
-            Enriched markdown with image content injected
+            Enriched markdown with image content appended
         """
-        enriched = markdown
+        if not images:
+            return markdown
+
+        # Group images by page number
+        from collections import defaultdict
+        images_by_page = defaultdict(list)
 
         for image in images:
-            # ImageMetadata is a dataclass - use attribute access
+            page_num = getattr(image, 'page_number', 1)
             description = getattr(image, 'description', '') or ''
             ocr_text = getattr(image, 'ocr_text', '') or ''
 
             # Build enriched content for this image
             image_content_parts = []
             if description:
-                image_content_parts.append(f"IMAGE: {description}")
+                image_content_parts.append(f"{description}")
             if ocr_text:
-                image_content_parts.append(f"OCR: {ocr_text}")
+                image_content_parts.append(f"Texte extrait: {ocr_text}")
 
             if image_content_parts:
-                image_content = ". ".join(image_content_parts)
-                # Find first <!-- image --> tag and replace with actual content
-                enriched = enriched.replace("<!-- image -->", f"\n[{image_content}]\n", 1)
+                images_by_page[page_num].append(" - ".join(image_content_parts))
 
-        logger.info(f"📝 Markdown enrichi avec {len(images)} descriptions d'images")
+        # Append image content at the end of the document, grouped by page
+        enriched_parts = [markdown]
+        enriched_parts.append("\n\n---\n\n## CONTENU DES IMAGES DU DOCUMENT\n")
+
+        for page_num in sorted(images_by_page.keys()):
+            enriched_parts.append(f"\n### Images de la page {page_num}\n")
+            for img_content in images_by_page[page_num]:
+                enriched_parts.append(f"\n{img_content}\n")
+
+        enriched = "".join(enriched_parts)
+        logger.info(f"📝 Markdown enrichi avec {len(images)} descriptions d'images sur {len(images_by_page)} pages")
         return enriched
 
     async def _read_document(self, file_path: str) -> tuple[str, Optional[Any], List[dict]]:
