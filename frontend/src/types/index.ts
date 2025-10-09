@@ -100,6 +100,12 @@ export interface Source {
   content: string;
   similarity?: number;
   images?: ImageData[];  // Images associated with this source
+  is_image_chunk?: boolean;  // Flag to identify synthetic image chunks
+  chunk_id?: string;
+  document_id?: string;
+  document_title?: string;
+  document_source?: string;
+  chunk_index?: number;
 }
 
 export interface TokenUsage {

@@ -927,6 +927,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     c.id as chunk_id,
                     c.content,
                     c.chunk_index,
+                    c.metadata,
                     d.id as document_id,
                     d.title as document_title,
                     d.source as document_source,
@@ -988,6 +989,10 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                 chunk_id = doc["chunk_id"]
                 images = chunk_images_map.get(chunk_id, [])
 
+                # Check if this is a synthetic image chunk
+                metadata = doc.get("metadata", {}) or {}
+                is_image_chunk = metadata.get("is_image_chunk", False) if isinstance(metadata, dict) else False
+
                 sources.append({
                     "chunk_id": chunk_id,
                     "document_id": doc["document_id"],
@@ -996,7 +1001,8 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     "chunk_index": doc["chunk_index"],
                     "content": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"],
                     "similarity": doc["similarity"],
-                    "images": images  # Include associated images
+                    "images": images,  # Include associated images
+                    "is_image_chunk": is_image_chunk  # Flag to identify synthetic image chunks
                 })
 
                 # Add image descriptions to response if available
@@ -1018,6 +1024,10 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                 chunk_id = str(row["chunk_id"])
                 images = chunk_images_map.get(chunk_id, [])
 
+                # Check if this is a synthetic image chunk
+                metadata = row.get("metadata", {}) or {}
+                is_image_chunk = metadata.get("is_image_chunk", False) if isinstance(metadata, dict) else False
+
                 sources.append({
                     "chunk_id": chunk_id,
                     "document_id": str(row["document_id"]),
@@ -1026,7 +1036,8 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     "chunk_index": row["chunk_index"],
                     "content": row["content"][:200] + "..." if len(row["content"]) > 200 else row["content"],
                     "similarity": float(row["similarity"]),
-                    "images": images  # Include associated images
+                    "images": images,  # Include associated images
+                    "is_image_chunk": is_image_chunk  # Flag to identify synthetic image chunks
                 })
 
                 # Add image descriptions to response if available

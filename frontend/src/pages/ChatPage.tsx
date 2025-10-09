@@ -448,15 +448,19 @@ export default function ChatPage() {
                                 className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
                               >
                                 <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
-                                  📄 {source.document_title}
+                                  {source.is_image_chunk ? '🖼️' : '📄'} {source.document_title}
                                   <span className="text-xs text-gray-400">→ Voir le document</span>
                                 </div>
                                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                   Chunk #{source.chunk_index} • Similarité: {(source.similarity * 100).toFixed(1)}%
+                                  {source.is_image_chunk && <span className="ml-2 text-purple-500">• Image</span>}
                                 </div>
-                                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
-                                  "{source.content}"
-                                </div>
+                                {/* Only show text content for non-image chunks */}
+                                {!source.is_image_chunk && (
+                                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
+                                    "{source.content}"
+                                  </div>
+                                )}
                               </div>
 
                               {/* Display images inline if available */}
