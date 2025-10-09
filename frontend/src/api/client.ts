@@ -16,7 +16,6 @@ import type {
   UserUpdate,
   UserResponse,
   UserListResponse,
-  PasswordReset,
 } from '../types';
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';

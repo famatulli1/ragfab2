@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { UserPlus, Edit2, Trash2, Key, Shield, UserX, Check, X, AlertCircle } from 'lucide-react';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { UserListResponse, UserCreate, UserUpdate } from '../types';
+import type { UserListResponse, UserUpdate } from '../types';
 
 export default function UserManagement() {
   const { theme } = useTheme();
@@ -246,7 +246,7 @@ export default function UserManagement() {
                         {user.username}
                       </span>
                       {user.is_admin && (
-                        <Shield className="h-4 w-4 text-yellow-500" title="Administrateur" />
+                        <Shield className="h-4 w-4 text-yellow-500" aria-label="Administrateur" />
                       )}
                     </div>
                   </td>
