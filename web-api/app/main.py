@@ -487,6 +487,63 @@ async def get_conversation_messages(
         return messages
 
 
+async def generate_conversation_title(user_message: str) -> str:
+    """
+    Génère un titre court et descriptif pour une conversation basé sur le premier message.
+
+    Args:
+        user_message: Le premier message de l'utilisateur
+
+    Returns:
+        Un titre court (max 50 caractères) ou fallback sur les premiers mots
+    """
+    try:
+        from .utils.generic_llm_provider import get_generic_llm_model
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+        # Prompt optimisé pour génération rapide
+        prompt = f"""Génère un titre court et descriptif (maximum 50 caractères) pour une conversation basée sur cette question.
+Le titre doit être en français, sans guillemets, et capturer l'essence de la question.
+
+Question : {user_message}
+
+Titre :"""
+
+        logger.info("🎯 Génération du titre de conversation avec LLM")
+        model = get_generic_llm_model()
+
+        # Appel simple sans agent (plus rapide) avec timeout court
+        response, _ = await asyncio.wait_for(
+            model.request([ModelRequest(parts=[UserPromptPart(content=prompt)])]),
+            timeout=10.0
+        )
+
+        # Extraire le texte de la réponse
+        title = ""
+        for part in response.parts:
+            if hasattr(part, 'content'):
+                title += part.content
+
+        title = title.strip()
+
+        # Nettoyer et limiter
+        title = title.replace('"', '').replace("'", '').replace('\n', ' ').strip()
+        if len(title) > 50:
+            title = title[:47] + "..."
+
+        result = title if title else user_message[:50]
+        logger.info(f"✅ Titre généré : {result}")
+        return result
+
+    except asyncio.TimeoutError:
+        logger.warning("⏱️ Timeout génération titre, fallback sur message")
+        return user_message[:50] + ("..." if len(user_message) > 50 else "")
+    except Exception as e:
+        logger.warning(f"⚠️ Échec génération titre, fallback sur message: {e}")
+        # Fallback : premiers mots du message
+        return user_message[:50] + ("..." if len(user_message) > 50 else "")
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")  # Max 20 messages per minute
 async def send_message(
@@ -529,6 +586,33 @@ async def send_message(
             """,
             chat_request.conversation_id, chat_request.message
         )
+
+    # Générer automatiquement le titre si c'est le premier message
+    if conversation['title'] == 'Nouvelle conversation':
+        async with database.db_pool.acquire() as conn:
+            # Vérifier que c'est vraiment le premier message (hors message actuel)
+            message_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = $1 AND id != $2",
+                chat_request.conversation_id, user_message['id']
+            )
+
+            if message_count == 0:
+                logger.info("🎯 Premier message détecté, génération automatique du titre")
+                new_title = await generate_conversation_title(chat_request.message)
+
+                # Mettre à jour le titre de la conversation
+                await conn.execute(
+                    "UPDATE conversations SET title = $1 WHERE id = $2",
+                    new_title, chat_request.conversation_id
+                )
+
+                logger.info(f"✅ Titre de conversation mis à jour : '{new_title}'")
+
+                # Mettre à jour l'objet conversation pour la réponse
+                conversation = await conn.fetchrow(
+                    "SELECT * FROM conversations WHERE id = $1",
+                    chat_request.conversation_id
+                )
 
     # Récupérer l'historique (pour le context)
     async with database.db_pool.acquire() as conn:
