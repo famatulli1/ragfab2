@@ -265,14 +265,14 @@ class DocumentIngestionPipeline:
         # Supprimer les doublons et trier
         return sorted(list(set(files)))
     
-    def _enrich_markdown_with_images(self, markdown: str, images: List[dict]) -> str:
+    def _enrich_markdown_with_images(self, markdown: str, images: List) -> str:
         """
         Replace <!-- image --> tags in markdown with actual image descriptions and OCR text.
         This makes image content searchable in RAG.
 
         Args:
             markdown: Original markdown with <!-- image --> placeholders
-            images: List of extracted images with descriptions and OCR text
+            images: List of ImageMetadata objects with descriptions and OCR text
 
         Returns:
             Enriched markdown with image content injected
@@ -280,8 +280,9 @@ class DocumentIngestionPipeline:
         enriched = markdown
 
         for image in images:
-            description = image.get('description', '')
-            ocr_text = image.get('ocr_text', '')
+            # ImageMetadata is a dataclass - use attribute access
+            description = getattr(image, 'description', '') or ''
+            ocr_text = getattr(image, 'ocr_text', '') or ''
 
             # Build enriched content for this image
             image_content_parts = []
