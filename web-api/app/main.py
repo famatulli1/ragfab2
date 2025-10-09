@@ -322,42 +322,50 @@ async def delete_document(
 async def list_conversations(
     limit: int = 50,
     offset: int = 0,
-    include_archived: bool = False
+    include_archived: bool = False,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Liste toutes les conversations"""
+    """Liste les conversations de l'utilisateur courant"""
     async with database.db_pool.acquire() as conn:
         query = """
             SELECT * FROM conversation_stats
-            WHERE ($3 = true OR archived = false)
+            WHERE user_id = $1
+            AND ($4 = true OR archived = false)
             ORDER BY updated_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT $2 OFFSET $3
         """
-        rows = await conn.fetch(query, limit, offset, include_archived)
+        rows = await conn.fetch(query, current_user['id'], limit, offset, include_archived)
         return [ConversationWithStats(**dict(row)) for row in rows]
 
 
 @app.post("/api/conversations", response_model=Conversation)
-async def create_conversation(request: ConversationCreate):
-    """Crée une nouvelle conversation avec options de reranking"""
+async def create_conversation(
+    request: ConversationCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Crée une nouvelle conversation liée à l'utilisateur courant"""
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO conversations (title, provider, use_tools, reranking_enabled)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO conversations (title, provider, use_tools, reranking_enabled, user_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             """,
-            request.title, request.provider, request.use_tools, request.reranking_enabled
+            request.title, request.provider, request.use_tools, request.reranking_enabled, current_user['id']
         )
         return Conversation(**dict(row))
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
-async def get_conversation(conversation_id: UUID):
-    """Récupère une conversation par ID"""
+async def get_conversation(
+    conversation_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Récupère une conversation appartenant à l'utilisateur courant"""
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1",
-            conversation_id
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            conversation_id, current_user['id']
         )
         if not row:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -367,10 +375,11 @@ async def get_conversation(conversation_id: UUID):
 @app.patch("/api/conversations/{conversation_id}", response_model=Conversation)
 async def update_conversation(
     conversation_id: UUID,
-    request: ConversationUpdate
+    request: ConversationUpdate,
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Met à jour une conversation (titre, archivage, reranking)
+    Met à jour une conversation appartenant à l'utilisateur courant
 
     Le champ reranking_enabled permet de contrôler le reranking par conversation :
     - None (null) : Utilise la variable d'environnement RERANKER_ENABLED
@@ -400,11 +409,11 @@ async def update_conversation(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    values.append(conversation_id)
+    values.extend([conversation_id, current_user['id']])
     query = f"""
         UPDATE conversations
         SET {', '.join(updates)}
-        WHERE id = ${param_count}
+        WHERE id = ${param_count} AND user_id = ${param_count + 1}
         RETURNING *
     """
 
@@ -413,17 +422,20 @@ async def update_conversation(
         if not row:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        logger.info(f"📝 Conversation {conversation_id} updated - reranking_enabled: {row['reranking_enabled']}")
+        logger.info(f"📝 Conversation {conversation_id} updated by user {current_user['username']}")
         return Conversation(**dict(row))
 
 
 @app.delete("/api/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: UUID):
-    """Supprime une conversation et ses messages"""
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Supprime une conversation appartenant à l'utilisateur courant"""
     async with database.db_pool.acquire() as conn:
         result = await conn.execute(
-            "DELETE FROM conversations WHERE id = $1",
-            conversation_id
+            "DELETE FROM conversations WHERE id = $1 AND user_id = $2",
+            conversation_id, current_user['id']
         )
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -439,10 +451,19 @@ async def delete_conversation(conversation_id: UUID):
 async def get_conversation_messages(
     conversation_id: UUID,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Récupère les messages d'une conversation"""
+    """Récupère les messages d'une conversation appartenant à l'utilisateur"""
     async with database.db_pool.acquire() as conn:
+        # Vérifier que la conversation appartient à l'utilisateur
+        conversation = await conn.fetchrow(
+            "SELECT id FROM conversations WHERE id = $1 AND user_id = $2",
+            conversation_id, current_user['id']
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
         rows = await conn.fetch(
             """
             SELECT m.*, mr.rating
@@ -468,22 +489,27 @@ async def get_conversation_messages(
 
 @app.post("/api/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")  # Max 20 messages per minute
-async def send_message(request: Request, chat_request: ChatRequest):
+async def send_message(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Envoie un message et obtient une réponse du RAG agent
 
     Cette route:
-    1. Crée le message utilisateur
-    2. Récupère l'historique de la conversation
-    3. Exécute le RAG agent avec le provider approprié
-    4. Sauvegarde la réponse
-    5. Retourne le tout
+    1. Vérifie que la conversation appartient à l'utilisateur
+    2. Crée le message utilisateur
+    3. Récupère l'historique de la conversation
+    4. Exécute le RAG agent avec le provider approprié
+    5. Sauvegarde la réponse
+    6. Retourne le tout
     """
-    # Récupérer la conversation
+    # Récupérer et vérifier la conversation
     async with database.db_pool.acquire() as conn:
         conversation = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1",
-            chat_request.conversation_id
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            chat_request.conversation_id, current_user['id']
         )
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -573,8 +599,11 @@ async def send_message(request: Request, chat_request: ChatRequest):
 
 
 @app.post("/api/messages/{message_id}/regenerate", response_model=MessageResponse)
-async def regenerate_message(message_id: UUID):
-    """Régénère une réponse assistant"""
+async def regenerate_message(
+    message_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Régénère une réponse assistant pour une conversation de l'utilisateur"""
     # Récupérer le message original
     async with database.db_pool.acquire() as conn:
         original = await conn.fetchrow(
@@ -600,11 +629,13 @@ async def regenerate_message(message_id: UUID):
         if not user_msg:
             raise HTTPException(status_code=400, detail="No user message found to regenerate from")
 
-        # Récupérer conversation
+        # Récupérer et vérifier la conversation
         conversation = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1",
-            original["conversation_id"]
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            original["conversation_id"], current_user['id']
         )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Exécuter le RAG agent à nouveau
     try:
@@ -655,13 +686,22 @@ async def regenerate_message(message_id: UUID):
 
 
 @app.post("/api/messages/{message_id}/rate", response_model=Rating)
-async def rate_message(message_id: UUID, request: RatingCreate):
-    """Note un message (thumbs up/down)"""
+async def rate_message(
+    message_id: UUID,
+    request: RatingCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Note un message d'une conversation de l'utilisateur"""
     async with database.db_pool.acquire() as conn:
-        # Vérifier que le message existe
+        # Vérifier que le message existe et appartient à une conversation de l'utilisateur
         message = await conn.fetchrow(
-            "SELECT id FROM messages WHERE id = $1",
-            message_id
+            """
+            SELECT m.id
+            FROM messages m
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE m.id = $1 AND c.user_id = $2
+            """,
+            message_id, current_user['id']
         )
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -688,14 +728,15 @@ async def rate_message(message_id: UUID, request: RatingCreate):
 @app.post("/api/conversations/{conversation_id}/export")
 async def export_conversation(
     conversation_id: UUID,
-    request: ExportRequest
+    request: ExportRequest,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Exporte une conversation en Markdown ou PDF"""
-    # Récupérer la conversation et ses messages
+    """Exporte une conversation de l'utilisateur en Markdown ou PDF"""
+    # Récupérer et vérifier la conversation
     async with database.db_pool.acquire() as conn:
         conversation = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1",
-            conversation_id
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            conversation_id, current_user['id']
         )
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")

@@ -586,6 +586,41 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 3. Files execute in alphabetical order - use numeric prefixes
 4. Recreate database or run migration manually for existing deployments
 
+### Multi-User System and Database Migration
+
+**Schema updates** (as of multi-user implementation):
+- `conversations.user_id` is now **NOT NULL** (required for all new conversations)
+- `conversations.reranking_enabled` column added (default: false)
+- `conversation_stats` view updated to include `user_id`, `reranking_enabled`, and `archived` fields
+
+**Migration process for existing deployments**:
+```bash
+# 1. Back up your database first
+docker-compose exec postgres pg_dump -U raguser ragdb > backup.sql
+
+# 2. Run migration script (handles NULL user_id and adds reranking_enabled)
+docker-compose exec postgres psql -U raguser -d ragdb -f /docker-entrypoint-initdb.d/03_migration_user_sessions.sql
+
+# Migration performs:
+# - Adds reranking_enabled column if missing
+# - Assigns orphaned conversations (user_id = NULL) to first admin
+# - Sets user_id as NOT NULL
+# - Updates conversation_stats view
+
+# 3. Verify migration success
+docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT COUNT(*) FROM conversations WHERE user_id IS NULL;"
+# Should return 0
+
+# 4. Check user assignment
+docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT user_id, COUNT(*) FROM conversations GROUP BY user_id;"
+```
+
+**Security considerations**:
+- All conversation routes now filter by `current_user['id']`
+- Frontend protected with JWT authentication on all routes (including `/`)
+- Admin panel accessible only to users with `is_admin = true`
+- Each user sees only their own conversations (complete isolation)
+
 ### Debugging Sources Not Appearing
 
 Check in order:

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Settings, Trash2, Edit2, MoreVertical, LogOut, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { Conversation, Message, Provider } from '../types';
+import type { Conversation, Message, Provider, User } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -10,6 +11,8 @@ import ImageViewer from '../components/ImageViewer';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,6 +27,11 @@ export default function ChatPage() {
   const [editTitle, setEditTitle] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Charger l'utilisateur courant
+  useEffect(() => {
+    loadCurrentUser();
+  }, []);
 
   // Charger les conversations
   useEffect(() => {
@@ -50,6 +58,21 @@ export default function ChatPage() {
       return () => document.removeEventListener('click', handleClickOutside);
     }
   }, [menuOpen]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await api.getCurrentUser();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Error loading current user:', error);
+      navigate('/login');
+    }
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    navigate('/login');
+  };
 
   const loadConversations = async () => {
     try {
@@ -372,6 +395,32 @@ export default function ChatPage() {
             >
               {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
+
+            {/* User Menu */}
+            {currentUser && (
+              <>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                <span className="text-sm text-gray-600 dark:text-gray-300 px-2">
+                  {currentUser.username}
+                </span>
+                {currentUser.is_admin && (
+                  <button
+                    onClick={() => navigate('/admin')}
+                    className="btn-ghost"
+                    title="Administration"
+                  >
+                    <Shield size={20} />
+                  </button>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="btn-ghost text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+                  title="Déconnexion"
+                >
+                  <LogOut size={20} />
+                </button>
+              </>
+            )}
           </div>
         </div>
 

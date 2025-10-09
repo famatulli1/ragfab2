@@ -21,10 +21,11 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 -- Table des conversations
 CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(500) DEFAULT 'Nouvelle conversation',
     provider VARCHAR(50) NOT NULL DEFAULT 'mistral', -- mistral, chocolatine
     use_tools BOOLEAN DEFAULT true,
+    reranking_enabled BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     message_count INTEGER DEFAULT 0,
@@ -147,20 +148,22 @@ CREATE TRIGGER decrement_conversation_message_count
 CREATE OR REPLACE VIEW conversation_stats AS
 SELECT
     c.id,
+    c.user_id,
     c.title,
     c.provider,
     c.use_tools,
+    c.reranking_enabled,
     c.created_at,
     c.updated_at,
     c.message_count,
+    c.archived,
     COUNT(DISTINCT m.id) AS actual_message_count,
     COUNT(DISTINCT mr.id) FILTER (WHERE mr.rating = 1) AS thumbs_up_count,
     COUNT(DISTINCT mr.id) FILTER (WHERE mr.rating = -1) AS thumbs_down_count
 FROM conversations c
 LEFT JOIN messages m ON c.id = m.conversation_id
 LEFT JOIN message_ratings mr ON m.id = mr.message_id
-WHERE c.archived = false
-GROUP BY c.id, c.title, c.provider, c.use_tools, c.created_at, c.updated_at, c.message_count;
+GROUP BY c.id, c.user_id, c.title, c.provider, c.use_tools, c.reranking_enabled, c.created_at, c.updated_at, c.message_count, c.archived;
 
 -- Vue pour statistiques des documents (réutilise la table existante)
 CREATE OR REPLACE VIEW document_stats AS

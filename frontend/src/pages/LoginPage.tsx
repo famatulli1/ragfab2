@@ -20,16 +20,9 @@ export default function LoginPage() {
     try {
       await api.login({ username, password });
 
-      // Vérifier que l'utilisateur est admin
-      const user = await api.getCurrentUser();
-      if (!user.is_admin) {
-        await api.logout();
-        setError('Accès réservé aux administrateurs');
-        setLoading(false);
-        return;
-      }
-
-      navigate('/admin');
+      // Tous les utilisateurs peuvent se connecter
+      // Rediriger vers le chat par défaut
+      navigate('/');
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Erreur de connexion';
       setError(errorMessage);
@@ -53,12 +46,12 @@ export default function LoginPage() {
           <h2 className={`mt-6 text-3xl font-bold ${
             theme === 'dark' ? 'text-white' : 'text-gray-900'
           }`}>
-            Administration RAGFab
+            RAGFab
           </h2>
           <p className={`mt-2 text-sm ${
             theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
           }`}>
-            Connexion réservée aux administrateurs
+            Connectez-vous pour accéder à votre chat personnel
           </p>
         </div>
 
@@ -134,14 +127,13 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Retour au chat public */}
+        {/* Info connexion */}
         <div className="text-center">
-          <button
-            onClick={() => navigate('/')}
-            className="text-sm text-blue-500 hover:underline"
-          >
-            ← Retour au chat
-          </button>
+          <p className={`text-xs ${
+            theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+          }`}>
+            Pas de compte ? Contactez un administrateur
+          </p>
         </div>
       </div>
     </div>

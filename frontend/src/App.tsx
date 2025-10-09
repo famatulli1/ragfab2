@@ -47,20 +47,25 @@ function App() {
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <BrowserRouter>
         <Routes>
-          {/* Route publique - Chat accessible sans auth */}
-          <Route path="/" element={<ChatPage />} />
-
-          {/* Route de connexion admin */}
+          {/* Route de connexion - SEULE route publique */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Route admin protégée */}
+          {/* Route chat - Protégée, accessible à tous les utilisateurs authentifiés */}
+          <Route path="/" element={
+            <ProtectedRoute>
+              <ChatPage />
+            </ProtectedRoute>
+          } />
+
+          {/* Route admin - Protégée, réservée aux admins */}
           <Route path="/admin" element={
             <ProtectedRoute adminOnly>
               <AdminPage />
             </ProtectedRoute>
           } />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Redirection par défaut vers login */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </ThemeContext.Provider>
