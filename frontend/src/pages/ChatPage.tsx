@@ -20,8 +20,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // const [showSettings, setShowSettings] = useState(false); // Hidden - kept for future reactivation
-  const [provider, setProvider] = useState<Provider>('chocolatine');
-  const [useTools, setUseTools] = useState(true);
+  const [provider] = useState<Provider>('chocolatine'); // setProvider hidden with settings
+  const [useTools] = useState(true); // setUseTools hidden with settings
   const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkId: string } | null>(null);
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
