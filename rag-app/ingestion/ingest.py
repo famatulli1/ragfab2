@@ -164,8 +164,9 @@ class DocumentIngestionPipeline:
         """
         start_time = datetime.now()
 
-        # Read document (returns tuple: content, docling_doc)
-        document_content, docling_doc = self._read_document(file_path)
+        # Read document (returns tuple: content, docling_doc, images)
+        # Images are now extracted BEFORE chunking and enriched into markdown
+        document_content, docling_doc, images = await self._read_document(file_path)
         document_title = self._extract_title(document_content, file_path)
         document_source = os.path.relpath(file_path, self.documents_folder)
 
@@ -204,22 +205,9 @@ class DocumentIngestionPipeline:
         embedded_chunks = await self.embedder.embed_chunks(chunks)
         logger.info(f"Generated embeddings for {len(embedded_chunks)} chunks")
 
-        # Extract images if VLM is enabled
-        images = []
-        if self.image_processor and docling_doc:
-            try:
-                logger.info("Extracting images from document...")
-                # Use a job ID based on document title
-                job_id = f"doc_{document_title.replace(' ', '_')[:50]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                images = await self.image_processor.extract_images_from_document(
-                    docling_doc=docling_doc,
-                    job_id=job_id,
-                    pdf_path=file_path
-                )
-                logger.info(f"Extracted {len(images)} images from document")
-            except Exception as e:
-                logger.error(f"Image extraction failed: {e}")
-                images = []
+        # Images were already extracted and injected into markdown during _read_document()
+        # The images list already contains metadata from extraction
+        logger.info(f"Ready to save document with {len(images)} images")
 
         # Save to PostgreSQL (including images)
         document_id = await self._save_to_postgres(
@@ -277,13 +265,48 @@ class DocumentIngestionPipeline:
         # Supprimer les doublons et trier
         return sorted(list(set(files)))
     
-    def _read_document(self, file_path: str) -> tuple[str, Optional[Any]]:
+    def _enrich_markdown_with_images(self, markdown: str, images: List[dict]) -> str:
         """
-        Read document content from file - supports multiple formats via Docling.
+        Replace <!-- image --> tags in markdown with actual image descriptions and OCR text.
+        This makes image content searchable in RAG.
+
+        Args:
+            markdown: Original markdown with <!-- image --> placeholders
+            images: List of extracted images with descriptions and OCR text
 
         Returns:
-            Tuple of (markdown_content, docling_document)
+            Enriched markdown with image content injected
+        """
+        enriched = markdown
+
+        for image in images:
+            description = image.get('description', '')
+            ocr_text = image.get('ocr_text', '')
+
+            # Build enriched content for this image
+            image_content_parts = []
+            if description:
+                image_content_parts.append(f"IMAGE: {description}")
+            if ocr_text:
+                image_content_parts.append(f"OCR: {ocr_text}")
+
+            if image_content_parts:
+                image_content = ". ".join(image_content_parts)
+                # Find first <!-- image --> tag and replace with actual content
+                enriched = enriched.replace("<!-- image -->", f"\n[{image_content}]\n", 1)
+
+        logger.info(f"📝 Markdown enrichi avec {len(images)} descriptions d'images")
+        return enriched
+
+    async def _read_document(self, file_path: str) -> tuple[str, Optional[Any], List[dict]]:
+        """
+        Read document content from file - supports multiple formats via Docling.
+        Now extracts images BEFORE chunking and enriches markdown with descriptions.
+
+        Returns:
+            Tuple of (enriched_markdown_content, docling_document, images)
             docling_document is None for text files and audio files
+            images is a list of extracted image metadata
         """
         file_ext = os.path.splitext(file_path)[1].lower()
 
@@ -291,7 +314,7 @@ class DocumentIngestionPipeline:
         audio_formats = ['.mp3', '.wav', '.m4a', '.flac']
         if file_ext in audio_formats:
             content = self._transcribe_audio(file_path)
-            return (content, None)  # No DoclingDocument for audio
+            return (content, None, [])  # No DoclingDocument or images for audio
 
         # Docling-supported formats (convert to markdown)
         docling_formats = ['.pdf', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls', '.html', '.htm']
@@ -305,12 +328,35 @@ class DocumentIngestionPipeline:
                 converter = DocumentConverter()
                 result = converter.convert(file_path)
 
-                # Export to markdown for consistent processing
+                # Export to markdown (contains <!-- image --> placeholders)
                 markdown_content = result.document.export_to_markdown()
                 logger.info(f"Successfully converted {os.path.basename(file_path)} to markdown")
 
-                # Return both markdown and DoclingDocument for HybridChunker
-                return (markdown_content, result.document)
+                # Extract and analyze images BEFORE chunking
+                extracted_images = []
+                if self.image_processor and result.document:
+                    logger.info("📷 Extraction des images AVANT chunking pour enrichir le contenu...")
+                    try:
+                        # Generate job_id from file path
+                        job_id = f"doc_{os.path.basename(file_path).replace(' ', '_')[:50]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+                        extracted_images = await self.image_processor.extract_images_from_document(
+                            docling_doc=result.document,
+                            job_id=job_id,
+                            pdf_path=file_path
+                        )
+
+                        if extracted_images:
+                            logger.info(f"✅ {len(extracted_images)} images extraites et analysées")
+                            # Enrich markdown with image descriptions for searchability
+                            markdown_content = self._enrich_markdown_with_images(markdown_content, extracted_images)
+
+                    except Exception as e:
+                        logger.warning(f"⚠️ Échec de l'extraction d'images: {e}")
+                        # Continue without images - not critical
+
+                # Return enriched markdown, DoclingDocument, and extracted images
+                return (markdown_content, result.document, extracted_images)
 
             except Exception as e:
                 logger.error(f"Failed to convert {file_path} with Docling: {e}")
@@ -318,19 +364,19 @@ class DocumentIngestionPipeline:
                 logger.warning(f"Falling back to raw text extraction for {file_path}")
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        return (f.read(), None)
+                        return (f.read(), None, [])
                 except:
-                    return (f"[Error: Could not read file {os.path.basename(file_path)}]", None)
+                    return (f"[Error: Could not read file {os.path.basename(file_path)}]", None, [])
 
         # Text-based formats (read directly)
         else:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    return (f.read(), None)
+                    return (f.read(), None, [])
             except UnicodeDecodeError:
                 # Try with different encoding
                 with open(file_path, 'r', encoding='latin-1') as f:
-                    return (f.read(), None)
+                    return (f.read(), None, [])
 
     def _transcribe_audio(self, file_path: str) -> str:
         """Transcribe audio file using Whisper ASR via Docling."""

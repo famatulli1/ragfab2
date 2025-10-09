@@ -159,7 +159,11 @@ class DoclingHybridChunker:
                 # Extract page number from chunk provenance if available
                 page_number = 1  # Default page
                 if hasattr(chunk, 'meta') and chunk.meta:
-                    page_number = chunk.meta.get('page_number', chunk.meta.get('page', 1))
+                    # DocMeta object - use attribute access, not dict .get()
+                    if hasattr(chunk.meta, 'page_number'):
+                        page_number = chunk.meta.page_number
+                    elif hasattr(chunk.meta, 'page'):
+                        page_number = chunk.meta.page
                 elif hasattr(chunk, 'prov') and len(chunk.prov) > 0:
                     # Docling chunks have provenance information
                     page_number = chunk.prov[0].page_no if hasattr(chunk.prov[0], 'page_no') else 1
