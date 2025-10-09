@@ -280,7 +280,20 @@ class IngestionWorker:
             if not chunks:
                 raise ValueError("No chunks created from document")
 
-            logger.info(f"Created {len(chunks)} chunks")
+            logger.info(f"Created {len(chunks)} document chunks")
+
+            # Create synthetic chunks for images to make them searchable
+            if images:
+                image_chunks = self.pipeline._create_image_chunks(
+                    images=images,
+                    document_title=document_title,
+                    document_source=document_source
+                )
+                if image_chunks:
+                    chunks.extend(image_chunks)
+                    logger.info(f"✨ Added {len(image_chunks)} synthetic image chunks (total: {len(chunks)})")
+
+            logger.info(f"Final chunk count: {len(chunks)} chunks")
 
             # Update progress: 60% (chunking complete)
             await self.update_job_progress(job_id, 60)
