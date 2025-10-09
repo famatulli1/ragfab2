@@ -183,7 +183,7 @@ class DocumentIngestionPipeline:
             metadata=document_metadata,
             docling_doc=docling_doc  # Pass DoclingDocument for HybridChunker
         )
-        
+
         if not chunks:
             logger.warning(f"No chunks created for {document_title}")
             return IngestionResult(
@@ -195,8 +195,21 @@ class DocumentIngestionPipeline:
                 processing_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
                 errors=["No chunks created"]
             )
-        
-        logger.info(f"Created {len(chunks)} chunks")
+
+        logger.info(f"Created {len(chunks)} document chunks")
+
+        # Create synthetic chunks for images to make them searchable
+        if images:
+            image_chunks = self._create_image_chunks(
+                images=images,
+                document_title=document_title,
+                document_source=document_source
+            )
+            if image_chunks:
+                chunks.extend(image_chunks)
+                logger.info(f"✨ Added {len(image_chunks)} synthetic image chunks (total: {len(chunks)})")
+
+        logger.info(f"Final chunk count: {len(chunks)} chunks")
         
         # Entity extraction removed (graph-related functionality)
         entities_extracted = 0
@@ -264,62 +277,78 @@ class DocumentIngestionPipeline:
 
         # Supprimer les doublons et trier
         return sorted(list(set(files)))
-    
-    def _enrich_markdown_with_images(self, markdown: str, images: List) -> str:
+
+    def _create_image_chunks(
+        self,
+        images: List[ImageMetadata],
+        document_title: str,
+        document_source: str
+    ) -> List[DocumentChunk]:
         """
-        Inject image descriptions and OCR text into markdown to make them searchable.
-        Since Docling doesn't insert <!-- image --> placeholders, we group images by page
-        and append them at the end of the document.
+        Create synthetic chunks for image descriptions and OCR text.
+        Each image becomes a searchable chunk in the RAG system.
 
         Args:
-            markdown: Original markdown from Docling
-            images: List of ImageMetadata objects with descriptions and OCR text
+            images: List of ImageMetadata objects with descriptions and OCR
+            document_title: Title of the parent document
+            document_source: Source path of the parent document
 
         Returns:
-            Enriched markdown with image content appended
+            List of DocumentChunk objects for images
         """
-        if not images:
-            return markdown
+        image_chunks = []
 
-        # Group images by page number
-        from collections import defaultdict
-        images_by_page = defaultdict(list)
-
-        for image in images:
-            page_num = getattr(image, 'page_number', 1)
+        for idx, image in enumerate(images):
             description = getattr(image, 'description', '') or ''
             ocr_text = getattr(image, 'ocr_text', '') or ''
+            page_num = getattr(image, 'page_number', 1)
 
-            # Build enriched content for this image
-            image_content_parts = []
+            if not description and not ocr_text:
+                continue  # Skip images with no content
+
+            # Build chunk content
+            content_parts = [f"[Image {idx+1} depuis la page {page_num}]"]
             if description:
-                image_content_parts.append(f"{description}")
+                content_parts.append(f"Description: {description}")
             if ocr_text:
-                image_content_parts.append(f"Texte extrait: {ocr_text}")
+                content_parts.append(f"Texte extrait: {ocr_text}")
 
-            if image_content_parts:
-                images_by_page[page_num].append(" - ".join(image_content_parts))
+            chunk_content = "\n".join(content_parts)
 
-        # Append image content at the end of the document, grouped by page
-        enriched_parts = [markdown]
-        enriched_parts.append("\n\n---\n\n## CONTENU DES IMAGES DU DOCUMENT\n")
+            # Estimate token count (approximation if tokenizer not available)
+            try:
+                token_count = len(self.chunker.tokenizer.encode(chunk_content))
+            except:
+                token_count = len(chunk_content.split())  # Fallback
 
-        for page_num in sorted(images_by_page.keys()):
-            enriched_parts.append(f"\n### Images de la page {page_num}\n")
-            for img_content in images_by_page[page_num]:
-                enriched_parts.append(f"\n{img_content}\n")
+            # Create DocumentChunk
+            image_chunk = DocumentChunk(
+                content=chunk_content,
+                index=1000 + idx,  # High index to appear after document chunks
+                start_char=0,
+                end_char=len(chunk_content),
+                token_count=token_count,
+                metadata={
+                    "title": document_title,
+                    "source": document_source,
+                    "chunk_method": "synthetic_image",
+                    "page_number": page_num,
+                    "image_index": idx,
+                    "is_image_chunk": True
+                }
+            )
 
-        enriched = "".join(enriched_parts)
-        logger.info(f"📝 Markdown enrichi avec {len(images)} descriptions d'images sur {len(images_by_page)} pages")
-        return enriched
+            image_chunks.append(image_chunk)
+
+        return image_chunks
 
     async def _read_document(self, file_path: str) -> tuple[str, Optional[Any], List[dict]]:
         """
         Read document content from file - supports multiple formats via Docling.
-        Now extracts images BEFORE chunking and enriches markdown with descriptions.
+        Extracts images for VLM analysis (if enabled).
 
         Returns:
-            Tuple of (enriched_markdown_content, docling_document, images)
+            Tuple of (markdown_content, docling_document, images)
             docling_document is None for text files and audio files
             images is a list of extracted image metadata
         """
@@ -363,8 +392,7 @@ class DocumentIngestionPipeline:
 
                         if extracted_images:
                             logger.info(f"✅ {len(extracted_images)} images extraites et analysées")
-                            # Enrich markdown with image descriptions for searchability
-                            markdown_content = self._enrich_markdown_with_images(markdown_content, extracted_images)
+                            # Image content will be made searchable via synthetic chunks (see _create_image_chunks)
 
                     except Exception as e:
                         logger.warning(f"⚠️ Échec de l'extraction d'images: {e}")
