@@ -1,7 +1,7 @@
 """
 Modèles Pydantic pour l'API
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -145,6 +145,8 @@ class ConversationUpdate(BaseModel):
 
 
 class Conversation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)  # Pydantic v2: accepte à la fois "archived" et "is_archived"
+
     id: UUID
     title: str
     provider: str
@@ -154,9 +156,6 @@ class Conversation(BaseModel):
     message_count: int = 0
     is_archived: bool = Field(default=False, alias="archived")  # Alias pour la colonne DB "archived"
     reranking_enabled: Optional[bool] = None  # None=use env var, True/False=explicit
-
-    class Config:
-        populate_by_name = True  # Accepte à la fois "archived" et "is_archived"
 
 
 class ConversationWithStats(Conversation):
