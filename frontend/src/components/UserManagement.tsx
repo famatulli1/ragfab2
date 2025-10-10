@@ -158,7 +158,7 @@ export default function UserManagement() {
         </div>
         <button
           onClick={() => {
-            setFormData({ username: '', email: '', password: '', is_admin: false, is_active: true });
+            setFormData({ username: '', email: '', first_name: '', last_name: '', password: '', is_admin: false, is_active: true });
             setShowCreateModal(true);
           }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition"

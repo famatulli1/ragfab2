@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Eye, LogOut, Moon, Sun, FileText, Users as UsersIcon } from 'lucide-react';
+import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
