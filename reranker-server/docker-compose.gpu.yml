@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  reranker-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: reranker-gpu
+    environment:
+      RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+      DEVICE: cuda
+      CUDA_VISIBLE_DEVICES: 0
+    ports:
+      - "${RERANKER_PORT:-8002}:8002"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 8G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - reranker-network
+
+networks:
+  reranker-network:
+    driver: bridge
