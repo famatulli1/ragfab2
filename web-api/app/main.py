@@ -350,6 +350,11 @@ async def create_conversation(
     if reranking_enabled is None:
         reranking_enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
 
+    # Logs de débogage pour diagnostiquer le problème du toggle
+    logger.info(f"🎚️ RERANKER_ENABLED env var: {os.getenv('RERANKER_ENABLED')}")
+    logger.info(f"🎚️ request.reranking_enabled: {request.reranking_enabled}")
+    logger.info(f"🎚️ Final reranking_enabled value: {reranking_enabled}")
+
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """

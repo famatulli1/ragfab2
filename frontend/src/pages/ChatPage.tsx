@@ -45,6 +45,9 @@ export default function ChatPage() {
   useEffect(() => {
     if (currentConversation) {
       loadMessages(currentConversation.id);
+      // Logs de débogage pour diagnostiquer le problème du toggle
+      console.log('🎚️ Current conversation loaded:', currentConversation);
+      console.log('🎚️ reranking_enabled value:', currentConversation.reranking_enabled);
     }
   }, [currentConversation]);
 
