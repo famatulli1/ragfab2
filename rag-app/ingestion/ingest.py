@@ -306,12 +306,21 @@ class DocumentIngestionPipeline:
             if not description and not ocr_text:
                 continue  # Skip images with no content
 
-            # Build chunk content
-            content_parts = [f"[Image {idx+1} depuis la page {page_num}]"]
+            # Build chunk content with document context for better searchability
+            # Extract title keywords for context enrichment
+            title_keywords = document_title.replace('+', ' ').replace('_', ' ')
+
+            content_parts = [
+                f"[Document: {document_title}]",  # Add document context
+                f"[Image {idx+1} depuis la page {page_num}]"
+            ]
             if description:
                 content_parts.append(f"Description: {description}")
             if ocr_text:
                 content_parts.append(f"Texte extrait: {ocr_text}")
+
+            # Add contextual keywords from document title
+            content_parts.append(f"Contexte: {title_keywords}")
 
             chunk_content = "\n".join(content_parts)
 

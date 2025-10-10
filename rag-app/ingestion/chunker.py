@@ -150,13 +150,18 @@ class DoclingHybridChunker:
         # ADAPTIVE CHUNKING: Detect document size and adjust parameters
         word_count = len(content.split())
 
-        if word_count < 1000:
-            # Small document (<3 pages): Use large chunks to preserve context
+        if word_count < 800:
+            # Very small document (<2.5 pages): Force single chunk to preserve complete context
+            max_tokens = 4000
+            doc_size_category = "very_small"
+            logger.info(f"Very small document detected ({word_count} words) - using max_tokens=4000 (1 chunk)")
+        elif word_count < 2000:
+            # Small document (2.5-6 pages): Use large chunks to preserve context
             max_tokens = 1500
             doc_size_category = "small"
             logger.info(f"Small document detected ({word_count} words) - using max_tokens=1500")
         elif word_count < 5000:
-            # Medium document (3-15 pages): Balanced chunks
+            # Medium document (6-15 pages): Balanced chunks
             max_tokens = 800
             doc_size_category = "medium"
             logger.info(f"Medium document detected ({word_count} words) - using max_tokens=800")

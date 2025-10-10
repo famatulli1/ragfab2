@@ -48,8 +48,9 @@ Le système détecte automatiquement la taille du document et ajuste les paramè
 
 | Taille Document | Catégorie | max_tokens | Objectif |
 |-----------------|-----------|------------|----------|
-| <1000 mots (≈3 pages) | Small | 1500 tokens | Préserver contexte global |
-| 1000-5000 mots | Medium | 800 tokens | Équilibre contexte/précision |
+| **<800 mots (≈2.5 pages)** | **Very Small** | **4000 tokens** | **1 chunk complet - contexte total** |
+| 800-2000 mots (≈2.5-6 pages) | Small | 1500 tokens | Préserver contexte global |
+| 2000-5000 mots (≈6-15 pages) | Medium | 800 tokens | Équilibre contexte/précision |
 | >5000 mots (≈15+ pages) | Large | 512 tokens | Granularité fine |
 
 **Caractéristiques**:
@@ -406,9 +407,11 @@ Réponse + Sources → Frontend
 ```python
 word_count = len(content.split())
 
-if word_count < 1000:      # Small (<3 pages)
+if word_count < 800:       # Very Small (<2.5 pages)
+    max_tokens = 4000      # 1 seul chunk - contexte complet
+elif word_count < 2000:    # Small (2.5-6 pages)
     max_tokens = 1500      # Très gros chunks
-elif word_count < 5000:    # Medium (3-15 pages)
+elif word_count < 5000:    # Medium (6-15 pages)
     max_tokens = 800       # Chunks équilibrés
 else:                      # Large (>15 pages)
     max_tokens = 512       # Chunks granulaires
@@ -428,21 +431,50 @@ enriched_chunk = "[Document: Guide Sécurité] [Section: Cryptographie > Chiffre
 - +67% précision selon étude Anthropic (Contextual Retrieval)
 - Compense chunks petits avec contexte sémantique
 
+#### ✅ Phase 3 : Optimisations Avancées (2025-01-10)
+
+**Test réel "erreur fusappel 6102"** : Document 331 mots → 7 chunks (trop fragmenté)
+
+**6. Augmentation Pool Reranker**
+- `RERANKER_TOP_K` : 20 → 30 (+50% candidats)
+- `RERANKER_RETURN_K` : 5 → 8 (+60% chunks LLM)
+- → Plus de contexte pour petits documents fragmentés
+
+**7. Force 1 Chunk pour Documents Très Petits**
+- Seuil abaissé : 1000 → 800 mots
+- `max_tokens` augmenté : 1500 → 4000 tokens
+- → Document 331 mots = 1 seul chunk complet
+
+**8. Enrichissement Chunks Images**
+```python
+# Ajout contexte document + keywords titre
+content_parts = [
+    f"[Document: {document_title}]",  # Nouveau
+    f"[Image {idx+1} depuis la page {page_num}]",
+    f"Description: {description}",
+    f"Texte extrait: {ocr_text}",
+    f"Contexte: {title_keywords}"     # Nouveau
+]
+```
+- → Meilleure pertinence recherche images dans résultats RAG
+
 ### Gains Mesurables Attendus
 
-| Métrique | Avant | Après | Gain |
-|----------|-------|-------|------|
-| Context par chunk | 512 tokens | 800-1500 tokens | +56-193% |
-| Précision recherche | Baseline | +20-30% | Reranker |
-| Continuité chunks | 200 overlap | 400 overlap | +100% |
-| Contexte sémantique | Minimal | Enrichi | +67% |
-| **Qualité globale petits docs** | **Baseline** | **+85%** | **Combiné** |
+| Métrique | Avant | Phase 1-2 | Phase 3 | Gain Total |
+|----------|-------|-----------|---------|------------|
+| Context par chunk | 512 tokens | 800-1500 tokens | 800-4000 tokens | +56-681% |
+| Chunks retournés LLM | 5 | 5 | 8 | +60% |
+| Pool candidats reranker | 20 | 20 | 30 | +50% |
+| Précision recherche | Baseline | +20-30% | +30-40% | Reranker |
+| Continuité chunks | 200 overlap | 400 overlap | 400 overlap | +100% |
+| Contexte sémantique | Minimal | Enrichi | Enrichi images | +67% |
+| **Qualité globale petits docs** | **Baseline** | **+85%** | **+120%** | **Combiné** |
 
 ### Migration et Ré-indexation
 
 **Ré-indexation requise** : OUI (nouveaux paramètres chunking)
 
-**Procédure** :
+**Procédure Phase 1-2** :
 ```bash
 # 1. Mettre à jour .env avec nouvelles valeurs
 RERANKER_ENABLED=true
@@ -452,6 +484,21 @@ CHUNK_OVERLAP=400
 docker-compose down
 docker-compose build ragfab-api ingestion-worker
 docker-compose up -d
+```
+
+**Procédure Phase 3 (Coolify)** :
+```bash
+# Service: ragfab-api
+RERANKER_TOP_K=30      # Augmenté de 20 → 30
+RERANKER_RETURN_K=8    # Augmenté de 5 → 8
+
+# Service: ingestion-worker
+CHUNK_OVERLAP=400      # Déjà fait Phase 1
+# (nouvelles valeurs chunking dans code)
+
+# Redémarrer services via Coolify UI
+# 1. ragfab-api → Restart
+# 2. ingestion-worker → Restart
 
 # 3. Ré-indexer documents (conserve documents, recrée chunks)
 docker-compose exec ragfab-api python -m ingestion.ingest --documents /app/uploads
