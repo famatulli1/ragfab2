@@ -144,6 +144,7 @@ export default function ChatPage() {
     if (!inputMessage.trim() || !currentConversation || isLoading) return;
 
     const userMessage = inputMessage;
+    const wasRerankingEnabled = currentConversation.reranking_enabled;
     setInputMessage('');
     setIsLoading(true);
 
@@ -162,6 +163,18 @@ export default function ChatPage() {
       setConversations(convs =>
         convs.map(c => c.id === currentConversation.id ? response.conversation : c)
       );
+
+      // Désactiver automatiquement le toggle "Recherche approfondie" après la réponse
+      if (wasRerankingEnabled) {
+        const updatedConversation = {
+          ...response.conversation,
+          reranking_enabled: false,
+        };
+        setCurrentConversation(updatedConversation);
+        setConversations(convs =>
+          convs.map(c => c.id === currentConversation.id ? updatedConversation : c)
+        );
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Erreur lors de l\'envoi du message');

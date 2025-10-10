@@ -36,7 +36,7 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        Reranking
+        Recherche approfondie
       </span>
       <button
         onClick={handleToggle}
@@ -53,7 +53,8 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
         `}
         role="switch"
         aria-checked={rerankingEnabled}
-        title={rerankingEnabled ? 'Reranking enabled (click to disable)' : 'Reranking disabled (click to enable)'}
+        aria-label={rerankingEnabled ? 'Recherche approfondie activée' : 'Recherche approfondie désactivée'}
+        title={rerankingEnabled ? 'Recherche approfondie activée (cliquez pour désactiver)' : 'Recherche approfondie désactivée (cliquez pour activer)'}
       >
         <span
           className={`
