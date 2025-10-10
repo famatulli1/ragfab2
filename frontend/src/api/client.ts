@@ -77,6 +77,21 @@ class APIClient {
     localStorage.removeItem('access_token');
   }
 
+  async checkMustChangePassword(): Promise<{ must_change_password: boolean }> {
+    const { data } = await this.client.get('/api/auth/me/must-change-password');
+    return data;
+  }
+
+  async updateMyProfile(profileData: import('../types').UserProfileUpdate): Promise<User> {
+    const { data } = await this.client.patch<User>('/api/auth/me/profile', profileData);
+    return data;
+  }
+
+  async changeMyPassword(passwordData: import('../types').PasswordChange): Promise<{ message: string }> {
+    const { data } = await this.client.post('/api/auth/me/change-password', passwordData);
+    return data;
+  }
+
   // ============================================================================
   // Documents
   // ============================================================================

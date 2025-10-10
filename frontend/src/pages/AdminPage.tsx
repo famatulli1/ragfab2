@@ -5,13 +5,15 @@ import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
 import api from '../api/client';
 import UserManagement from '../components/UserManagement';
-import type { DocumentStats, Chunk, IngestionJob } from '../types';
+import UserMenu from '../components/UserMenu';
+import type { DocumentStats, Chunk, IngestionJob, User } from '../types';
 
 type TabType = 'documents' | 'users';
 
 export default function AdminPage() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('documents');
   const [documents, setDocuments] = useState<DocumentStats[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentStats | null>(null);
@@ -20,8 +22,19 @@ export default function AdminPage() {
   const [showChunks, setShowChunks] = useState(false);
 
   useEffect(() => {
+    loadCurrentUser();
     loadDocuments();
   }, []);
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await api.getCurrentUser();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Error loading current user:', error);
+      navigate('/login');
+    }
+  };
 
   // Poll les jobs d'ingestion
   useEffect(() => {
@@ -136,13 +149,12 @@ export default function AdminPage() {
             >
               {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition"
-            >
-              <LogOut size={18} />
-              Déconnexion
-            </button>
+            {currentUser && (
+              <>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                <UserMenu user={currentUser} onLogout={handleLogout} />
+              </>
+            )}
           </div>
         </div>
       </div>

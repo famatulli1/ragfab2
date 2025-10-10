@@ -26,8 +26,11 @@ class User(BaseModel):
     id: UUID
     username: str
     email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     is_active: bool = True
     is_admin: bool = True
+    must_change_password: bool = False
     created_at: datetime
 
 
@@ -234,14 +237,18 @@ class UserCreate(BaseModel):
     """Modèle pour créer un nouvel utilisateur"""
     username: str = Field(..., min_length=3, max_length=50, description="Nom d'utilisateur unique")
     email: Optional[str] = Field(None, max_length=255, description="Adresse email")
+    first_name: str = Field(..., min_length=1, max_length=100, description="Prénom")
+    last_name: str = Field(..., min_length=1, max_length=100, description="Nom")
     password: str = Field(..., min_length=8, description="Mot de passe (minimum 8 caractères)")
     is_admin: bool = Field(default=False, description="Rôle administrateur")
     is_active: bool = Field(default=True, description="Compte actif")
 
 
 class UserUpdate(BaseModel):
-    """Modèle pour mettre à jour un utilisateur"""
+    """Modèle pour mettre à jour un utilisateur (admin)"""
     email: Optional[str] = Field(None, max_length=255, description="Adresse email")
+    first_name: Optional[str] = Field(None, max_length=100, description="Prénom")
+    last_name: Optional[str] = Field(None, max_length=100, description="Nom")
     is_active: Optional[bool] = Field(None, description="Statut actif/inactif")
     is_admin: Optional[bool] = Field(None, description="Rôle administrateur")
 
@@ -251,6 +258,8 @@ class UserResponse(BaseModel):
     id: UUID
     username: str
     email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     is_active: bool
     is_admin: bool
     created_at: datetime
@@ -262,6 +271,8 @@ class UserListResponse(BaseModel):
     id: UUID
     username: str
     email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     is_active: bool
     is_admin: bool
     created_at: datetime
@@ -269,5 +280,18 @@ class UserListResponse(BaseModel):
 
 
 class PasswordReset(BaseModel):
-    """Modèle pour réinitialiser le mot de passe"""
+    """Modèle pour réinitialiser le mot de passe (admin)"""
     new_password: str = Field(..., min_length=8, description="Nouveau mot de passe (minimum 8 caractères)")
+
+
+class UserProfileUpdate(BaseModel):
+    """Modèle pour mettre à jour son propre profil (utilisateur)"""
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100, description="Prénom")
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100, description="Nom")
+
+
+class PasswordChange(BaseModel):
+    """Modèle pour changer son propre mot de passe"""
+    current_password: str = Field(..., description="Mot de passe actuel")
+    new_password: str = Field(..., min_length=8, description="Nouveau mot de passe (minimum 8 caractères)")
+    confirm_password: str = Field(..., description="Confirmation du nouveau mot de passe")

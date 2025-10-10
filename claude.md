@@ -630,6 +630,85 @@ Check in order:
 4. Frontend correctly displays sources array from API response
 5. Check logs for "📚 Sources récupérées" messages
 
+### User Profile Management & First-Login Password Change (NEW)
+
+**Authentication Flow**:
+RAGFab now includes a complete user profile management system with mandatory password change on first login.
+
+**Key Features**:
+1. **Mandatory Password Change**: Users created by admin must change password on first login (blocking modal)
+2. **User Profile Page**: Users can update their first name, last name, and password
+3. **Personalized Avatars**: Each user has a unique colored avatar with their first initial
+4. **User Menu Dropdown**: Access profile, admin panel (if admin), and logout from single menu
+
+**Database Schema** ([database/04_user_profile.sql](database/04_user_profile.sql)):
+```sql
+ALTER TABLE users ADD COLUMN first_name VARCHAR(100);
+ALTER TABLE users ADD COLUMN last_name VARCHAR(100);
+ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT false;
+```
+
+**Password Validation Rules**:
+- Minimum 8 characters
+- At least 1 uppercase letter
+- At least 1 lowercase letter
+- At least 1 digit
+- Validation enforced both backend (auth.py) and frontend (ChangePasswordModal.tsx)
+
+**Backend Endpoints** ([web-api/app/routes/auth.py](web-api/app/routes/auth.py)):
+- `GET /api/auth/me/must-change-password` - Check if password change required
+- `PATCH /api/auth/me/profile` - Update user profile (first_name, last_name)
+- `POST /api/auth/me/change-password` - Change password (requires current password)
+
+**Frontend Components**:
+- `ChangePasswordModal.tsx` - Blocking modal for password change (non-closable if first login)
+- `UserAvatar.tsx` - Colored circular avatar with user's first initial
+- `UserMenu.tsx` - Dropdown menu with profile/admin/logout options
+- `ProfilePage.tsx` - Full profile management page
+- `avatarUtils.ts` - Color generation algorithm (8 vibrant colors, consistent per user)
+
+**Avatar Color Algorithm**:
+- Hash user UUID → Modulo 8 → Select from predefined palette
+- Palette: `['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']`
+- White text on colored background for optimal contrast
+- Color is consistent across all sessions for the same user
+
+**UI Changes**:
+- **Chat Interface**: Bot icon replaced with stylized `<Bot>` icon from lucide-react (cyan color)
+- **User Icon**: Replaced generic "U" with personalized avatar or `<UserIcon>` icon
+- **Menu Location**: Top-right corner, replaces old username + logout button
+- **Profile Access**: Click avatar → "Mon profil" → Full profile page with editable fields
+
+**Admin User Creation Flow**:
+1. Admin creates user in `/admin` → Users tab
+2. Admin provides: username, email, first_name, last_name, password
+3. Backend sets `must_change_password=true` by default
+4. User logs in → Blocking modal appears immediately
+5. User cannot access chat until password is changed
+6. After successful password change → `must_change_password=false` → Full access granted
+
+**Security Considerations**:
+- Current password required for password change (prevents session hijacking)
+- Password strength validated on both frontend (real-time) and backend
+- Modal is truly non-closable (no X button, no click outside, no ESC key)
+- Session invalidation on password change (user stays logged in with same token)
+
+**Routes**:
+- `/profile` - User profile page (protected route, all authenticated users)
+- Profile accessible via UserMenu dropdown or direct navigation
+
+**Testing**:
+```bash
+# Apply migration
+docker-compose exec postgres psql -U raguser -d ragdb -f /docker-entrypoint-initdb.d/04_user_profile.sql
+
+# Verify new columns
+docker-compose exec postgres psql -U raguser -d ragdb -c "\d users"
+
+# Create test user (via admin interface or API)
+# Login as that user → Should see password change modal immediately
+```
+
 ### Performance Tuning
 
 **Embeddings service**:

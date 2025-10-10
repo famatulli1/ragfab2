@@ -3,6 +3,7 @@ import { useState, useEffect, createContext, useContext } from 'react';
 import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
+import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Theme Context
@@ -54,6 +55,13 @@ function App() {
           <Route path="/" element={
             <ProtectedRoute>
               <ChatPage />
+            </ProtectedRoute>
+          } />
+
+          {/* Route profil - Protégée, accessible à tous les utilisateurs authentifiés */}
+          <Route path="/profile" element={
+            <ProtectedRoute>
+              <ProfilePage />
             </ProtectedRoute>
           } />
 

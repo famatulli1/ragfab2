@@ -3,6 +3,7 @@ Authentification JWT pour l'API
 """
 from datetime import datetime, timedelta
 from typing import Optional
+import re
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -29,6 +30,32 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Hash un mot de passe"""
     return pwd_context.hash(password)
+
+
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Valide la force d'un mot de passe selon les règles :
+    - Minimum 8 caractères
+    - Au moins 1 lettre majuscule
+    - Au moins 1 lettre minuscule
+    - Au moins 1 chiffre
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if len(password) < 8:
+        return False, "Le mot de passe doit contenir au moins 8 caractères"
+
+    if not re.search(r'[A-Z]', password):
+        return False, "Le mot de passe doit contenir au moins une lettre majuscule"
+
+    if not re.search(r'[a-z]', password):
+        return False, "Le mot de passe doit contenir au moins une lettre minuscule"
+
+    if not re.search(r'\d', password):
+        return False, "Le mot de passe doit contenir au moins un chiffre"
+
+    return True, ""
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

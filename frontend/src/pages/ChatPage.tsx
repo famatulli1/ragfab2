@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, LogOut, Shield } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, LogOut, Shield, Bot, User as UserIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
@@ -8,11 +8,14 @@ import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
 import ImageViewer from '../components/ImageViewer';
+import ChangePasswordModal from '../components/ChangePasswordModal';
+import UserMenu from '../components/UserMenu';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -63,10 +66,29 @@ export default function ChatPage() {
     try {
       const user = await api.getCurrentUser();
       setCurrentUser(user);
+
+      // Vérifier si changement de mot de passe obligatoire
+      if (user.must_change_password) {
+        setMustChangePassword(true);
+      }
     } catch (error) {
       console.error('Error loading current user:', error);
       navigate('/login');
     }
+  };
+
+  const handlePasswordChanged = async () => {
+    setMustChangePassword(false);
+    // Recharger l'utilisateur pour mettre à jour le flag
+    await loadCurrentUser();
+  };
+
+  const handlePasswordSubmit = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
+    await api.changeMyPassword({
+      current_password: currentPassword,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    });
   };
 
   const handleLogout = async () => {
@@ -402,25 +424,7 @@ export default function ChatPage() {
             {currentUser && (
               <>
                 <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-1"></div>
-                <span className="text-sm text-gray-600 dark:text-gray-300 px-2">
-                  {currentUser.username}
-                </span>
-                {currentUser.is_admin && (
-                  <button
-                    onClick={() => navigate('/admin')}
-                    className="btn-ghost"
-                    title="Administration"
-                  >
-                    <Shield size={20} />
-                  </button>
-                )}
-                <button
-                  onClick={handleLogout}
-                  className="btn-ghost text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
-                  title="Déconnexion"
-                >
-                  <LogOut size={20} />
-                </button>
+                <UserMenu user={currentUser} onLogout={handleLogout} />
               </>
             )}
           </div>
@@ -470,13 +474,13 @@ export default function ChatPage() {
               >
                 <div className="flex items-start gap-3">
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold ${
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${
                       message.role === 'user'
                         ? 'bg-blue-500'
-                        : 'bg-green-500'
+                        : 'bg-cyan-500 dark:bg-cyan-600'
                     }`}
                   >
-                    {message.role === 'user' ? 'U' : 'AI'}
+                    {message.role === 'user' ? <UserIcon className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                   </div>
                   <div className="flex-1">
                     <div className="markdown-content">
@@ -576,8 +580,8 @@ export default function ChatPage() {
             {/* Typing indicator */}
             {isLoading && (
               <div className="flex items-start gap-3 mb-6">
-                <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold">
-                  AI
+                <div className="w-8 h-8 rounded-full bg-cyan-500 dark:bg-cyan-600 flex items-center justify-center text-white">
+                  <Bot className="w-5 h-5" />
                 </div>
                 <div className="typing-indicator">
                   <div className="typing-dot"></div>
@@ -620,6 +624,15 @@ export default function ChatPage() {
           documentId={selectedDocument.documentId}
           chunkId={selectedDocument.chunkId}
           onClose={() => setSelectedDocument(null)}
+        />
+      )}
+
+      {/* Change Password Modal (blocking if must_change_password=true) */}
+      {mustChangePassword && (
+        <ChangePasswordModal
+          isFirstLogin={true}
+          onPasswordChanged={handlePasswordChanged}
+          onSubmit={handlePasswordSubmit}
         />
       )}
     </div>

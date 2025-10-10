@@ -25,6 +25,8 @@ export default function UserManagement() {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
+    first_name: '',
+    last_name: '',
     password: '',
     is_admin: false,
     is_active: true,
@@ -53,7 +55,7 @@ export default function UserManagement() {
     try {
       await api.createUser(formData);
       setShowCreateModal(false);
-      setFormData({ username: '', email: '', password: '', is_admin: false, is_active: true });
+      setFormData({ username: '', email: '', first_name: '', last_name: '', password: '', is_admin: false, is_active: true });
       loadUsers();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erreur lors de la création');
@@ -67,6 +69,8 @@ export default function UserManagement() {
     try {
       const updates: UserUpdate = {
         email: formData.email || undefined,
+        first_name: formData.first_name || undefined,
+        last_name: formData.last_name || undefined,
         is_active: formData.is_active,
         is_admin: formData.is_admin,
       };
@@ -112,6 +116,8 @@ export default function UserManagement() {
     setFormData({
       username: user.username,
       email: user.email || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
       password: '',
       is_admin: user.is_admin,
       is_active: user.is_active,
@@ -386,6 +392,42 @@ export default function UserManagement() {
                 <label className={`block text-sm font-medium mb-1 ${
                   theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                 }`}>
+                  Prénom *
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-lg ${
+                    theme === 'dark'
+                      ? 'bg-gray-700 border-gray-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                  required
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                }`}>
+                  Nom *
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-lg ${
+                    theme === 'dark'
+                      ? 'bg-gray-700 border-gray-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                  required
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                }`}>
                   Mot de passe *
                 </label>
                 <input
@@ -474,6 +516,40 @@ export default function UserManagement() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-lg ${
+                    theme === 'dark'
+                      ? 'bg-gray-700 border-gray-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                }`}>
+                  Prénom
+                </label>
+                <input
+                  type="text"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-lg ${
+                    theme === 'dark'
+                      ? 'bg-gray-700 border-gray-600 text-white'
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                }`}>
+                  Nom
+                </label>
+                <input
+                  type="text"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                   className={`w-full px-3 py-2 border rounded-lg ${
                     theme === 'dark'
                       ? 'bg-gray-700 border-gray-600 text-white'

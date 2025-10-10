@@ -54,7 +54,7 @@ async def list_users(
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     query = f"""
-        SELECT id, username, email, is_active, is_admin, created_at, last_login
+        SELECT id, username, email, first_name, last_name, is_active, is_admin, created_at, last_login
         FROM users
         {where_clause}
         ORDER BY created_at DESC
@@ -104,15 +104,17 @@ async def create_user(
         # Hacher le mot de passe
         hashed_password = get_password_hash(user_data.password)
 
-        # Créer l'utilisateur
+        # Créer l'utilisateur avec must_change_password=True par défaut
         user = await conn.fetchrow(
             """
-            INSERT INTO users (username, email, hashed_password, is_active, is_admin)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, username, email, is_active, is_admin, created_at, last_login
+            INSERT INTO users (username, email, first_name, last_name, hashed_password, is_active, is_admin, must_change_password)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+            RETURNING id, username, email, first_name, last_name, is_active, is_admin, created_at, last_login
             """,
             user_data.username,
             user_data.email,
+            user_data.first_name,
+            user_data.last_name,
             hashed_password,
             user_data.is_active,
             user_data.is_admin
@@ -143,7 +145,7 @@ async def get_user(
     async with database.db_pool.acquire() as conn:
         user = await conn.fetchrow(
             """
-            SELECT id, username, email, is_active, is_admin, created_at, last_login
+            SELECT id, username, email, first_name, last_name, is_active, is_admin, created_at, last_login
             FROM users
             WHERE id = $1
             """,
@@ -189,6 +191,16 @@ async def update_user(
         values.append(user_data.email)
         param_count += 1
 
+    if user_data.first_name is not None:
+        updates.append(f"first_name = ${param_count}")
+        values.append(user_data.first_name)
+        param_count += 1
+
+    if user_data.last_name is not None:
+        updates.append(f"last_name = ${param_count}")
+        values.append(user_data.last_name)
+        param_count += 1
+
     if user_data.is_active is not None:
         updates.append(f"is_active = ${param_count}")
         values.append(user_data.is_active)
@@ -210,7 +222,7 @@ async def update_user(
         UPDATE users
         SET {', '.join(updates)}
         WHERE id = ${param_count}
-        RETURNING id, username, email, is_active, is_admin, created_at, last_login
+        RETURNING id, username, email, first_name, last_name, is_active, is_admin, created_at, last_login
     """
 
     async with database.db_pool.acquire() as conn:

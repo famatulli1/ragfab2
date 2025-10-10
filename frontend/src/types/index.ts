@@ -4,8 +4,11 @@ export interface User {
   id: string;
   username: string;
   email?: string;
+  first_name?: string;
+  last_name?: string;
   is_active: boolean;
   is_admin: boolean;
+  must_change_password: boolean;
   created_at: string;
 }
 
@@ -177,4 +180,15 @@ export interface UserListResponse extends UserResponse {}
 
 export interface PasswordReset {
   new_password: string;
+}
+
+export interface UserProfileUpdate {
+  first_name?: string;
+  last_name?: string;
+}
+
+export interface PasswordChange {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
 }
