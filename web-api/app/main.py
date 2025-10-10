@@ -344,6 +344,12 @@ async def create_conversation(
     current_user: dict = Depends(get_current_user)
 ):
     """Crée une nouvelle conversation liée à l'utilisateur courant"""
+
+    # Si reranking_enabled n'est pas spécifié, utiliser la variable d'environnement
+    reranking_enabled = request.reranking_enabled
+    if reranking_enabled is None:
+        reranking_enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
+
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -351,7 +357,7 @@ async def create_conversation(
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             """,
-            request.title, request.provider, request.use_tools, request.reranking_enabled, current_user['id']
+            request.title, request.provider, request.use_tools, reranking_enabled, current_user['id']
         )
         return Conversation(**dict(row))
 
