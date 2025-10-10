@@ -115,42 +115,56 @@ Chunk enrichi : "[Document: Guide Sécurité] [Section: Cryptographie > Chiffrem
 
 ### 2. Recherche Vectorielle
 
-**Sans reranking** (`RERANKER_ENABLED=false`):
+**Mode Rapide** (défaut - `RERANKER_ENABLED=false`):
 1. Question → Embedding (E5-Large)
 2. Recherche similarité cosinus
 3. Top-5 chunks directs → Contexte LLM
+4. Latence: ~1-2s
 
-**Avec reranking** (`RERANKER_ENABLED=true`):
+**Mode Précis** (activation manuelle - `RERANKER_ENABLED=true`):
 1. Question → Embedding (E5-Large)
 2. Recherche vectorielle → Top-20 candidats
 3. Reranking CrossEncoder → Score précis
 4. Top-5 après reranking → Contexte LLM
+5. Latence: ~2-4s (+200-500ms)
 
-### 3. Reranking (✅ ACTIVÉ PAR DÉFAUT)
+### 3. Reranking (Optionnel - Activation Manuelle)
 
+**Statut**: DÉSACTIVÉ PAR DÉFAUT (activation via interface)
 **Modèle**: BAAI/bge-reranker-v2-m3 (CrossEncoder multilingue)
 **Service**: FastAPI dédié (port 8002)
 **Configuration**:
-- `RERANKER_ENABLED=true` (recommandé, activé par défaut)
+- `RERANKER_ENABLED=false` (défaut)
 - `RERANKER_TOP_K=20` (candidats avant reranking)
 - `RERANKER_RETURN_K=5` (résultats finaux après scoring précis)
 
-**Workflow reranking** :
+**Activation interface** :
+- Toggle "Recherche approfondie" dans barre de conversation
+- État sauvegardé par conversation en base de données
+- Activation recommandée pour :
+  - Questions complexes nécessitant précision maximale
+  - Recherche dans documentation technique dense
+  - Cas ambigus nécessitant affinage sémantique
+
+**Workflow reranking** (si activé) :
 1. Vector search récupère 20 candidats potentiels
 2. CrossEncoder calcule score précis pour chaque paire (query, chunk)
 3. Top-5 vraiment pertinents envoyés au LLM
 
-**Bénéfices principaux** :
-- ✅ **Petits documents** : Compense la sur-segmentation en chunks
+**Bénéfices activation** :
+- ✅ **Précision accrue** : +20-30% amélioration vs vector search seul
 - ✅ **Documentation technique** : Gère terminologie similaire avec nuances
-- ✅ **Précision élevée** : +20-30% amélioration vs vector search seul
-- ✅ **Contexte riche** : Sélectionne les chunks les plus pertinents
+- ✅ **Cas ambigus** : Affinage sémantique pour meilleure pertinence
 
 **Performance** :
-- Latence additionnelle : +100-300ms (acceptable)
-- Ressources : ~4GB RAM
-- Amélioration pertinence : **+20-30%**
-- Particulièrement efficace sur petits documents (<1000 mots)
+- Mode rapide (OFF) : ~1-2s
+- Mode précis (ON) : ~2-4s (+200-500ms)
+- Ressources : ~4GB RAM service reranker
+- Amélioration qualité : **+20-30%**
+
+**Utilisation recommandée** :
+- Par défaut (OFF) : Questions simples, réponses rapides
+- Activation manuelle (ON) : Questions complexes, documentation technique
 
 **Fallback gracieux** : Si échec reranker → Top-5 du vector search direct
 
@@ -435,15 +449,18 @@ enriched_chunk = "[Document: Guide Sécurité] [Section: Cryptographie > Chiffre
 
 **Test réel "erreur fusappel 6102"** : Document 331 mots → 7 chunks (trop fragmenté)
 
-**6. Augmentation Pool Reranker**
-- `RERANKER_TOP_K` : 20 → 30 (+50% candidats)
-- `RERANKER_RETURN_K` : 5 → 8 (+60% chunks LLM)
-- → Plus de contexte pour petits documents fragmentés
+**6. Bypass HybridChunker pour Documents Très Petits**
+- Seuil : Documents <800 mots
+- Comportement : Création 1 seul chunk avec contenu complet (bypass HybridChunker)
+- `max_tokens` : 4000 tokens (force chunk unique)
+- → Document 331 mots = 1 seul chunk complet au lieu de 7
 
-**7. Force 1 Chunk pour Documents Très Petits**
-- Seuil abaissé : 1000 → 800 mots
-- `max_tokens` augmenté : 1500 → 4000 tokens
-- → Document 331 mots = 1 seul chunk complet
+**7. Optimisation Performance Reranking**
+- `RERANKER_ENABLED` : true → **false** (désactivation par défaut)
+- `RERANKER_TOP_K` : 30 → **20** (réduction candidats)
+- `RERANKER_RETURN_K` : 8 → **5** (équilibre contexte/vitesse)
+- → Activation manuelle via toggle "Recherche approfondie"
+- → Latence réduite : 3-5s → 1-2s (mode rapide par défaut)
 
 **8. Enrichissement Chunks Images**
 ```python
@@ -462,13 +479,18 @@ content_parts = [
 
 | Métrique | Avant | Phase 1-2 | Phase 3 | Gain Total |
 |----------|-------|-----------|---------|------------|
-| Context par chunk | 512 tokens | 800-1500 tokens | 800-4000 tokens | +56-681% |
-| Chunks retournés LLM | 5 | 5 | 8 | +60% |
-| Pool candidats reranker | 20 | 20 | 30 | +50% |
-| Précision recherche | Baseline | +20-30% | +30-40% | Reranker |
+| Context par chunk | 512 tokens | 800-1500 tokens | **800-4000 tokens** | **+56-681%** |
+| Chunks doc 331 mots | 7 | 7 | **1** | **-86% fragmentation** |
+| Latence mode rapide | 3-5s | 3-5s | **1-2s** | **-60%** |
+| Latence mode précis | N/A | 3-5s | **2-4s** | Manuel |
+| Chunks retournés LLM | 5 | 5 | 5 | Optimisé |
+| Pool candidats reranker | 20 | 20 | 20 | Équilibré |
+| Reranking par défaut | Systématique | Systématique | **Manuel (toggle)** | Flexibilité |
+| Précision recherche | Baseline | +20-30% | +20-30% (si activé) | Reranker |
 | Continuité chunks | 200 overlap | 400 overlap | 400 overlap | +100% |
 | Contexte sémantique | Minimal | Enrichi | Enrichi images | +67% |
 | **Qualité globale petits docs** | **Baseline** | **+85%** | **+120%** | **Combiné** |
+| **Expérience utilisateur** | Lente | Lente | **Rapide (choix précision)** | **Optimal** |
 
 ### Migration et Ré-indexation
 

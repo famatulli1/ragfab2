@@ -1,0 +1,57 @@
+# Dockerfile GPU pour service reranker avec CUDA
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    CUDA_VISIBLE_DEVICES=0
+
+# Installer Python 3.11 et dépendances système
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer symlink python → python3.11
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+# Créer utilisateur non-root
+RUN useradd -m -u 1000 reranker && \
+    mkdir -p /app && \
+    chown -R reranker:reranker /app
+
+# Définir répertoire de travail
+WORKDIR /app
+
+# Copier requirements
+COPY requirements.txt .
+
+# Installer PyTorch avec support CUDA 12.1
+RUN pip install --no-cache-dir \
+    torch==2.1.0 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Installer autres dépendances
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copier code application
+COPY app.py .
+
+# Changer utilisateur
+USER reranker
+
+# Exposer port
+EXPOSE 8002
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:8002/health || exit 1
+
+# Commande démarrage
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"]
