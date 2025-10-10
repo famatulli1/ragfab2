@@ -151,10 +151,18 @@ class DoclingHybridChunker:
         word_count = len(content.split())
 
         if word_count < 800:
-            # Very small document (<2.5 pages): Force single chunk to preserve complete context
-            max_tokens = 4000
+            # Very small document (<2.5 pages): BYPASS HybridChunker to force single chunk
+            # HybridChunker fragments even with max_tokens=4000 due to structure-based splits
             doc_size_category = "very_small"
-            logger.info(f"Very small document detected ({word_count} words) - using max_tokens=4000 (1 chunk)")
+            logger.info(f"Very small document detected ({word_count} words) - forcing single chunk (bypass HybridChunker)")
+
+            # Store metadata
+            base_metadata["doc_size_category"] = doc_size_category
+            base_metadata["word_count"] = word_count
+
+            # Create single chunk with entire content
+            return self._create_single_chunk(content, title, base_metadata, doc_size_category, word_count)
+
         elif word_count < 2000:
             # Small document (2.5-6 pages): Use large chunks to preserve context
             max_tokens = 1500
@@ -328,6 +336,59 @@ class DoclingHybridChunker:
 
         logger.info(f"Created {len(chunks)} chunks using simple fallback")
         return chunks
+
+    def _create_single_chunk(
+        self,
+        content: str,
+        title: str,
+        base_metadata: Dict[str, Any],
+        doc_size_category: str,
+        word_count: int
+    ) -> List[DocumentChunk]:
+        """
+        Create a single chunk for very small documents (<800 words).
+
+        Forces the entire document into one chunk to preserve complete context.
+        This bypasses HybridChunker which tends to fragment even small documents
+        due to structure-based splitting logic.
+
+        Args:
+            content: Full document content
+            title: Document title for contextual enrichment
+            base_metadata: Base metadata for chunk
+            doc_size_category: Document size category (should be "very_small")
+            word_count: Word count of document
+
+        Returns:
+            List with single DocumentChunk containing entire document
+        """
+        # CONTEXTUAL ENRICHMENT: Add document context for better embeddings
+        contextual_prefix = f"[Document: {title}]"
+        enriched_content = f"{contextual_prefix}\n\n{content}"
+
+        # Clean UTF-8 encoding (handle invalid surrogate characters from PDFs)
+        clean_content = enriched_content.encode('utf-8', errors='replace').decode('utf-8')
+
+        # Count actual tokens
+        token_count = len(self.tokenizer.encode(clean_content))
+
+        logger.info(f"Created SINGLE chunk: {token_count} tokens for {word_count} words (complete document)")
+
+        return [DocumentChunk(
+            content=clean_content.strip(),
+            index=0,
+            start_char=0,
+            end_char=len(content),
+            metadata={
+                **base_metadata,
+                "doc_size_category": doc_size_category,
+                "word_count": word_count,
+                "chunk_method": "single_chunk_bypass",
+                "total_chunks": 1,
+                "has_enrichment": True
+            },
+            token_count=token_count
+        )]
 
 
 class SimpleChunker:
