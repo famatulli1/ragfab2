@@ -4,7 +4,7 @@ services:
   reranker-gpu:
     build:
       context: .
-      dockerfile: Dockerfile.gpu
+      dockerfile: Dockerfile.gpu.slim
     container_name: reranker-gpu
     environment:
       RERANKER_MODEL: ${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
