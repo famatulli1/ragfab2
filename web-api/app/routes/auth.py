@@ -159,6 +159,76 @@ async def update_my_profile(
     return User(**dict(user))
 
 
+@router.post("/me/first-password-change")
+async def change_first_login_password(
+    password_data: PasswordChange,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Change le mot de passe lors de la première connexion (pas de vérification du mot de passe actuel)
+
+    Args:
+        password_data: Nouveau mot de passe uniquement
+        current_user: Utilisateur courant (dépendance JWT)
+
+    Returns:
+        Message de confirmation
+
+    Raises:
+        HTTPException: Si la validation échoue ou l'utilisateur n'a pas le flag must_change_password
+    """
+    async with database.db_pool.acquire() as conn:
+        # Vérifier que l'utilisateur a bien le flag must_change_password
+        user = await conn.fetchrow(
+            "SELECT must_change_password FROM users WHERE id = $1",
+            current_user["id"]
+        )
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Utilisateur non trouvé"
+            )
+
+        if not user["must_change_password"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Le changement de mot de passe initial a déjà été effectué"
+            )
+
+        # Vérifier que les deux nouveaux mots de passe correspondent
+        if password_data.new_password != password_data.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Les mots de passe ne correspondent pas"
+            )
+
+        # Valider la force du nouveau mot de passe
+        is_valid, error_message = validate_password_strength(password_data.new_password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
+
+        # Hacher le nouveau mot de passe
+        new_hashed_password = get_password_hash(password_data.new_password)
+
+        # Mettre à jour le mot de passe et retirer le flag must_change_password
+        await conn.execute(
+            """
+            UPDATE users
+            SET hashed_password = $1, must_change_password = false
+            WHERE id = $2
+            """,
+            new_hashed_password,
+            current_user["id"]
+        )
+
+    logger.info(f"🔑 Premier changement de mot de passe pour: {current_user['username']}")
+    return {"message": "Mot de passe modifié avec succès"}
+
+
 @router.post("/me/change-password")
 async def change_my_password(
     password_data: PasswordChange,

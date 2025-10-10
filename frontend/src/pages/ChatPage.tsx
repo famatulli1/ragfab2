@@ -84,11 +84,20 @@ export default function ChatPage() {
   };
 
   const handlePasswordSubmit = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
-    await api.changeMyPassword({
-      current_password: currentPassword,
-      new_password: newPassword,
-      confirm_password: confirmPassword,
-    });
+    // Si c'est la première connexion, utiliser l'endpoint spécial qui ne vérifie pas le mot de passe actuel
+    if (mustChangePassword) {
+      await api.changeFirstLoginPassword({
+        current_password: '', // Non utilisé par l'endpoint first-password-change
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      });
+    } else {
+      await api.changeMyPassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      });
+    }
   };
 
   const handleLogout = async () => {

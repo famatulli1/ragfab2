@@ -92,6 +92,11 @@ class APIClient {
     return data;
   }
 
+  async changeFirstLoginPassword(passwordData: import('../types').PasswordChange): Promise<{ message: string }> {
+    const { data } = await this.client.post('/api/auth/me/first-password-change', passwordData);
+    return data;
+  }
+
   // ============================================================================
   // Documents
   // ============================================================================
