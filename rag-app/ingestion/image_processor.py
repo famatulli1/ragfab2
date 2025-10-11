@@ -172,7 +172,11 @@ class ImageProcessor:
         image_quality: int = 85,
         output_format: str = "png",
         vlm_enabled: bool = False,
-        vlm_client: Optional[VLMClient] = None
+        vlm_client: Optional[VLMClient] = None,
+        min_width: int = 200,
+        min_height: int = 200,
+        min_area: int = 40000,
+        max_aspect_ratio: float = 10.0
     ):
         """
         Initialize image processor.
@@ -184,6 +188,10 @@ class ImageProcessor:
             output_format: Output format (png, jpeg)
             vlm_enabled: Enable VLM analysis
             vlm_client: VLM client instance
+            min_width: Minimum image width in pixels to keep
+            min_height: Minimum image height in pixels to keep
+            min_area: Minimum image area in pixels² to keep
+            max_aspect_ratio: Maximum aspect ratio (width/height or height/width)
         """
         self.storage_path = Path(storage_path)
         self.max_size_mb = max_size_mb
@@ -192,6 +200,12 @@ class ImageProcessor:
         self.vlm_enabled = vlm_enabled
         self.vlm_client = vlm_client
 
+        # Image filtering thresholds
+        self.min_width = min_width
+        self.min_height = min_height
+        self.min_area = min_area
+        self.max_aspect_ratio = max_aspect_ratio
+
         # Create storage directory if needed
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
@@ -199,7 +213,8 @@ class ImageProcessor:
             f"ImageProcessor initialized: "
             f"storage={storage_path}, "
             f"vlm_enabled={vlm_enabled}, "
-            f"format={output_format}"
+            f"format={output_format}, "
+            f"filters=({min_width}x{min_height}px, area>={min_area}px², ratio<={max_aspect_ratio})"
         )
 
     async def extract_images_from_document(
@@ -278,6 +293,60 @@ class ImageProcessor:
 
         logger.info(f"Extracted {len(extracted_images)} images from document (job: {job_id})")
         return extracted_images
+
+    def _should_keep_image(
+        self,
+        pil_image: Image.Image,
+        image_index: int,
+        page_number: int
+    ) -> bool:
+        """
+        Check if image meets minimum size requirements to be kept.
+
+        Filters out small icons, logos, and decorative elements that don't
+        contribute meaningful content to the RAG system.
+
+        Args:
+            pil_image: PIL Image object
+            image_index: Index of this image in document
+            page_number: Page number where image appears
+
+        Returns:
+            True if image should be kept, False if should be filtered out
+        """
+        width, height = pil_image.size
+        area = width * height
+        aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else float('inf')
+
+        # Check minimum dimensions
+        if width < self.min_width or height < self.min_height:
+            logger.debug(
+                f"📏 Skipping small image {image_index} (page {page_number}): "
+                f"{width}x{height}px < {self.min_width}x{self.min_height}px minimum"
+            )
+            return False
+
+        # Check minimum area
+        if area < self.min_area:
+            logger.debug(
+                f"📐 Skipping low-area image {image_index} (page {page_number}): "
+                f"{area}px² < {self.min_area}px² minimum"
+            )
+            return False
+
+        # Check aspect ratio (avoid very elongated images like banners/borders)
+        if aspect_ratio > self.max_aspect_ratio:
+            logger.debug(
+                f"📊 Skipping elongated image {image_index} (page {page_number}): "
+                f"aspect ratio {aspect_ratio:.2f} > {self.max_aspect_ratio} maximum"
+            )
+            return False
+
+        logger.debug(
+            f"✅ Keeping image {image_index} (page {page_number}): "
+            f"{width}x{height}px, area={area}px², ratio={aspect_ratio:.2f}"
+        )
+        return True
 
     def _extract_image_from_pdf(
         self,
@@ -389,6 +458,10 @@ class ImageProcessor:
             logger.error(f"Failed to extract image from PictureItem: {e}")
             return None
 
+        # Apply size filters (dimensions, area, aspect ratio)
+        if not self._should_keep_image(pil_image, image_index, page_number):
+            return None  # Image filtered out, don't process further
+
         # Check image size
         img_bytes = io.BytesIO()
         pil_image.save(img_bytes, format=self.output_format.upper(), quality=self.image_quality)
@@ -498,11 +571,21 @@ def create_image_processor() -> Optional[ImageProcessor]:
     image_quality = int(os.getenv("IMAGE_QUALITY", "85"))
     output_format = os.getenv("IMAGE_OUTPUT_FORMAT", "png")
 
+    # Image filtering configuration
+    min_width = int(os.getenv("IMAGE_MIN_WIDTH", "200"))
+    min_height = int(os.getenv("IMAGE_MIN_HEIGHT", "200"))
+    min_area = int(os.getenv("IMAGE_MIN_AREA", "40000"))
+    max_aspect_ratio = float(os.getenv("IMAGE_ASPECT_RATIO_MAX", "10.0"))
+
     return ImageProcessor(
         storage_path=storage_path,
         max_size_mb=max_size_mb,
         image_quality=image_quality,
         output_format=output_format,
         vlm_enabled=True,
-        vlm_client=vlm_client
+        vlm_client=vlm_client,
+        min_width=min_width,
+        min_height=min_height,
+        min_area=min_area,
+        max_aspect_ratio=max_aspect_ratio
     )
