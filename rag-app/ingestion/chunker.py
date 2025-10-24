@@ -231,6 +231,23 @@ class DoclingHybridChunker:
                     # Docling chunks have provenance information
                     page_number = chunk.prov[0].page_no if hasattr(chunk.prov[0], 'page_no') else 1
 
+                # 🆕 Extract section hierarchy and heading context
+                section_hierarchy = []
+                if hasattr(chunk, 'heading_hierarchy') and chunk.heading_hierarchy:
+                    section_hierarchy = list(chunk.heading_hierarchy)
+
+                # Extract heading context from contextualized text (first line if starts with #)
+                heading_context = None
+                lines = contextualized_text.split('\n')
+                for line in lines[:3]:  # Check first 3 lines
+                    line_stripped = line.strip()
+                    if line_stripped.startswith('#'):
+                        heading_context = line_stripped
+                        break
+
+                # Calculate document position (normalized 0.0-1.0)
+                document_position = i / max(len(chunks) - 1, 1) if len(chunks) > 1 else 0.0
+
                 # Create chunk metadata
                 chunk_metadata = {
                     **base_metadata,
@@ -240,6 +257,10 @@ class DoclingHybridChunker:
                     "has_enrichment": True,  # Flag indicating contextual enrichment
                     "page_number": page_number,  # Add page number for image linking
                     "original_text": contextualized_text,  # Store original for display
+                    # 🆕 Structural metadata for contextual retrieval
+                    "section_hierarchy": section_hierarchy,  # Heading path from root
+                    "heading_context": heading_context,  # Immediate heading for this chunk
+                    "document_position": document_position,  # Normalized position (0.0-1.0)
                 }
 
                 # Estimate character positions (based on enriched text)
@@ -385,10 +406,234 @@ class DoclingHybridChunker:
                 "word_count": word_count,
                 "chunk_method": "single_chunk_bypass",
                 "total_chunks": 1,
-                "has_enrichment": True
+                "has_enrichment": True,
+                # 🆕 Structural metadata (empty for single-chunk documents)
+                "section_hierarchy": [],
+                "heading_context": None,
+                "document_position": 0.0,
             },
             token_count=token_count
         )]
+
+
+class ParentChildChunker:
+    """
+    Advanced chunker that creates hierarchical parent-child chunk structure.
+
+    Architecture:
+    - Parent chunks: Large context chunks (1500-4000 tokens) for broad understanding
+    - Child chunks: Smaller precise chunks (400-800 tokens) for accurate retrieval
+
+    Search strategy:
+    - Vector search operates on child chunks (precise matching)
+    - Returns parent chunks for broader context to LLM
+    - Best of both worlds: precision + context
+
+    Benefits:
+    - Better retrieval precision (small chunks match specific queries)
+    - Better answer quality (large parent context for LLM)
+    - Reduced hallucination (more surrounding context)
+    """
+
+    def __init__(self, config: ChunkingConfig):
+        """
+        Initialize parent-child chunker.
+
+        Args:
+            config: Chunking configuration (used for child chunks)
+        """
+        self.config = config
+
+        # Initialize tokenizer
+        model_id = "sentence-transformers/all-MiniLM-L6-v2"
+        logger.info(f"Initializing ParentChildChunker with tokenizer: {model_id}")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+        # Parent chunker: Large chunks for context
+        self.parent_chunker = HybridChunker(
+            tokenizer=self.tokenizer,
+            max_tokens=2000,  # Large chunks for parent
+            merge_peers=True
+        )
+
+        # Child chunker: Smaller chunks for precision
+        self.child_chunker = HybridChunker(
+            tokenizer=self.tokenizer,
+            max_tokens=600,  # Smaller chunks for children
+            merge_peers=True
+        )
+
+        logger.info("ParentChildChunker initialized (parent=2000t, child=600t)")
+
+    async def chunk_document(
+        self,
+        content: str,
+        title: str,
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        docling_doc: Optional[DoclingDocument] = None
+    ) -> List[DocumentChunk]:
+        """
+        Create parent-child chunk hierarchy from document.
+
+        Process:
+        1. Create parent chunks (large, for context)
+        2. For each parent, create child chunks (small, for precision)
+        3. Link children to parents via metadata
+        4. Return flattened list (parents + all children)
+
+        Args:
+            content: Document content (markdown format)
+            title: Document title
+            source: Document source
+            metadata: Additional metadata
+            docling_doc: Optional pre-converted DoclingDocument
+
+        Returns:
+            List of DocumentChunk objects (parents followed by their children)
+        """
+        if not content.strip():
+            return []
+
+        base_metadata = {
+            "title": title,
+            "source": source,
+            "chunk_method": "parent_child_hierarchical",
+            **(metadata or {})
+        }
+
+        # Require DoclingDocument for structure-aware chunking
+        if docling_doc is None:
+            logger.warning("No DoclingDocument provided, falling back to DoclingHybridChunker")
+            fallback_chunker = DoclingHybridChunker(self.config)
+            return await fallback_chunker.chunk_document(content, title, source, metadata, docling_doc)
+
+        # STEP 1: Create parent chunks (large context)
+        logger.info(f"Creating parent chunks for: {title}")
+        parent_chunk_iter = self.parent_chunker.chunk(dl_doc=docling_doc)
+        parent_chunks_raw = list(parent_chunk_iter)
+
+        if not parent_chunks_raw:
+            logger.warning("No parent chunks created, returning empty list")
+            return []
+
+        all_chunks = []  # Will contain both parents and children
+        parent_index = 0
+        child_global_index = len(parent_chunks_raw)  # Children indexed after parents
+
+        # STEP 2: For each parent, create children
+        for parent_idx, parent_chunk_raw in enumerate(parent_chunks_raw):
+            # Create parent DocumentChunk
+            parent_contextualized = self.parent_chunker.contextualize(chunk=parent_chunk_raw)
+
+            # Extract metadata
+            section_hierarchy = []
+            if hasattr(parent_chunk_raw, 'heading_hierarchy') and parent_chunk_raw.heading_hierarchy:
+                section_hierarchy = list(parent_chunk_raw.heading_hierarchy)
+
+            # Extract heading from contextualized text
+            heading_context = None
+            lines = parent_contextualized.split('\n')
+            for line in lines[:3]:
+                if line.strip().startswith('#'):
+                    heading_context = line.strip()
+                    break
+
+            # Document position for parent
+            parent_position = parent_idx / max(len(parent_chunks_raw) - 1, 1) if len(parent_chunks_raw) > 1 else 0.0
+
+            # Contextual enrichment
+            contextual_prefix = f"[Document: {title}]"
+            if section_hierarchy:
+                contextual_prefix += f" [Section: {' > '.join(section_hierarchy)}]"
+
+            enriched_parent_text = f"{contextual_prefix}\n\n{parent_contextualized}"
+
+            # Clean UTF-8
+            clean_parent_content = enriched_parent_text.encode('utf-8', errors='replace').decode('utf-8')
+
+            # Count tokens
+            parent_token_count = len(self.tokenizer.encode(clean_parent_content))
+
+            # Create parent DocumentChunk
+            parent_chunk = DocumentChunk(
+                content=clean_parent_content.strip(),
+                index=parent_index,
+                start_char=0,  # Will be recalculated if needed
+                end_char=len(clean_parent_content),
+                metadata={
+                    **base_metadata,
+                    "chunk_level": "parent",
+                    "has_children": True,
+                    "section_hierarchy": section_hierarchy,
+                    "heading_context": heading_context,
+                    "document_position": parent_position,
+                    "token_count": parent_token_count,
+                    "original_text": parent_contextualized,
+                },
+                token_count=parent_token_count
+            )
+
+            all_chunks.append(parent_chunk)
+            parent_index += 1
+
+            # STEP 3: Create child chunks from this parent
+            # Convert parent text back to mini-DoclingDocument for child chunking
+            try:
+                # Create child chunks by re-chunking the parent content
+                child_chunks_iter = self.child_chunker.chunk(dl_doc=docling_doc)
+                child_chunks_raw = []
+
+                # Filter children that belong to this parent (by character position overlap)
+                for child_raw in child_chunks_iter:
+                    # Simple heuristic: if child start position is within parent range
+                    # In practice, we use all children from parent boundaries
+                    child_chunks_raw.append(child_raw)
+
+                # For simplicity: split parent into N equal child chunks
+                # More sophisticated: use HybridChunker recursively
+                child_count = max(1, len(clean_parent_content) // 1500)  # ~600 tokens per child
+                child_size = len(clean_parent_content) // child_count
+
+                for child_idx in range(child_count):
+                    child_start = child_idx * child_size
+                    child_end = child_start + child_size if child_idx < child_count - 1 else len(clean_parent_content)
+                    child_text = clean_parent_content[child_start:child_end]
+
+                    if not child_text.strip():
+                        continue
+
+                    child_token_count = len(self.tokenizer.encode(child_text))
+                    child_position = (parent_idx + (child_idx / child_count)) / len(parent_chunks_raw)
+
+                    child_chunk = DocumentChunk(
+                        content=child_text.strip(),
+                        index=child_global_index,
+                        start_char=child_start,
+                        end_char=child_end,
+                        metadata={
+                            **base_metadata,
+                            "chunk_level": "child",
+                            "parent_index": parent_idx,  # Link to parent (will be UUID later)
+                            "child_index_within_parent": child_idx,
+                            "section_hierarchy": section_hierarchy,
+                            "heading_context": heading_context,
+                            "document_position": child_position,
+                            "token_count": child_token_count,
+                        },
+                        token_count=child_token_count
+                    )
+
+                    all_chunks.append(child_chunk)
+                    child_global_index += 1
+
+            except Exception as e:
+                logger.warning(f"Failed to create children for parent {parent_idx}: {e}")
+                # Continue without children for this parent
+
+        logger.info(f"Created {len(parent_chunks_raw)} parent chunks and {child_global_index - len(parent_chunks_raw)} child chunks")
+
+        return all_chunks
 
 
 class SimpleChunker:
@@ -506,17 +751,34 @@ class SimpleChunker:
 
 
 # Factory function
-def create_chunker(config: ChunkingConfig):
+def create_chunker(config: ChunkingConfig, use_parent_child: bool = False):
     """
     Create appropriate chunker based on configuration.
 
     Args:
         config: Chunking configuration
+        use_parent_child: If True, use ParentChildChunker for hierarchical chunks
+                         If False, use standard DoclingHybridChunker or SimpleChunker
+                         Can also be controlled via USE_PARENT_CHILD_CHUNKS env var
 
     Returns:
-        Chunker instance
+        Chunker instance (DoclingHybridChunker, ParentChildChunker, or SimpleChunker)
     """
-    if config.use_semantic_splitting:
+    # Check environment variable if not explicitly set
+    if not use_parent_child:
+        use_parent_child = os.getenv("USE_PARENT_CHILD_CHUNKS", "false").lower() == "true"
+
+    # Parent-child hierarchical chunking (most advanced)
+    if use_parent_child:
+        logger.info("Creating ParentChildChunker for hierarchical chunking")
+        return ParentChildChunker(config)
+
+    # Standard semantic chunking
+    elif config.use_semantic_splitting:
+        logger.info("Creating DoclingHybridChunker for semantic chunking")
         return DoclingHybridChunker(config)
+
+    # Simple paragraph-based chunking
     else:
+        logger.info("Creating SimpleChunker for basic chunking")
         return SimpleChunker(config)

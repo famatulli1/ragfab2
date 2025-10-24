@@ -543,8 +543,10 @@ class DocumentIngestionPipeline:
 
                 document_id = document_result["id"]
 
-                # Insert chunks
-                chunk_id_map = {}  # Map chunk index to UUID for image linking
+                # Insert chunks (first pass - without prev/next and parent relationships)
+                chunk_id_map = {}  # Map chunk index to UUID for linking
+                parent_indices = []  # Track which chunks are parents and their indices
+
                 for chunk in chunks:
                     # Convert embedding to PostgreSQL vector string format
                     embedding_data = None
@@ -552,10 +554,21 @@ class DocumentIngestionPipeline:
                         # PostgreSQL vector format: '[1.0,2.0,3.0]' (no spaces after commas)
                         embedding_data = '[' + ','.join(map(str, chunk.embedding)) + ']'
 
+                    # 🆕 Extract structural metadata from chunk.metadata
+                    section_hierarchy = chunk.metadata.get("section_hierarchy", [])
+                    heading_context = chunk.metadata.get("heading_context")
+                    document_position = chunk.metadata.get("document_position", 0.0)
+
+                    # 🆕 Extract chunk_level (parent/child) from metadata
+                    chunk_level = chunk.metadata.get("chunk_level", "parent")  # Default: parent for backward compat
+
                     chunk_result = await conn.fetchrow(
                         """
-                        INSERT INTO chunks (document_id, content, embedding, chunk_index, metadata, token_count)
-                        VALUES ($1::uuid, $2, $3::vector, $4, $5, $6)
+                        INSERT INTO chunks (
+                            document_id, content, embedding, chunk_index, metadata, token_count,
+                            section_hierarchy, heading_context, document_position, chunk_level
+                        )
+                        VALUES ($1::uuid, $2, $3::vector, $4, $5, $6, $7, $8, $9, $10::chunk_level_enum)
                         RETURNING id::text
                         """,
                         document_id,
@@ -563,10 +576,61 @@ class DocumentIngestionPipeline:
                         embedding_data,
                         chunk.index,
                         json.dumps(chunk.metadata),
-                        chunk.token_count
+                        chunk.token_count,
+                        json.dumps(section_hierarchy),  # 🆕 Section hierarchy
+                        heading_context,  # 🆕 Heading context
+                        document_position,  # 🆕 Document position
+                        chunk_level  # 🆕 Chunk level (parent/child)
                     )
 
                     chunk_id_map[chunk.index] = chunk_result["id"]
+
+                    # Track parent chunks for parent-child linking
+                    if chunk_level == "parent":
+                        parent_indices.append(chunk.index)
+
+                # 🆕 Second pass: Link chunks with prev/next relationships (for flat chunks)
+                if len(chunks) > 1 and not parent_indices:  # Only if not using parent-child
+                    for i, chunk in enumerate(chunks):
+                        prev_chunk_id = chunk_id_map[i - 1] if i > 0 else None
+                        next_chunk_id = chunk_id_map[i + 1] if i < len(chunks) - 1 else None
+
+                        if prev_chunk_id or next_chunk_id:
+                            await conn.execute(
+                                """
+                                UPDATE chunks
+                                SET prev_chunk_id = $2::uuid, next_chunk_id = $3::uuid
+                                WHERE id = $1::uuid
+                                """,
+                                chunk_id_map[i],
+                                prev_chunk_id,
+                                next_chunk_id
+                            )
+
+                    logger.info(f"Linked {len(chunks)} chunks with prev/next relationships")
+
+                # 🆕 Third pass: Link child chunks to parent chunks (for hierarchical chunks)
+                if parent_indices:
+                    # Build map from parent_index to parent UUID
+                    parent_uuid_map = {idx: chunk_id_map[idx] for idx in parent_indices}
+
+                    for chunk in chunks:
+                        if chunk.metadata.get("chunk_level") == "child":
+                            parent_idx = chunk.metadata.get("parent_index")
+                            if parent_idx is not None and parent_idx in parent_uuid_map:
+                                parent_uuid = parent_uuid_map[parent_idx]
+
+                                await conn.execute(
+                                    """
+                                    UPDATE chunks
+                                    SET parent_chunk_id = $2::uuid
+                                    WHERE id = $1::uuid
+                                    """,
+                                    chunk_id_map[chunk.index],
+                                    parent_uuid
+                                )
+
+                    logger.info(f"Linked {len(chunks) - len(parent_indices)} child chunks to {len(parent_indices)} parents")
 
                 # Insert images if any
                 if images:

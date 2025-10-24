@@ -678,6 +678,28 @@ async def send_message(
             token_usage_json
         )
 
+    # 🆕 DÉTECTER TOPIC SHIFT POUR SUGGESTION (optionnel, non-bloquant)
+    topic_shift_suggestion = None
+    try:
+        from .conversation_context import detect_topic_shift
+
+        conversation_context = assistant_response.get("conversation_context")
+
+        # Détecter seulement s'il y a déjà au moins 2 échanges
+        if conversation_context and len(conversation_context.get("conversation_flow", [])) >= 2:
+            # Préparer le prochain message hypothétique (on ne sait pas encore ce que l'utilisateur va demander)
+            # Cette détection sera plus utile si on l'implémente côté frontend au moment où l'utilisateur tape
+            # Pour l'instant, on peut retourner le contexte actuel pour que le frontend puisse faire la détection
+            topic_shift_suggestion = {
+                "current_topic": conversation_context.get("current_topic"),
+                "exchange_count": len(conversation_context.get("conversation_flow", [])),
+                "message": "Le sujet de la conversation pourrait changer. Voulez-vous créer une nouvelle conversation ?"
+            }
+            logger.info(f"📊 Topic actuel: {conversation_context.get('current_topic')}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Erreur détection topic shift: {e}")
+
     # Retourner la réponse complète
     # Décoder les champs JSON depuis la base de données
     assistant_dict = dict(assistant_message)
@@ -686,11 +708,17 @@ async def send_message(
     if assistant_dict.get('token_usage') and isinstance(assistant_dict['token_usage'], str):
         assistant_dict['token_usage'] = json.loads(assistant_dict['token_usage'])
 
-    return ChatResponse(
-        user_message=MessageResponse(**dict(user_message), rating=None),
-        assistant_message=MessageResponse(**assistant_dict, rating=None),
-        conversation=Conversation(**dict(conversation))
-    )
+    response_data = {
+        "user_message": MessageResponse(**dict(user_message), rating=None),
+        "assistant_message": MessageResponse(**assistant_dict, rating=None),
+        "conversation": Conversation(**dict(conversation))
+    }
+
+    # Ajouter suggestion topic shift si détectée (optionnel, le frontend peut l'ignorer)
+    if topic_shift_suggestion:
+        response_data["topic_shift_suggestion"] = topic_shift_suggestion
+
+    return ChatResponse(**response_data)
 
 
 @app.post("/api/messages/{message_id}/regenerate", response_model=MessageResponse)
@@ -1006,11 +1034,121 @@ async def rerank_results(query: str, results: List[dict]) -> List[dict]:
         ]
 
 
+def _build_contextualized_response(
+    document_title: str,
+    main_content: str,
+    adjacent_info: dict,
+    images: list,
+    use_adjacent_chunks: bool
+) -> str:
+    """
+    Construit une réponse enrichie avec contexte adjacent et images.
+
+    Args:
+        document_title: Titre du document source
+        main_content: Contenu principal du chunk
+        adjacent_info: Dict avec prev_content, next_content, section_hierarchy, heading_context
+        images: Liste des images associées
+        use_adjacent_chunks: Si True, inclure prev/next chunks
+
+    Returns:
+        Réponse formatée pour le LLM avec contexte enrichi
+    """
+    parts = []
+
+    # En-tête avec source et hiérarchie de section
+    header = f"[Source: {document_title}]"
+
+    # Ajouter hiérarchie de section si disponible
+    section_hierarchy = adjacent_info.get("section_hierarchy")
+    if section_hierarchy and isinstance(section_hierarchy, list) and len(section_hierarchy) > 0:
+        section_path = " > ".join(section_hierarchy)
+        header += f"\n[Section: {section_path}]"
+
+    # Ajouter heading context si disponible
+    heading_context = adjacent_info.get("heading_context")
+    if heading_context:
+        header += f"\n[Titre: {heading_context}]"
+
+    parts.append(header)
+
+    # Contexte précédent (si disponible et activé)
+    if use_adjacent_chunks and adjacent_info.get("prev_content"):
+        prev_preview = adjacent_info["prev_content"][:150]
+        if len(adjacent_info["prev_content"]) > 150:
+            prev_preview += "..."
+        parts.append(f"\n📄 Contexte précédent:\n{prev_preview}\n")
+
+    # Contenu principal (TOUJOURS inclus)
+    parts.append(f"\n📌 Contenu principal:\n{main_content}\n")
+
+    # Contexte suivant (si disponible et activé)
+    if use_adjacent_chunks and adjacent_info.get("next_content"):
+        next_preview = adjacent_info["next_content"][:150]
+        if len(adjacent_info["next_content"]) > 150:
+            next_preview += "..."
+        parts.append(f"\n📄 Contexte suivant:\n{next_preview}\n")
+
+    # Images associées
+    if images:
+        parts.append(f"\n📷 Images associées ({len(images)}):")
+        for img in images:
+            if img.get("description"):
+                parts.append(f"  - {img['description']}")
+            if img.get("ocr_text"):
+                ocr_preview = img['ocr_text'][:100]
+                if len(img.get("ocr_text", "")) > 100:
+                    ocr_preview += "..."
+                parts.append(f"    Texte: {ocr_preview}")
+
+    return "\n".join(parts)
+
+
 async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
-    """Tool pour rechercher dans la base de connaissances - version web-api sans docling"""
+    """
+    Tool pour rechercher dans la base de connaissances avec enrichissement contextuel automatique.
+
+    NOUVEAUTÉ (2025-01-24):
+    - Enrichit automatiquement les queries courtes/vagues avec le contexte conversationnel
+    - Récupère automatiquement les chunks adjacents (prev/next) pour contexte enrichi
+    - Combine contexte séquentiel pour améliorer la pertinence des réponses
+
+    Args:
+        query: Question de recherche (peut être courte si contexte disponible)
+        limit: Nombre maximum de résultats à retourner
+
+    Returns:
+        Résultats formatés pour le LLM avec sources, images, et contexte adjacent
+    """
     global _current_request_sources, _current_conversation_id, _current_reranking_enabled
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
+        # 🆕 ENRICHISSEMENT AUTOMATIQUE DE LA QUERY SI CONTEXTE DISPONIBLE
+        enriched_query = query  # Par défaut, utiliser query originale
+        if _current_conversation_id:
+            try:
+                from .conversation_context import (
+                    build_conversation_context,
+                    enrich_query_with_context
+                )
+
+                # Construire contexte conversationnel
+                context = await build_conversation_context(
+                    conversation_id=_current_conversation_id,
+                    db_pool=database.db_pool,
+                    limit=3  # Limité à 3 échanges pour performance
+                )
+
+                if context:
+                    # Enrichir la query si nécessaire
+                    enriched_query = await enrich_query_with_context(query, context)
+
+                    if enriched_query != query:
+                        logger.info(f"🔧 Query enrichie: '{query}' → '{enriched_query}'")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur enrichissement query: {e}, utilisation query originale")
+                enriched_query = query
         # Déterminer si le reranking est activé (priorité: request > conversation > env var)
         reranker_enabled = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
 
@@ -1044,12 +1182,12 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             search_limit = limit
             logger.info(f"📊 Reranking désactivé: recherche vectorielle directe (top-{limit})")
 
-        # Générer l'embedding via le service
+        # Générer l'embedding via le service (utilise query enrichie)
         embeddings_url = os.getenv("EMBEDDINGS_API_URL", "http://ragfab-embeddings:8001")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{embeddings_url}/embed",
-                json={"text": query},
+                json={"text": enriched_query},  # 🆕 Utilise query enrichie
                 timeout=30.0
             )
             response.raise_for_status()
@@ -1057,31 +1195,93 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
-        # Rechercher dans la BD avec métadonnées complètes
+        # 🆕 RECHERCHE HIÉRARCHIQUE SI PARENT-CHILD ACTIVÉ
+        # Déterminer si on utilise la recherche hiérarchique (search enfants → return parents)
+        use_hierarchical = os.getenv("USE_PARENT_CHILD_CHUNKS", "false").lower() == "true"
+
+        # Rechercher dans la BD avec fonction match_chunks (supporte mode hiérarchique)
         async with database.db_pool.acquire() as conn:
-            results = await conn.fetch(
-                """
-                SELECT
-                    c.id as chunk_id,
-                    c.content,
-                    c.chunk_index,
-                    c.metadata,
-                    d.id as document_id,
-                    d.title as document_title,
-                    d.source as document_source,
-                    1 - (c.embedding <=> $1::vector) as similarity
-                FROM chunks c
-                JOIN documents d ON c.document_id = d.id
-                ORDER BY c.embedding <=> $1::vector
-                LIMIT $2
-                """,
-                embedding_str,
-                search_limit
-            )
+            if use_hierarchical:
+                logger.info("🔍 Recherche hiérarchique: search dans enfants, contexte des parents")
+                results = await conn.fetch(
+                    """
+                    SELECT * FROM match_chunks(
+                        $1::vector,
+                        $2,
+                        0.0,
+                        true  -- use_hierarchical=true
+                    )
+                    """,
+                    embedding_str,
+                    search_limit
+                )
+            else:
+                logger.info("📊 Recherche standard: tous les chunks")
+                results = await conn.fetch(
+                    """
+                    SELECT * FROM match_chunks(
+                        $1::vector,
+                        $2,
+                        0.0,
+                        false  -- use_hierarchical=false
+                    )
+                    """,
+                    embedding_str,
+                    search_limit
+                )
+
+            # Renommer les colonnes pour compatibilité avec le reste du code
+            results = [
+                {
+                    "chunk_id": row["id"],
+                    "content": row["content"],
+                    "chunk_index": 0,  # Not used in current flow
+                    "metadata": row["metadata"],
+                    "document_id": row["document_id"],
+                    "document_title": row["document_title"],
+                    "document_source": row["document_source"],
+                    "similarity": row["similarity"]
+                }
+                for row in results
+            ]
 
         if not results:
             _current_request_sources = []
             return "Aucune information pertinente trouvée dans la base de connaissances."
+
+        # 🆕 RÉCUPÉRER LES CHUNKS ADJACENTS POUR CONTEXTE ENRICHI
+        # Vérifier si la fonctionnalité est activée
+        use_adjacent_chunks = os.getenv("USE_ADJACENT_CHUNKS", "true").lower() == "true"
+        chunk_adjacent_map = {}  # Map chunk_id -> {prev_content, next_content}
+
+        if use_adjacent_chunks:
+            chunk_ids_for_adjacent = [row["chunk_id"] for row in results]
+            async with database.db_pool.acquire() as conn:
+                adjacent_results = await conn.fetch(
+                    """
+                    SELECT
+                        c.id as chunk_id,
+                        prev_c.content as prev_content,
+                        next_c.content as next_content,
+                        c.section_hierarchy,
+                        c.heading_context
+                    FROM chunks c
+                    LEFT JOIN chunks prev_c ON c.prev_chunk_id = prev_c.id
+                    LEFT JOIN chunks next_c ON c.next_chunk_id = next_c.id
+                    WHERE c.id = ANY($1::uuid[])
+                    """,
+                    chunk_ids_for_adjacent
+                )
+
+                for adj_row in adjacent_results:
+                    chunk_adjacent_map[str(adj_row["chunk_id"])] = {
+                        "prev_content": adj_row["prev_content"],
+                        "next_content": adj_row["next_content"],
+                        "section_hierarchy": adj_row["section_hierarchy"],
+                        "heading_context": adj_row["heading_context"]
+                    }
+
+                logger.info(f"📚 Chunks adjacents récupérés pour {len(chunk_adjacent_map)} résultats")
 
         # Récupérer les images pour tous les chunks trouvés
         chunk_ids = [str(row["chunk_id"]) for row in results]
@@ -1118,7 +1318,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
         # Si reranking activé, appliquer le reranking
         if reranker_enabled:
             logger.info(f"🎯 Application du reranking sur {len(results)} candidats")
-            reranked_docs = await rerank_results(query, results)
+            reranked_docs = await rerank_results(enriched_query, results)  # 🆕 Utilise query enrichie
 
             # Stocker les sources avec métadonnées + images pour le frontend
             sources = []
@@ -1143,15 +1343,15 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     "is_image_chunk": is_image_chunk  # Flag to identify synthetic image chunks
                 })
 
-                # Add image descriptions to response if available
-                response_part = f"[Source: {doc['document_title']}]\n{doc['content']}\n"
-                if images:
-                    response_part += f"\n📷 Images associées ({len(images)}):\n"
-                    for img in images:
-                        if img.get("description"):
-                            response_part += f"  - {img['description']}\n"
-                        if img.get("ocr_text"):
-                            response_part += f"    Texte: {img['ocr_text'][:100]}...\n"
+                # 🆕 Build response with adjacent chunks context
+                adjacent_info = chunk_adjacent_map.get(chunk_id, {})
+                response_part = _build_contextualized_response(
+                    doc['document_title'],
+                    doc['content'],
+                    adjacent_info,
+                    images,
+                    use_adjacent_chunks
+                )
 
                 response_parts.append(response_part)
         else:
@@ -1178,15 +1378,15 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                     "is_image_chunk": is_image_chunk  # Flag to identify synthetic image chunks
                 })
 
-                # Add image descriptions to response if available
-                response_part = f"[Source: {row['document_title']}]\n{row['content']}\n"
-                if images:
-                    response_part += f"\n📷 Images associées ({len(images)}):\n"
-                    for img in images:
-                        if img.get("description"):
-                            response_part += f"  - {img['description']}\n"
-                        if img.get("ocr_text"):
-                            response_part += f"    Texte: {img['ocr_text'][:100]}...\n"
+                # 🆕 Build response with adjacent chunks context
+                adjacent_info = chunk_adjacent_map.get(chunk_id, {})
+                response_part = _build_contextualized_response(
+                    row['document_title'],
+                    row['content'],
+                    adjacent_info,
+                    images,
+                    use_adjacent_chunks
+                )
 
                 response_parts.append(response_part)
 
@@ -1409,12 +1609,17 @@ async def execute_rag_agent(
     reranking_enabled: Optional[bool] = None
 ) -> dict:
     """
-    Exécute le RAG agent et retourne la réponse.
+    Exécute le RAG agent avec contexte conversationnel intelligent.
+
+    NOUVEAUTÉ (2025-01-24): Contexte conversationnel injecté dans le system prompt
+    au lieu de l'historique complet. Permet de maintenir la cohérence conversationnelle
+    tout en forçant le function calling à chaque tour.
 
     Mode tools activé (use_tools=True):
+        - Construit contexte conversationnel structuré depuis la DB
         - Utilise le provider générique avec function calling
-        - System prompt enrichi avec JSON explicite des tools
-        - Historique vide pour forcer l'appel du tool
+        - System prompt enrichi avec contexte + JSON explicite des tools
+        - Historique vide pour forcer l'appel du tool (mais contexte dans le prompt!)
 
     Mode tools désactivé (use_tools=False):
         - Injection manuelle du contexte dans le prompt
@@ -1423,6 +1628,11 @@ async def execute_rag_agent(
     try:
         from pydantic_ai import Agent, RunContext
         from .utils.generic_llm_provider import get_generic_llm_model
+        from .conversation_context import (
+            build_conversation_context,
+            create_contextual_system_prompt,
+            enrich_query_with_context
+        )
 
         global _current_request_sources, _current_conversation_id, _current_reranking_enabled
 
@@ -1431,6 +1641,24 @@ async def execute_rag_agent(
         _current_conversation_id = conversation_id
         _current_reranking_enabled = reranking_enabled
         sources = []
+
+        # 🆕 CONSTRUIRE LE CONTEXTE CONVERSATIONNEL DEPUIS LA DB
+        conversation_context = None
+        if conversation_id:
+            logger.info(f"📚 Construction du contexte conversationnel (conv_id={conversation_id})")
+            conversation_context = await build_conversation_context(
+                conversation_id=conversation_id,
+                db_pool=database.db_pool,
+                limit=5  # 5 derniers échanges
+            )
+
+            if conversation_context:
+                logger.info(
+                    f"✅ Contexte construit: topic='{conversation_context['current_topic']}', "
+                    f"{len(conversation_context['conversation_flow'])} échanges"
+                )
+            else:
+                logger.info(f"📭 Première question de la conversation")
 
         # Déterminer si on utilise les tools (LLM_USE_TOOLS ou MISTRAL_USE_TOOLS)
         llm_use_tools = os.getenv("LLM_USE_TOOLS", "").lower() == "true"
@@ -1442,15 +1670,25 @@ async def execute_rag_agent(
             logger.info(f"🔧 Création agent LLM générique avec function calling")
 
             model = get_generic_llm_model()
-            system_prompt = build_tool_system_prompt_with_json()
 
-            logger.info(f"📋 System prompt avec JSON explicite des tools généré ({len(system_prompt)} chars)")
+            # 🆕 CRÉER SYSTEM PROMPT CONTEXTUEL (base + contexte conversationnel)
+            base_prompt = build_tool_system_prompt_with_json()
+            system_prompt = await create_contextual_system_prompt(
+                context=conversation_context,
+                base_prompt=base_prompt
+            )
+
+            logger.info(f"📋 System prompt contextuel généré ({len(system_prompt)} chars)")
             agent = Agent(model, system_prompt=system_prompt, tools=[search_knowledge_base_tool])
             logger.info(f"✅ Agent créé avec {len(agent._function_tools)} tools")
         else:
             # Mode injection manuelle (pas de function calling)
             logger.info(f"🔍 Mode injection manuelle: recherche avant appel LLM")
-            search_results = await search_knowledge_base_tool(message, limit=5)
+
+            # 🆕 ENRICHIR LA QUERY AVEC LE CONTEXTE SI NÉCESSAIRE
+            enriched_message = await enrich_query_with_context(message, conversation_context)
+
+            search_results = await search_knowledge_base_tool(enriched_message, limit=5)
             sources = _current_request_sources.copy()
             logger.info(f"📚 {len(sources)} sources récupérées (injection manuelle)")
 
@@ -1469,11 +1707,13 @@ INSTRUCTIONS:
 
         # Exécution selon le mode
         if use_function_calling:
-            # Reformuler la question pour intégrer les références contextuelles
+            # 🆕 UTILISER ANCIEN SYSTÈME DE REFORMULATION SEULEMENT COMME FALLBACK
+            # Le contexte conversationnel dans le system prompt est maintenant la méthode principale
             reformulated_message = await reformulate_question_with_context(message, history)
 
-            # Envoyer la question reformulée SANS historique pour forcer l'appel du tool
-            logger.info(f"🎯 Function calling: question reformulée envoyée sans historique")
+            # Envoyer la question reformulée SANS historique
+            # (Le contexte est déjà dans le system prompt!)
+            logger.info(f"🎯 Function calling: question envoyée avec contexte dans system prompt")
             result = await agent.run(reformulated_message, message_history=[])
 
             # Récupérer les sources depuis la variable globale (le tool les a sauvegardées)
@@ -1502,7 +1742,9 @@ INSTRUCTIONS:
             "content": result.data,
             "sources": sources,
             "model_name": model_name,
-            "token_usage": None
+            "token_usage": None,
+            # 🆕 RETOURNER AUSSI LE CONTEXTE POUR DÉTECTION TOPIC SHIFT (optionnel)
+            "conversation_context": conversation_context
         }
 
     except Exception as e:
@@ -1511,6 +1753,7 @@ INSTRUCTIONS:
             "content": f"Erreur: {str(e)}",
             "sources": [],
             "model_name": provider,
-            "token_usage": None
+            "token_usage": None,
+            "conversation_context": None
         }
 

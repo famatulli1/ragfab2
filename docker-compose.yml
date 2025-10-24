@@ -26,6 +26,26 @@ services:
       - ragfab-network
     restart: unless-stopped
 
+  # Service de migration automatique (s'exécute une fois au démarrage)
+  db-migrations:
+    image: postgres:16
+    container_name: ragfab-db-migrations
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-raguser}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ragpass123}
+      PGDATABASE: ${POSTGRES_DB:-ragdb}
+      AUTO_APPLY_MIGRATIONS: ${AUTO_APPLY_MIGRATIONS:-true}
+    volumes:
+      - ./database:/database:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ragfab-network
+    command: /bin/bash /database/apply_migrations.sh
+    restart: "no"  # S'exécute une fois puis s'arrête
+
   # Service d'embeddings
   embeddings:
     build:
