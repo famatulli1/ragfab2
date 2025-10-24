@@ -336,9 +336,10 @@ class IngestionWorker:
 
             # Cleanup uploaded file
             try:
-                file_path.unlink()
-                job_dir.rmdir()
-                logger.info(f"Cleaned up uploaded file: {file_path}")
+                # Keep the uploaded file for frontend visualization
+                # file_path.unlink()
+                # job_dir.rmdir()
+                logger.info(f"Kept uploaded file for frontend: {file_path}")
             except Exception as e:
                 logger.warning(f"Could not cleanup file {file_path}: {e}")
 
