@@ -10,6 +10,7 @@ import RerankingToggle from '../components/RerankingToggle';
 import ImageViewer from '../components/ImageViewer';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserMenu from '../components/UserMenu';
+import ResponseTemplates from '../components/ResponseTemplates';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -29,6 +30,7 @@ export default function ChatPage() {
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Charger l'utilisateur courant
@@ -64,6 +66,11 @@ export default function ChatPage() {
       return () => document.removeEventListener('click', handleClickOutside);
     }
   }, [menuOpen]);
+
+  // Charger les templates de réponse
+  useEffect(() => {
+    api.listActiveTemplates().then(setTemplates).catch(console.error);
+  }, []);
 
   const loadCurrentUser = async () => {
     try {
@@ -557,6 +564,16 @@ export default function ChatPage() {
                           ))}
                         </div>
                       </div>
+                    )}
+
+                    {/* Templates de réponse pour ITOP */}
+                    {message.role === 'assistant' && templates.length > 0 && (
+                      <ResponseTemplates
+                        originalResponse={message.content}
+                        conversationId={currentConversation?.id}
+                        messageId={message.id}
+                        templates={templates}
+                      />
                     )}
 
                     {/* Actions (pour messages assistant) */}
