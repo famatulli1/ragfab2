@@ -1594,6 +1594,13 @@ COMPORTEMENTS INTERDITS :
 ❌ Inventer ou supposer des informations
 ❌ Répondre de manière générique
 ❌ Ajouter [Source: ...] dans la réponse
+❌ Utiliser une autre langue que le français
+
+LANGUE DE RÉPONSE - RÈGLE STRICTE :
+🇫🇷 Tu DOIS répondre UNIQUEMENT et EXCLUSIVEMENT en français.
+🚫 NE PAS utiliser d'autres langues (anglais, chinois, espagnol, etc.)
+🚫 Si tu ne peux pas répondre en français, dis "Je ne peux pas répondre à cette question"
+✅ Chaque mot, chaque phrase, chaque explication doit être en français
 
 Réponds en français de manière concise en te basant UNIQUEMENT sur les résultats de recherche."""
 
@@ -1700,7 +1707,13 @@ CONTEXTE DE LA BASE DE CONNAISSANCES:
 INSTRUCTIONS:
 - Utilise UNIQUEMENT les informations du contexte ci-dessus pour répondre
 - Si l'information n'est pas dans le contexte, dis-le clairement
-- Réponds en français de manière concise et précise"""
+- Réponds en français de manière concise et précise
+
+LANGUE DE RÉPONSE - RÈGLE STRICTE :
+🇫🇷 Tu DOIS répondre UNIQUEMENT et EXCLUSIVEMENT en français.
+🚫 NE PAS utiliser d'autres langues (anglais, chinois, espagnol, etc.)
+🚫 Si tu ne peux pas répondre en français, dis "Je ne peux pas répondre à cette question"
+✅ Chaque mot, chaque phrase, chaque explication doit être en français"""
 
             model = get_generic_llm_model()
             agent = Agent(model, system_prompt=system_prompt)
