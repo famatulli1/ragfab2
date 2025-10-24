@@ -10,7 +10,7 @@ from uuid import UUID
 import httpx
 from datetime import datetime
 
-from app.database import get_db_pool
+from app import database
 from app.routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
@@ -56,9 +56,7 @@ async def list_active_templates(current_user: dict = Depends(get_current_user)):
     """
     Liste les templates actifs disponibles pour l'utilisateur.
     """
-    pool = await get_db_pool()
-
-    async with pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, name, display_name, icon, description, is_active, sort_order, created_at, updated_at
             FROM response_templates
@@ -87,10 +85,8 @@ async def apply_template(
     import time
     start_time = time.time()
 
-    pool = await get_db_pool()
-
     # Récupérer le template
-    async with pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         template_row = await conn.fetchrow("""
             SELECT name, display_name, prompt_instructions
             FROM response_templates
@@ -155,9 +151,7 @@ async def list_all_templates_admin(current_user: dict = Depends(get_current_user
     if not current_user.get('is_admin'):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    pool = await get_db_pool()
-
-    async with pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, name, display_name, icon, description, prompt_instructions,
                    is_active, sort_order, created_at, updated_at
@@ -190,8 +184,6 @@ async def update_template_admin(
     if not current_user.get('is_admin'):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    pool = await get_db_pool()
-
     # Construire la requête de mise à jour dynamiquement
     updates = []
     values = []
@@ -215,7 +207,7 @@ async def update_template_admin(
                   is_active, sort_order, created_at, updated_at
     """
 
-    async with pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         updated_row = await conn.fetchrow(query, *values)
 
     if not updated_row:
