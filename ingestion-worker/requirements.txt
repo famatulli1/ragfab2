@@ -9,5 +9,5 @@ httpx>=0.27.0
 docling>=2.55.0
 sentence-transformers>=3.3.0
 transformers>=4.47.0
-torch>=2.5.0
+torch>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
 PyMuPDF==1.25.1  # For extracting images from PDFs
