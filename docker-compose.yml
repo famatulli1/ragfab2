@@ -165,6 +165,8 @@ services:
       IMAGE_MAX_SIZE_MB: ${IMAGE_MAX_SIZE_MB:-10}
       IMAGE_QUALITY: ${IMAGE_QUALITY:-85}
       IMAGE_OUTPUT_FORMAT: ${IMAGE_OUTPUT_FORMAT:-png}
+      # Contextual Retrieval Configuration
+      USE_PARENT_CHILD_CHUNKS: ${USE_PARENT_CHILD_CHUNKS:-false}
     volumes:
       - ./rag-app:/app/rag-app:ro  # Monter rag-app pour importer les modules d'ingestion
       - api_uploads:/app/uploads  # Partager le volume d'uploads avec l'API
@@ -201,6 +203,8 @@ services:
       RERANKER_API_URL: http://reranker:8002
       RERANKER_TOP_K: ${RERANKER_TOP_K:-20}
       RERANKER_RETURN_K: ${RERANKER_RETURN_K:-5}
+      # Contextual Retrieval Configuration
+      USE_ADJACENT_CHUNKS: ${USE_ADJACENT_CHUNKS:-true}
       # Generic LLM Configuration (RECOMMENDED)
       LLM_API_URL: ${LLM_API_URL:-https://api.mistral.ai}
       LLM_API_KEY: ${LLM_API_KEY:-}
