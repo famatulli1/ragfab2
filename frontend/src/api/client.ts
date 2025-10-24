@@ -275,6 +275,37 @@ class APIClient {
   async resetUserPassword(userId: string, newPassword: string): Promise<void> {
     await this.client.post(`/api/admin/users/${userId}/reset-password`, { new_password: newPassword });
   }
+
+  // ============================================================================
+  // Response Templates
+  // ============================================================================
+
+  async listActiveTemplates(): Promise<any[]> {
+    const { data } = await this.client.get('/api/templates');
+    return data;
+  }
+
+  async applyResponseTemplate(
+    templateId: string,
+    payload: {
+      original_response: string;
+      conversation_id?: string;
+      message_id?: string;
+    }
+  ): Promise<{ formatted_response: string; template_used: string; processing_time_ms: number }> {
+    const { data } = await this.client.post(`/api/templates/${templateId}/apply`, payload);
+    return data;
+  }
+
+  async listAllTemplatesAdmin(): Promise<any[]> {
+    const { data } = await this.client.get('/api/templates/admin/templates');
+    return data;
+  }
+
+  async updateTemplateAdmin(templateId: string, updates: any): Promise<any> {
+    const { data} = await this.client.put(`/api/templates/admin/templates/${templateId}`, updates);
+    return data;
+  }
 }
 
 export const api = new APIClient();
