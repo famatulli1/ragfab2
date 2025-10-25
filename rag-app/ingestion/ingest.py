@@ -354,7 +354,8 @@ class DocumentIngestionPipeline:
     async def _read_document(
         self,
         file_path: str,
-        image_processor: Optional[Any] = None
+        image_processor: Optional[Any] = None,
+        ocr_engine: Optional[str] = None
     ) -> tuple[str, Optional[Any], List[dict]]:
         """
         Read document content from file - supports multiple formats via Docling.
@@ -364,6 +365,8 @@ class DocumentIngestionPipeline:
             file_path: Path to the document file
             image_processor: Optional ImageProcessor instance (overrides self.image_processor)
                             Allows per-job VLM engine selection
+            ocr_engine: Optional OCR engine for Docling ('rapidocr', 'easyocr', 'tesseract')
+                       If None, uses environment default or RapidOCR
 
         Returns:
             Tuple of (markdown_content, docling_document, images)
@@ -374,6 +377,9 @@ class DocumentIngestionPipeline:
 
         # Use provided image processor or fall back to pipeline's default
         processor = image_processor if image_processor is not None else self.image_processor
+
+        # Use provided OCR engine or environment default
+        selected_ocr = ocr_engine or os.getenv("DOCLING_OCR_ENGINE", "rapidocr")
 
         # Audio formats - transcribe with Whisper ASR
         audio_formats = ['.mp3', '.wav', '.m4a', '.flac']
@@ -389,28 +395,54 @@ class DocumentIngestionPipeline:
                 from docling.document_converter import DocumentConverter
                 from docling.datamodel.pipeline_options import PdfPipelineOptions
 
-                # Try to import RapidOCR backend - fallback to default if not available
-                try:
-                    from docling.backend.rapidocr_backend import RapidOcrOptions
-                    RAPIDOCR_AVAILABLE = True
-                except ImportError:
-                    RAPIDOCR_AVAILABLE = False
-                    logger.warning(
-                        "RapidOCR not available, using Docling default OCR (EasyOCR). "
-                        "Install with: pip install rapidocr-onnxruntime"
-                    )
+                logger.info(
+                    f"Converting {file_ext} file using Docling with OCR engine: {selected_ocr} "
+                    f"({os.path.basename(file_path)})"
+                )
 
-                logger.info(f"Converting {file_ext} file using Docling: {os.path.basename(file_path)}")
+                # OCR Engine Factory - configure Docling based on selected engine
+                pipeline_options = PdfPipelineOptions()
+                converter_configured = False
 
-                # Configure Docling with RapidOCR if available
-                if RAPIDOCR_AVAILABLE:
-                    pipeline_options = PdfPipelineOptions()
-                    pipeline_options.ocr_options = RapidOcrOptions()
-                    converter = DocumentConverter(pipeline_options=pipeline_options)
-                    logger.debug("Using RapidOCR engine for Docling OCR")
+                if selected_ocr == "rapidocr":
+                    try:
+                        from docling.backend.rapidocr_backend import RapidOcrOptions
+                        pipeline_options.ocr_options = RapidOcrOptions()
+                        converter = DocumentConverter(pipeline_options=pipeline_options)
+                        logger.debug("✅ Using RapidOCR engine (~2x faster than EasyOCR)")
+                        converter_configured = True
+                    except ImportError:
+                        logger.warning(
+                            "RapidOCR not available. Install with: pip install rapidocr-onnxruntime. "
+                            "Falling back to EasyOCR."
+                        )
+
+                elif selected_ocr == "tesseract":
+                    try:
+                        from docling.backend.tesseract_ocr_backend import TesseractOcrOptions
+                        pipeline_options.ocr_options = TesseractOcrOptions()
+                        converter = DocumentConverter(pipeline_options=pipeline_options)
+                        logger.debug("✅ Using Tesseract engine (best for high-quality scans)")
+                        converter_configured = True
+                    except ImportError:
+                        logger.warning(
+                            "Tesseract not available. Install with: apt-get install tesseract-ocr. "
+                            "Falling back to EasyOCR."
+                        )
+
+                elif selected_ocr == "easyocr":
+                    # EasyOCR is Docling's default, no special config needed
+                    converter = DocumentConverter()
+                    logger.debug("✅ Using EasyOCR engine (Docling default, multilingual)")
+                    converter_configured = True
+
                 else:
-                    converter = DocumentConverter()  # Default EasyOCR
-                    logger.debug("Using default Docling OCR (EasyOCR)")
+                    logger.warning(f"Unknown OCR engine '{selected_ocr}', falling back to EasyOCR")
+
+                # Fallback to default EasyOCR if specific engine failed to configure
+                if not converter_configured:
+                    converter = DocumentConverter()
+                    logger.debug("Using EasyOCR engine (fallback)")
 
                 result = converter.convert(file_path)
 

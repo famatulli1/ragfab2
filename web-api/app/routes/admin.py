@@ -52,7 +52,8 @@ def validate_file(file: UploadFile) -> tuple[bool, str]:
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
-    vlm_engine: str = Form("paddleocr-vl"),  # Nouveau paramètre
+    ocr_engine: str = Form("rapidocr"),  # Nouveau: moteur OCR pour Docling
+    vlm_engine: str = Form("paddleocr-vl"),  # Moteur VLM pour extraction images
     current_user: dict = Depends(get_current_admin_user)
 ):
     """
@@ -64,21 +65,30 @@ async def upload_document(
 
     **Paramètres**:
     - file: Fichier à traiter
+    - ocr_engine: Moteur OCR pour parsing Docling ('rapidocr', 'easyocr', 'tesseract')
     - vlm_engine: Moteur VLM pour extraction d'images ('paddleocr-vl', 'internvl', 'none')
 
     **Rate limit**: 10 uploads par heure
     """
     logger.info(
         f"📤 Upload document: {file.filename} by user {current_user.get('username')} "
-        f"with VLM engine: {vlm_engine}"
+        f"with OCR: {ocr_engine}, VLM: {vlm_engine}"
     )
 
-    # Validate VLM engine parameter
-    allowed_engines = {"paddleocr-vl", "internvl", "none"}
-    if vlm_engine not in allowed_engines:
+    # Validate OCR engine parameter
+    allowed_ocr_engines = {"rapidocr", "easyocr", "tesseract"}
+    if ocr_engine not in allowed_ocr_engines:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid VLM engine: {vlm_engine}. Allowed: {', '.join(allowed_engines)}"
+            detail=f"Invalid OCR engine: {ocr_engine}. Allowed: {', '.join(allowed_ocr_engines)}"
+        )
+
+    # Validate VLM engine parameter
+    allowed_vlm_engines = {"paddleocr-vl", "internvl", "none"}
+    if vlm_engine not in allowed_vlm_engines:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid VLM engine: {vlm_engine}. Allowed: {', '.join(allowed_vlm_engines)}"
         )
 
     # Validate file
@@ -116,13 +126,13 @@ async def upload_document(
 
         logger.info(f"✅ File saved: {file_path} ({total_size} bytes)")
 
-        # Create ingestion job in database with VLM engine choice
+        # Create ingestion job in database with OCR and VLM engine choices
         async with database.db_pool.acquire() as conn:
             job = await conn.fetchrow("""
-                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, vlm_engine)
-                VALUES ($1::uuid, $2, $3, 'pending', 0, $4)
-                RETURNING id, filename, file_size, status, progress, vlm_engine, created_at
-            """, str(job_id), file.filename, total_size, vlm_engine)
+                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, ocr_engine, vlm_engine)
+                VALUES ($1::uuid, $2, $3, 'pending', 0, $4, $5)
+                RETURNING id, filename, file_size, status, progress, ocr_engine, vlm_engine, created_at
+            """, str(job_id), file.filename, total_size, ocr_engine, vlm_engine)
 
         logger.info(f"📝 Ingestion job created: {job_id}")
 

@@ -13,10 +13,11 @@ docling==2.15.0
 # docling-core will be installed automatically with correct version
 PyMuPDF==1.25.1  # For extracting images from PDFs
 
-# OCR engines
-rapidocr-onnxruntime>=1.3.0  # Fast OCR engine for Docling (replaces EasyOCR)
+# OCR engines for Docling
+rapidocr-onnxruntime>=1.3.0  # RapidOCR (recommended, ~2x faster than EasyOCR)
 paddleocr>=2.7.0  # PaddleOCR-VL for advanced OCR and layout analysis
 paddlepaddle>=2.6.0  # CPU version - use paddlepaddle-gpu for GPU support
+pytesseract>=0.3.10  # Tesseract OCR Python wrapper (requires tesseract-ocr system package)
 Pillow>=10.0.0  # Image processing for PaddleOCR
 
 # Additional utilities

@@ -11,3 +11,7 @@ sentence-transformers>=3.3.0
 transformers>=4.47.0
 torch>=2.5.0
 PyMuPDF==1.25.1  # For extracting images from PDFs
+
+# OCR engines for Docling
+rapidocr-onnxruntime>=1.3.25  # RapidOCR (recommended, ~2x faster than EasyOCR)
+pytesseract>=0.3.10  # Tesseract OCR Python wrapper (requires tesseract-ocr system package)

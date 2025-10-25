@@ -140,10 +140,12 @@ class APIClient {
 
   async uploadDocument(
     file: File,
+    ocrEngine: 'rapidocr' | 'easyocr' | 'tesseract' = 'rapidocr',
     vlmEngine: 'paddleocr-vl' | 'internvl' | 'none' = 'paddleocr-vl'
   ): Promise<{ job_id: string; filename: string; status: string; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('ocr_engine', ocrEngine);
     formData.append('vlm_engine', vlmEngine);
 
     const { data } = await this.client.post('/api/admin/documents/upload', formData, {

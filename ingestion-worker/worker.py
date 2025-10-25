@@ -118,7 +118,7 @@ class IngestionWorker:
         """
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT id, filename, file_size, created_at, vlm_engine
+                SELECT id, filename, file_size, created_at, ocr_engine, vlm_engine
                 FROM ingestion_jobs
                 WHERE status = 'pending'
                 ORDER BY created_at ASC
@@ -218,13 +218,17 @@ class IngestionWorker:
         Process a single ingestion job.
 
         Args:
-            job: Job dict with id, filename, file_size, vlm_engine
+            job: Job dict with id, filename, file_size, ocr_engine, vlm_engine
         """
         job_id = str(job["id"])
         filename = job["filename"]
-        vlm_engine = job.get("vlm_engine", "paddleocr-vl")  # Default to paddleocr-vl
+        ocr_engine = job.get("ocr_engine", "rapidocr")  # Default to RapidOCR
+        vlm_engine = job.get("vlm_engine", "paddleocr-vl")  # Default to PaddleOCR-VL
 
-        logger.info(f"📄 Processing job {job_id}: {filename} with VLM engine: {vlm_engine}")
+        logger.info(
+            f"📄 Processing job {job_id}: {filename} "
+            f"with OCR engine: {ocr_engine}, VLM engine: {vlm_engine}"
+        )
 
         # Claim the job
         claimed = await self.claim_job(job_id)
@@ -251,19 +255,20 @@ class IngestionWorker:
             # Update progress: 10% (file located)
             await self.update_job_progress(job_id, 10)
 
-            # 🆕 Create image processor with the job's VLM engine
+            # Create image processor with the job's VLM engine
             from ingestion.image_processor import create_image_processor
             image_processor = create_image_processor(engine=vlm_engine)
             if image_processor:
-                logger.info(f"✅ Image processor created with engine: {vlm_engine}")
+                logger.info(f"✅ Image processor created with VLM engine: {vlm_engine}")
             else:
-                logger.info(f"⚠️ Image extraction disabled (engine: {vlm_engine})")
+                logger.info(f"⚠️ Image extraction disabled (VLM engine: {vlm_engine})")
 
-            # Read and process document (now extracts images BEFORE chunking)
-            logger.info("Reading document...")
+            # Read and process document with job-specific OCR and VLM engines
+            logger.info(f"Reading document with OCR engine: {ocr_engine}...")
             document_content, docling_doc, images = await self.pipeline._read_document(
                 file_path=str(file_path),
-                image_processor=image_processor  # 🆕 Pass job-specific image processor
+                image_processor=image_processor,  # Job-specific VLM engine
+                ocr_engine=ocr_engine  # Job-specific OCR engine for Docling
             )
 
             # Update progress: 30% (file read)
