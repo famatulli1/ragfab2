@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [editTitle, setEditTitle] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [formattedResponses, setFormattedResponses] = useState<Map<string, any>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Charger l'utilisateur courant
@@ -134,6 +135,18 @@ export default function ChatPage() {
     try {
       const msgs = await api.getConversationMessages(conversationId);
       setMessages(msgs);
+
+      // Charger les réponses formatées pour tous les messages assistant
+      const newFormattedResponses = new Map();
+      for (const msg of msgs) {
+        if (msg.role === 'assistant' && msg.id) {
+          const formatted = await api.getFormattedResponse(msg.id);
+          if (formatted) {
+            newFormattedResponses.set(msg.id, formatted);
+          }
+        }
+      }
+      setFormattedResponses(newFormattedResponses);
     } catch (error) {
       console.error('Error loading messages:', error);
     }
@@ -566,6 +579,36 @@ export default function ChatPage() {
                       </div>
                     )}
 
+                    {/* Afficher la réponse formatée sauvegardée (si existe) */}
+                    {message.role === 'assistant' && message.id && formattedResponses.get(message.id) && (
+                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-green-800">
+                              ✅ Réponse formatée ITOP
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const formatted = formattedResponses.get(message.id);
+                              if (formatted) {
+                                navigator.clipboard.writeText(formatted.formatted_content);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-md hover:bg-green-50 transition-colors"
+                            title="Copier pour ITOP"
+                          >
+                            <Copy className="w-4 h-4" />
+                            Copier pour ITOP
+                          </button>
+                        </div>
+
+                        <div className="bg-white border border-green-200 rounded p-3 text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                          {formattedResponses.get(message.id)?.formatted_content}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Templates de réponse pour ITOP */}
                     {message.role === 'assistant' && templates.length > 0 && (
                       <ResponseTemplates
@@ -573,6 +616,15 @@ export default function ChatPage() {
                         conversationId={currentConversation?.id}
                         messageId={message.id}
                         templates={templates}
+                        onFormatted={async () => {
+                          // Recharger la formatted_response depuis la base après application du template
+                          if (message.id) {
+                            const formatted = await api.getFormattedResponse(message.id);
+                            if (formatted) {
+                              setFormattedResponses(new Map(formattedResponses.set(message.id, formatted)));
+                            }
+                          }
+                        }}
                       />
                     )}
 

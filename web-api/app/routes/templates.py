@@ -67,6 +67,39 @@ async def list_active_templates(current_user: dict = Depends(get_current_user)):
     templates = [ResponseTemplate(**dict(row)) for row in rows]
     return templates
 
+class FormattedResponseData(BaseModel):
+    """Modèle pour une réponse formatée sauvegardée."""
+    formatted_content: str
+    template_id: UUID
+    template_name: str
+    created_at: datetime
+
+@router.get("/formatted/{message_id}", response_model=Optional[FormattedResponseData])
+async def get_formatted_response(
+    message_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Récupère la réponse formatée sauvegardée pour un message donné.
+    Retourne None si aucune réponse formatée n'existe pour ce message.
+    """
+    async with database.db_pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                fr.formatted_content,
+                fr.template_id,
+                rt.name as template_name,
+                fr.created_at
+            FROM formatted_responses fr
+            JOIN response_templates rt ON fr.template_id = rt.id
+            WHERE fr.message_id = $1
+        """, message_id)
+
+    if not row:
+        return None
+
+    return FormattedResponseData(**dict(row))
+
 @router.post("/{template_id}/apply", response_model=ApplyTemplateResponse)
 async def apply_template(
     template_id: UUID,
@@ -96,9 +129,15 @@ async def apply_template(
     if not template_row:
         raise HTTPException(status_code=404, detail="Template not found or inactive")
 
-    # Construire le prompt final en injectant la réponse originale
+    # Construire le prompt final en injectant la réponse originale ET les données utilisateur
     prompt_instructions = template_row['prompt_instructions']
     final_prompt = prompt_instructions.replace('{original_response}', request.original_response)
+
+    # Injecter les données de l'utilisateur pour la signature
+    user_first_name = current_user.get('first_name', 'Agent')
+    user_last_name = current_user.get('last_name', 'Support')
+    final_prompt = final_prompt.replace('{user_first_name}', user_first_name)
+    final_prompt = final_prompt.replace('{user_last_name}', user_last_name)
 
     # Appeler le LLM pour reformater
     from app.utils.generic_llm_provider import get_generic_llm_model
@@ -131,6 +170,19 @@ async def apply_template(
     formatted_response = result['choices'][0]['message']['content'].strip()
 
     processing_time_ms = int((time.time() - start_time) * 1000)
+
+    # Sauvegarder la réponse formatée en base de données (UPSERT)
+    if request.message_id:
+        async with database.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO formatted_responses (message_id, template_id, formatted_content)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (message_id)
+                DO UPDATE SET
+                    template_id = EXCLUDED.template_id,
+                    formatted_content = EXCLUDED.formatted_content,
+                    updated_at = CURRENT_TIMESTAMP
+            """, request.message_id, template_id, formatted_response)
 
     return ApplyTemplateResponse(
         formatted_response=formatted_response,

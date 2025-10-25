@@ -297,6 +297,21 @@ class APIClient {
     return data;
   }
 
+  async getFormattedResponse(messageId: string): Promise<{
+    formatted_content: string;
+    template_id: string;
+    template_name: string;
+    created_at: string;
+  } | null> {
+    try {
+      const { data } = await this.client.get(`/api/templates/formatted/${messageId}`);
+      return data;
+    } catch (error) {
+      // Si 404 ou autre erreur, retourner null (pas de version formatée sauvegardée)
+      return null;
+    }
+  }
+
   async listAllTemplatesAdmin(): Promise<any[]> {
     const { data } = await this.client.get('/api/templates/admin/templates');
     return data;

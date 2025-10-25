@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Check, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { api } from '../api/client';
 
 interface ResponseTemplate {
@@ -26,13 +26,9 @@ export default function ResponseTemplates({
   onFormatted
 }: ResponseTemplatesProps) {
   const [loading, setLoading] = useState<string | null>(null);
-  const [formattedResponse, setFormattedResponse] = useState<string | null>(null);
-  const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const handleApplyTemplate = async (templateId: string, templateName: string) => {
     setLoading(templateId);
-    setFormattedResponse(null);
 
     try {
       const result = await api.applyResponseTemplate(templateId, {
@@ -41,9 +37,7 @@ export default function ResponseTemplates({
         message_id: messageId
       });
 
-      setFormattedResponse(result.formatted_response);
-      setActiveTemplate(templateName);
-
+      // Appeler le callback parent pour recharger la version sauvegardée
       if (onFormatted) {
         onFormatted(result.formatted_response, templateName);
       }
@@ -52,14 +46,6 @@ export default function ResponseTemplates({
       alert('Erreur lors de l\'application du template');
     } finally {
       setLoading(null);
-    }
-  };
-
-  const handleCopy = () => {
-    if (formattedResponse) {
-      navigator.clipboard.writeText(formattedResponse);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -96,40 +82,6 @@ export default function ResponseTemplates({
           </button>
         ))}
       </div>
-
-      {/* Zone de réponse formatée */}
-      {formattedResponse && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-green-800">
-                ✅ Réponse formatée ({activeTemplate})
-              </span>
-            </div>
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-md hover:bg-green-50 transition-colors"
-              title="Copier pour ITOP"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Copié!
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  Copier pour ITOP
-                </>
-              )}
-            </button>
-          </div>
-
-          <div className="bg-white border border-green-200 rounded p-3 text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
-            {formattedResponse}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
