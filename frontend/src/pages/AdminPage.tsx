@@ -10,6 +10,8 @@ import type { DocumentStats, Chunk, IngestionJob, User } from '../types';
 
 type TabType = 'documents' | 'users';
 
+type VlmEngine = 'paddleocr-vl' | 'internvl' | 'none';
+
 export default function AdminPage() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -20,6 +22,7 @@ export default function AdminPage() {
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, IngestionJob>>(new Map());
   const [showChunks, setShowChunks] = useState(false);
+  const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('paddleocr-vl');
 
   useEffect(() => {
     loadCurrentUser();
@@ -75,7 +78,7 @@ export default function AdminPage() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     for (const file of acceptedFiles) {
       try {
-        const result = await api.uploadDocument(file);
+        const result = await api.uploadDocument(file, selectedVlmEngine);
         const job: IngestionJob = {
           id: result.job_id,
           filename: result.filename,
@@ -90,7 +93,7 @@ export default function AdminPage() {
         alert(`Erreur lors de l'upload de ${file.name}`);
       }
     }
-  }, []);
+  }, [selectedVlmEngine]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -196,6 +199,69 @@ export default function AdminPage() {
             {/* Upload Area */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Upload de documents</h2>
+
+              {/* VLM Engine Selector */}
+              <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <h3 className="text-sm font-medium mb-3 text-gray-900 dark:text-white">
+                  Moteur d'extraction d'images
+                </h3>
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition">
+                    <input
+                      type="radio"
+                      name="vlm-engine"
+                      value="paddleocr-vl"
+                      checked={selectedVlmEngine === 'paddleocr-vl'}
+                      onChange={(e) => setSelectedVlmEngine(e.target.value as VlmEngine)}
+                      className="mt-1 h-4 w-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        PaddleOCR-VL <span className="text-xs text-green-600 dark:text-green-400 font-normal">(Recommandé)</span>
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        Local, rapide (~1-3s/image), excellent OCR multilingue. Idéal pour documents techniques et screenshots.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition">
+                    <input
+                      type="radio"
+                      name="vlm-engine"
+                      value="internvl"
+                      checked={selectedVlmEngine === 'internvl'}
+                      onChange={(e) => setSelectedVlmEngine(e.target.value as VlmEngine)}
+                      className="mt-1 h-4 w-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">InternVL</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        API distant (~10-15s/image), descriptions sémantiques riches. Meilleur pour diagrammes complexes.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition">
+                    <input
+                      type="radio"
+                      name="vlm-engine"
+                      value="none"
+                      checked={selectedVlmEngine === 'none'}
+                      onChange={(e) => setSelectedVlmEngine(e.target.value as VlmEngine)}
+                      className="mt-1 h-4 w-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 dark:text-white">Aucun</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        Pas d'extraction d'images. Traite uniquement le texte du document.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Dropzone */}
               <div
                 {...getRootProps()}
                 className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${

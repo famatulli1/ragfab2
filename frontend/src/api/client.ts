@@ -138,9 +138,13 @@ class APIClient {
     return data;
   }
 
-  async uploadDocument(file: File): Promise<{ job_id: string; filename: string; status: string; message: string }> {
+  async uploadDocument(
+    file: File,
+    vlmEngine: 'paddleocr-vl' | 'internvl' | 'none' = 'paddleocr-vl'
+  ): Promise<{ job_id: string; filename: string; status: string; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('vlm_engine', vlmEngine);
 
     const { data } = await this.client.post('/api/admin/documents/upload', formData, {
       headers: {

@@ -351,10 +351,19 @@ class DocumentIngestionPipeline:
 
         return image_chunks
 
-    async def _read_document(self, file_path: str) -> tuple[str, Optional[Any], List[dict]]:
+    async def _read_document(
+        self,
+        file_path: str,
+        image_processor: Optional[Any] = None
+    ) -> tuple[str, Optional[Any], List[dict]]:
         """
         Read document content from file - supports multiple formats via Docling.
         Extracts images for VLM analysis (if enabled).
+
+        Args:
+            file_path: Path to the document file
+            image_processor: Optional ImageProcessor instance (overrides self.image_processor)
+                            Allows per-job VLM engine selection
 
         Returns:
             Tuple of (markdown_content, docling_document, images)
@@ -362,6 +371,9 @@ class DocumentIngestionPipeline:
             images is a list of extracted image metadata
         """
         file_ext = os.path.splitext(file_path)[1].lower()
+
+        # Use provided image processor or fall back to pipeline's default
+        processor = image_processor if image_processor is not None else self.image_processor
 
         # Audio formats - transcribe with Whisper ASR
         audio_formats = ['.mp3', '.wav', '.m4a', '.flac']
@@ -375,10 +387,31 @@ class DocumentIngestionPipeline:
         if file_ext in docling_formats:
             try:
                 from docling.document_converter import DocumentConverter
+                from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+                # Try to import RapidOCR backend - fallback to default if not available
+                try:
+                    from docling.backend.rapidocr_backend import RapidOcrOptions
+                    RAPIDOCR_AVAILABLE = True
+                except ImportError:
+                    RAPIDOCR_AVAILABLE = False
+                    logger.warning(
+                        "RapidOCR not available, using Docling default OCR (EasyOCR). "
+                        "Install with: pip install rapidocr-onnxruntime"
+                    )
 
                 logger.info(f"Converting {file_ext} file using Docling: {os.path.basename(file_path)}")
 
-                converter = DocumentConverter()
+                # Configure Docling with RapidOCR if available
+                if RAPIDOCR_AVAILABLE:
+                    pipeline_options = PdfPipelineOptions()
+                    pipeline_options.ocr_options = RapidOcrOptions()
+                    converter = DocumentConverter(pipeline_options=pipeline_options)
+                    logger.debug("Using RapidOCR engine for Docling OCR")
+                else:
+                    converter = DocumentConverter()  # Default EasyOCR
+                    logger.debug("Using default Docling OCR (EasyOCR)")
+
                 result = converter.convert(file_path)
 
                 # Export to markdown (contains <!-- image --> placeholders)
@@ -387,13 +420,13 @@ class DocumentIngestionPipeline:
 
                 # Extract and analyze images BEFORE chunking
                 extracted_images = []
-                if self.image_processor and result.document:
+                if processor and result.document:
                     logger.info("📷 Extraction des images AVANT chunking pour enrichir le contenu...")
                     try:
                         # Generate job_id from file path
                         job_id = f"doc_{os.path.basename(file_path).replace(' ', '_')[:50]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-                        extracted_images = await self.image_processor.extract_images_from_document(
+                        extracted_images = await processor.extract_images_from_document(
                             docling_doc=result.document,
                             job_id=job_id,
                             pdf_path=file_path

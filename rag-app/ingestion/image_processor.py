@@ -529,41 +529,72 @@ class ImageProcessor:
         )
 
 
-def create_image_processor() -> Optional[ImageProcessor]:
+def create_image_processor(engine: Optional[str] = None) -> Optional[ImageProcessor]:
     """
-    Factory function to create ImageProcessor from environment variables.
+    Factory function to create ImageProcessor with specified VLM engine.
+
+    Args:
+        engine: VLM engine to use ('paddleocr-vl', 'internvl', 'none').
+                If None, uses IMAGE_PROCESSOR_ENGINE from env (default: 'paddleocr-vl')
 
     Returns:
-        ImageProcessor instance or None if VLM is disabled
+        ImageProcessor instance or None if disabled
     """
+    # Determine which engine to use
+    engine = engine or os.getenv("IMAGE_PROCESSOR_ENGINE", "paddleocr-vl")
+    engine = engine.lower()
+
+    # Check if VLM is globally disabled
     vlm_enabled = os.getenv("VLM_ENABLED", "false").lower() == "true"
-
-    if not vlm_enabled:
-        logger.info("VLM disabled, image extraction will be skipped")
+    if not vlm_enabled or engine == "none":
+        logger.info(f"VLM disabled (engine={engine}), image extraction will be skipped")
         return None
 
-    # VLM configuration
-    vlm_api_url = os.getenv("VLM_API_URL", "")
-    vlm_api_key = os.getenv("VLM_API_KEY", "")
-    vlm_model = os.getenv("VLM_MODEL_NAME", "SmolDocling-256M")
-    vlm_timeout = float(os.getenv("VLM_TIMEOUT", "60.0"))
-    vlm_prompt = os.getenv(
-        "VLM_PROMPT",
-        "Décris cette image en détail en français. Extrais tout le texte visible."
-    )
+    # Create the appropriate VLM client based on engine
+    vlm_client = None
 
-    if not vlm_api_url:
-        logger.warning("VLM_ENABLED=true but VLM_API_URL not set, disabling image extraction")
+    if engine == "paddleocr-vl":
+        # PaddleOCR-VL: Local, fast, excellent OCR
+        try:
+            from .paddleocr_client import PaddleOCRVLClient
+            vlm_client = PaddleOCRVLClient()
+            logger.info("✅ Using PaddleOCR-VL engine (local, optimized for OCR)")
+        except ImportError as e:
+            logger.error(
+                f"PaddleOCR-VL requested but not available: {e}. "
+                "Install with: pip install paddleocr paddlepaddle"
+            )
+            # Fall back to InternVL if available
+            logger.warning("Falling back to InternVL engine")
+            engine = "internvl"
+
+    if engine == "internvl":
+        # InternVL: API-based, rich descriptions
+        vlm_api_url = os.getenv("VLM_API_URL", "")
+        vlm_api_key = os.getenv("VLM_API_KEY", "")
+        vlm_model = os.getenv("VLM_MODEL_NAME", "SmolDocling-256M")
+        vlm_timeout = float(os.getenv("VLM_TIMEOUT", "60.0"))
+        vlm_prompt = os.getenv(
+            "VLM_PROMPT",
+            "Décris cette image en détail en français. Extrais tout le texte visible."
+        )
+
+        if not vlm_api_url:
+            logger.error("InternVL engine requested but VLM_API_URL not set")
+            return None
+
+        vlm_client = VLMClient(
+            api_url=vlm_api_url,
+            api_key=vlm_api_key if vlm_api_key else None,
+            model_name=vlm_model,
+            timeout=vlm_timeout,
+            prompt=vlm_prompt
+        )
+        logger.info("✅ Using InternVL engine (API, rich descriptions)")
+
+    if not vlm_client:
+        logger.error(f"Unknown VLM engine: {engine}")
         return None
-
-    # Create VLM client
-    vlm_client = VLMClient(
-        api_url=vlm_api_url,
-        api_key=vlm_api_key if vlm_api_key else None,
-        model_name=vlm_model,
-        timeout=vlm_timeout,
-        prompt=vlm_prompt
-    )
 
     # Image processing configuration
     storage_path = os.getenv("IMAGE_STORAGE_PATH", "/app/uploads/images")

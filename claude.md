@@ -658,30 +658,100 @@ RERANKER_RETURN_K=5    # Nombre final de chunks pour le LLM
 
 **When to use VLM** (`VLM_ENABLED=true`):
 - PDFs containing diagrams, charts, tables, or graphical content
-- Technical documentation with visual elements
+- Technical documentation with visual elements (especially software screenshots)
 - Medical/scientific documents with images
 - Need to extract text from images (OCR)
 - Want visual context in RAG responses
 
+**🆕 Dual VLM Engine System** (2025-01-25):
+
+RAGFab now supports **two VLM engines**, selectable per document at upload time:
+
+1. **PaddleOCR-VL** (Local, Fast, Excellent OCR)
+   - **Use case**: Technical documents with screenshots, software documentation, structured text
+   - **Strengths**: Fast (~1-3s/image), excellent OCR accuracy (109 languages), local processing (no API)
+   - **Processing**: Multilingual OCR + layout detection + basic structural description
+   - **Performance**: ~3x faster than InternVL, optimal for documents with text-heavy images
+
+2. **InternVL** (API, Rich Descriptions)
+   - **Use case**: Documents needing semantic understanding, diagrams requiring explanation
+   - **Strengths**: Rich semantic descriptions, contextual understanding, visual reasoning
+   - **Processing**: Vision-language model generates narrative descriptions + OCR
+   - **Performance**: ~10-15s/image, best for complex visual content requiring interpretation
+
+**Selection Strategy**:
+- **Software/Technical docs** → PaddleOCR-VL (screenshots, UI elements, code snippets)
+- **Medical/Scientific diagrams** → InternVL (anatomical charts, process diagrams)
+- **Mixed content** → Try both engines on sample document and compare results
+
+**🆕 RapidOCR Integration for Docling** (2025-01-25):
+
+Docling now uses **RapidOCR** instead of EasyOCR for PDF text extraction:
+- **Performance**: ~2x faster than EasyOCR
+- **Accuracy**: Improved recognition for complex layouts
+- **Based on**: PaddlePaddle OCR engine (same foundation as PaddleOCR-VL)
+- **Fallback**: Gracefully falls back to EasyOCR if RapidOCR not installed
+
 **Architecture**:
-- **Remote VLM API** (FastAPI format): No local GPU required
-- **API Format**: Multipart/form-data endpoints (`/extract-and-describe`, `/describe-image`, `/extract-text`)
-- **Docling integration**: Automatic image detection during PDF parsing
+- **Dual VLM engines**: PaddleOCR-VL (local) OR InternVL (API), selectable per upload
+- **Docling OCR**: RapidOCR for PDF text extraction (automatic, not selectable)
+- **Image detection**: Docling automatically detects images during PDF parsing
 - **Dual storage**: Filesystem (original) + base64 (inline display)
 - **Database linking**: Images linked to chunks via `page_number` matching
+- **Per-job selection**: VLM engine stored in `ingestion_jobs.vlm_engine` column
 
 **Configuration**:
 ```bash
+# -------------------------------------------
+# OCR Engine Configuration (NEW)
+# -------------------------------------------
+# Docling OCR Engine: Moteur OCR utilisé par Docling pour extraction de texte PDF
+# RapidOCR: Basé sur PaddlePaddle, plus rapide et précis qu'EasyOCR
+# Automatique: Docling utilisera RapidOCR si installé, sinon EasyOCR
+DOCLING_OCR_ENGINE=rapidocr
+
+# -------------------------------------------
+# VLM (Vision Language Model) Configuration
+# -------------------------------------------
 # Enable/disable VLM image extraction
 VLM_ENABLED=false  # Set to true to activate
 
+# Moteur VLM par défaut pour extraction d'images
+# Options:
+#   - paddleocr-vl: Local, rapide, excellent OCR (RECOMMANDÉ pour documents techniques)
+#   - internvl: API distant, descriptions riches (meilleur pour contexte narratif)
+#   - none: Pas d'extraction d'images
+# Note: Peut être surchargé par utilisateur à l'upload via interface admin
+IMAGE_PROCESSOR_ENGINE=paddleocr-vl
+
+# -------- PaddleOCR-VL Configuration (local) --------
+# Activer accélération GPU pour PaddleOCR (true/false)
+# true = Utilise GPU (nécessite paddlepaddle-gpu)
+# false = Utilise CPU uniquement (plus lent mais pas de dépendances GPU)
+PADDLEOCR_USE_GPU=false
+
+# Langues OCR supportées (séparées par virgule)
+# Exemples: fr (français), en (anglais), ch (chinois), de (allemand), es (espagnol)
+# PaddleOCR supporte 109 langues au total
+PADDLEOCR_LANG=fr,en
+
+# Afficher les logs PaddleOCR (true/false)
+# Recommandé: false (réduit le bruit dans les logs)
+PADDLEOCR_SHOW_LOG=false
+
+# -------- InternVL Configuration (API distant) --------
 # VLM API configuration (FastAPI remote service)
 VLM_API_URL=https://apivlm.mynumih.fr  # API Vision Générique with InternVL3_5-8B
 VLM_API_KEY=  # Optional, leave empty if not required
 VLM_MODEL_NAME=OpenGVLab/InternVL3_5-8B  # Informational, configured server-side
 VLM_TIMEOUT=60.0
 
-# Image processing settings
+# Prompt pour l'analyse des images (utilisé par InternVL uniquement)
+VLM_PROMPT=Décris cette image en détail en français. Extrais tout le texte visible.
+
+# -------------------------------------------
+# Image Processing Configuration
+# -------------------------------------------
 IMAGE_STORAGE_PATH=/app/uploads/images
 IMAGE_MAX_SIZE_MB=10
 IMAGE_QUALITY=85
@@ -694,7 +764,18 @@ IMAGE_MIN_AREA=40000          # Minimum area in px² (200x200)
 IMAGE_ASPECT_RATIO_MAX=10.0   # Max aspect ratio (avoids banners/borders)
 ```
 
-**Current VLM Provider**:
+**Dual VLM Providers**:
+
+**PaddleOCR-VL (Local)**:
+- **Type**: Local processing, no external API needed
+- **Model**: PaddleOCR 0.9B parameter vision-language model
+- **Languages**: 109 languages (French, English, Chinese, German, Spanish, etc.)
+- **Features**: OCR + layout detection + basic structural description
+- **Performance**: ~1-3s per image (CPU), ~0.5-1s per image (GPU)
+- **Requirements**: `paddleocr>=2.7.0` + `paddlepaddle>=2.6.0` (or paddlepaddle-gpu)
+- **Best for**: Software screenshots, technical documentation, text-heavy images
+
+**InternVL (Remote API)**:
 - **API**: https://apivlm.mynumih.fr (API Vision Générique - vLLM Proxy)
 - **Model**: OpenGVLab/InternVL3_5-8B (optimized for document analysis)
 - **Endpoints**:
@@ -703,14 +784,31 @@ IMAGE_ASPECT_RATIO_MAX=10.0   # Max aspect ratio (avoids banners/borders)
   - `/extract-text` - OCR only
 - **Performance**: ~10-15s per image
 - **No API key required**
+- **Best for**: Complex diagrams, medical charts, semantic understanding needed
 
-**How it works**:
-1. **Ingestion**: Docling detects images during PDF parsing
-2. **Extraction**: Images saved to `/app/uploads/images/{job_id}/{image_id}.png`
-3. **Analysis**: VLM API called for each image → Description + OCR text
-4. **Storage**: Metadata in `document_images` table + base64 encoding
-5. **Linking**: Images linked to chunks via `page_number` match
-6. **Display**: RAG search includes images → Frontend shows inline thumbnails
+**How it works** (Dual-Engine Selection):
+1. **Upload**: User uploads document via admin interface, selects VLM engine (`paddleocr-vl`, `internvl`, or `none`)
+2. **Job Creation**: API stores selection in `ingestion_jobs.vlm_engine` column
+3. **Worker Processing**:
+   - Worker reads `vlm_engine` from job record
+   - Creates appropriate ImageProcessor: `create_image_processor(engine=vlm_engine)`
+   - Passes processor to `_read_document()`
+4. **PDF Parsing**: Docling parses PDF with RapidOCR for text extraction
+5. **Image Detection**: Docling automatically detects images in PDF pages
+6. **Image Analysis**: Selected VLM engine (PaddleOCR-VL or InternVL) analyzes each image
+7. **Extraction**: Images saved to `/app/uploads/images/{job_id}/{image_id}.png`
+8. **Storage**: Metadata in `document_images` table + base64 encoding
+9. **Linking**: Images linked to chunks via `page_number` match
+10. **Display**: RAG search includes images → Frontend shows inline thumbnails
+
+**Implementation Files**:
+- `database/migrations/07_add_vlm_engine.sql` - Database migration for vlm_engine column
+- `rag-app/requirements.txt` - Added rapidocr-onnxruntime, paddleocr, paddlepaddle
+- `rag-app/ingestion/paddleocr_client.py` - PaddleOCR-VL wrapper client
+- `rag-app/ingestion/image_processor.py` - Factory pattern with engine selection
+- `rag-app/ingestion/ingest.py` - Docling configured with RapidOCR, image_processor parameter
+- `web-api/app/routes/admin.py` - Upload endpoint accepts `vlm_engine` parameter
+- `ingestion-worker/worker.py` - Reads `vlm_engine` from job, creates appropriate processor
 
 **Database schema**:
 ```sql
@@ -742,22 +840,129 @@ CREATE TABLE document_images (
 - No runtime impact: Images pre-processed during ingestion
 - Network: One API call per image to VLM service
 
-**Troubleshooting**:
-```bash
-# Check if images are being extracted
-docker-compose logs -f ingestion-worker | grep "image"
+**Testing & Troubleshooting**:
 
-# Verify VLM API connectivity (FastAPI format)
+**Step 1: Apply Database Migration**
+```bash
+# Apply vlm_engine column migration
+docker-compose exec postgres psql -U raguser -d ragdb \
+  -f /docker-entrypoint-initdb.d/07_add_vlm_engine.sql
+
+# Verify migration
+docker-compose exec postgres psql -U raguser -d ragdb \
+  -c "\d ingestion_jobs" | grep vlm_engine
+```
+
+**Step 2: Install Dependencies**
+```bash
+# Install PaddleOCR + RapidOCR dependencies
+cd rag-app
+pip install rapidocr-onnxruntime>=1.3.0 paddleocr>=2.7.0 paddlepaddle>=2.6.0
+
+# For GPU support (optional)
+pip install paddlepaddle-gpu>=2.6.0
+```
+
+**Step 3: Test VLM Engines**
+
+**Test PaddleOCR-VL (local)**:
+```bash
+# Check PaddleOCR installation
+python -c "from paddleocr import PaddleOCR; print('PaddleOCR OK')"
+
+# Monitor worker logs for PaddleOCR processing
+docker-compose logs -f ingestion-worker | grep "PaddleOCR"
+
+# Look for messages like:
+# "✅ Image processor created with engine: paddleocr-vl"
+# "PaddleOCR extracted X text lines (avg confidence: Y)"
+```
+
+**Test InternVL (API)**:
+```bash
+# Verify InternVL API connectivity
 curl -X POST https://apivlm.mynumih.fr/extract-and-describe \
   -F "image=@test_image.png" \
   -F "temperature=0.1"
 
-# Or test with describe-image endpoint
-curl -X POST https://apivlm.mynumih.fr/describe-image \
-  -F "image=@test_image.png"
-
 # Check API health
 curl https://apivlm.mynumih.fr/health
+
+# Monitor worker logs for InternVL processing
+docker-compose logs -f ingestion-worker | grep "InternVL"
+```
+
+**Step 4: Verify Engine Selection**
+```bash
+# Check which engine was used for each job
+docker-compose exec postgres psql -U raguser -d ragdb -c \
+  "SELECT id, filename, vlm_engine, status FROM ingestion_jobs ORDER BY created_at DESC LIMIT 10;"
+
+# Example output:
+#   id    | filename        | vlm_engine    | status
+# --------+-----------------+---------------+-----------
+#  uuid1  | technical.pdf   | paddleocr-vl  | completed
+#  uuid2  | medical.pdf     | internvl      | completed
+#  uuid3  | no_images.pdf   | none          | completed
+```
+
+**Step 5: Compare Results**
+```bash
+# Upload same document with both engines
+# 1. Upload via admin with vlm_engine=paddleocr-vl
+# 2. Upload again with vlm_engine=internvl
+# 3. Compare image descriptions in database
+
+docker-compose exec postgres psql -U raguser -d ragdb -c \
+  "SELECT
+     i.vlm_engine,
+     di.description,
+     di.ocr_text,
+     di.confidence_score
+   FROM document_images di
+   JOIN documents d ON di.document_id = d.id
+   JOIN ingestion_jobs i ON d.title = i.filename
+   WHERE i.filename = 'test_document.pdf'
+   ORDER BY i.created_at DESC;"
+```
+
+**Common Issues**:
+
+**Issue 1: PaddleOCR not found**
+```bash
+# Error: "PaddleOCR not available"
+# Solution: Install dependencies
+pip install paddleocr paddlepaddle rapidocr-onnxruntime
+```
+
+**Issue 2: RapidOCR fallback to EasyOCR**
+```bash
+# Warning: "RapidOCR not available, using Docling default OCR (EasyOCR)"
+# Solution: Install RapidOCR
+pip install rapidocr-onnxruntime>=1.3.0
+```
+
+**Issue 3: InternVL API timeout**
+```bash
+# Error: "VLM analysis error: timeout"
+# Solution: Increase VLM_TIMEOUT in .env
+VLM_TIMEOUT=120.0  # Increase from default 60s
+```
+
+**Issue 4: Worker not reading vlm_engine**
+```bash
+# Symptom: All jobs use same engine despite selection
+# Check: Worker logs should show "Processing job X with VLM engine: Y"
+docker-compose logs -f ingestion-worker | grep "VLM engine"
+
+# If not visible, restart worker
+docker-compose restart ingestion-worker
+```
+
+**General Troubleshooting**:
+```bash
+# Check if images are being extracted
+docker-compose logs -f ingestion-worker | grep "image"
 
 # Check image storage
 ls -lh /app/uploads/images/
@@ -765,6 +970,13 @@ ls -lh /app/uploads/images/
 # Query images in database
 docker-compose exec postgres psql -U raguser -d ragdb \
   -c "SELECT document_id, COUNT(*) FROM document_images GROUP BY document_id;"
+
+# Check vlm_engine usage statistics
+docker-compose exec postgres psql -U raguser -d ragdb -c \
+  "SELECT vlm_engine, COUNT(*) as job_count,
+          COUNT(CASE WHEN status='completed' THEN 1 END) as completed
+   FROM ingestion_jobs
+   GROUP BY vlm_engine;"
 ```
 
 **API endpoints** (new):

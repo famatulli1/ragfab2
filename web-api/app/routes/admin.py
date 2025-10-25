@@ -1,7 +1,7 @@
 """
 Routes pour l'administration et l'upload de documents
 """
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, status, Request
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, status, Request
 from fastapi.responses import JSONResponse
 from typing import List
 from uuid import UUID, uuid4
@@ -52,6 +52,7 @@ def validate_file(file: UploadFile) -> tuple[bool, str]:
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
+    vlm_engine: str = Form("paddleocr-vl"),  # Nouveau paramètre
     current_user: dict = Depends(get_current_admin_user)
 ):
     """
@@ -61,9 +62,24 @@ async def upload_document(
     Un job d'ingestion est créé avec status='pending'
     Le worker traitera le fichier de manière asynchrone
 
+    **Paramètres**:
+    - file: Fichier à traiter
+    - vlm_engine: Moteur VLM pour extraction d'images ('paddleocr-vl', 'internvl', 'none')
+
     **Rate limit**: 10 uploads par heure
     """
-    logger.info(f"📤 Upload document: {file.filename} by user {current_user.get('username')}")
+    logger.info(
+        f"📤 Upload document: {file.filename} by user {current_user.get('username')} "
+        f"with VLM engine: {vlm_engine}"
+    )
+
+    # Validate VLM engine parameter
+    allowed_engines = {"paddleocr-vl", "internvl", "none"}
+    if vlm_engine not in allowed_engines:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid VLM engine: {vlm_engine}. Allowed: {', '.join(allowed_engines)}"
+        )
 
     # Validate file
     is_valid, error_msg = validate_file(file)
@@ -100,13 +116,13 @@ async def upload_document(
 
         logger.info(f"✅ File saved: {file_path} ({total_size} bytes)")
 
-        # Create ingestion job in database
+        # Create ingestion job in database with VLM engine choice
         async with database.db_pool.acquire() as conn:
             job = await conn.fetchrow("""
-                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress)
-                VALUES ($1::uuid, $2, $3, 'pending', 0)
-                RETURNING id, filename, file_size, status, progress, created_at
-            """, str(job_id), file.filename, total_size)
+                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, vlm_engine)
+                VALUES ($1::uuid, $2, $3, 'pending', 0, $4)
+                RETURNING id, filename, file_size, status, progress, vlm_engine, created_at
+            """, str(job_id), file.filename, total_size, vlm_engine)
 
         logger.info(f"📝 Ingestion job created: {job_id}")
 
