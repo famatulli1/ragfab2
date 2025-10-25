@@ -129,9 +129,33 @@ async def apply_template(
     if not template_row:
         raise HTTPException(status_code=404, detail="Template not found or inactive")
 
-    # Construire le prompt final en injectant la réponse originale ET les données utilisateur
+    # Récupérer tous les messages de la conversation pour contexte complet
+    conversation_context = ""
+    if request.conversation_id:
+        async with database.db_pool.acquire() as conn:
+            messages = await conn.fetch("""
+                SELECT role, content
+                FROM messages
+                WHERE conversation_id = $1
+                ORDER BY created_at ASC
+            """, request.conversation_id)
+
+            # Construire le contexte conversationnel formaté
+            context_parts = []
+            for msg in messages:
+                role_label = "User" if msg['role'] == 'user' else "Assistant"
+                context_parts.append(f"{role_label}: {msg['content']}")
+
+            conversation_context = "\n\n".join(context_parts)
+
+    # Si pas de conversation_id, utiliser juste la réponse originale comme contexte
+    if not conversation_context:
+        conversation_context = f"Assistant: {request.original_response}"
+
+    # Construire le prompt final en injectant le contexte conversationnel ET les données utilisateur
     prompt_instructions = template_row['prompt_instructions']
-    final_prompt = prompt_instructions.replace('{original_response}', request.original_response)
+    final_prompt = prompt_instructions.replace('{conversation_context}', conversation_context)
+    final_prompt = final_prompt.replace('{original_response}', request.original_response)
 
     # Injecter les données de l'utilisateur pour la signature
     user_first_name = current_user.get('first_name', 'Agent')
