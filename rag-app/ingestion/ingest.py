@@ -657,8 +657,13 @@ class DocumentIngestionPipeline:
                 # 🆕 Second pass: Link chunks with prev/next relationships (for flat chunks)
                 if len(chunks) > 1 and not parent_indices:  # Only if not using parent-child
                     for i, chunk in enumerate(chunks):
-                        prev_chunk_id = chunk_id_map[i - 1] if i > 0 else None
-                        next_chunk_id = chunk_id_map[i + 1] if i < len(chunks) - 1 else None
+                        # Use chunk.index to access chunk_id_map, not enumerate index i
+                        current_chunk_index = chunk.index
+                        prev_chunk_index = chunks[i - 1].index if i > 0 else None
+                        next_chunk_index = chunks[i + 1].index if i < len(chunks) - 1 else None
+
+                        prev_chunk_id = chunk_id_map.get(prev_chunk_index) if prev_chunk_index is not None else None
+                        next_chunk_id = chunk_id_map.get(next_chunk_index) if next_chunk_index is not None else None
 
                         if prev_chunk_id or next_chunk_id:
                             await conn.execute(
@@ -667,7 +672,7 @@ class DocumentIngestionPipeline:
                                 SET prev_chunk_id = $2::uuid, next_chunk_id = $3::uuid
                                 WHERE id = $1::uuid
                                 """,
-                                chunk_id_map[i],
+                                chunk_id_map[current_chunk_index],
                                 prev_chunk_id,
                                 next_chunk_id
                             )
