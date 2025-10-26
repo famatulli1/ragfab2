@@ -54,6 +54,7 @@ async def upload_document(
     file: UploadFile = File(...),
     ocr_engine: str = Form("rapidocr"),  # Nouveau: moteur OCR pour Docling
     vlm_engine: str = Form("paddleocr-vl"),  # Moteur VLM pour extraction images
+    chunker_type: str = Form("hybrid"),  # Nouveau: stratégie de chunking
     current_user: dict = Depends(get_current_admin_user)
 ):
     """
@@ -67,12 +68,13 @@ async def upload_document(
     - file: Fichier à traiter
     - ocr_engine: Moteur OCR pour parsing Docling ('rapidocr', 'easyocr', 'tesseract')
     - vlm_engine: Moteur VLM pour extraction d'images ('paddleocr-vl', 'internvl', 'none')
+    - chunker_type: Stratégie de découpage ('hybrid', 'parent_child')
 
     **Rate limit**: 10 uploads par heure
     """
     logger.info(
         f"📤 Upload document: {file.filename} by user {current_user.get('username')} "
-        f"with OCR: {ocr_engine}, VLM: {vlm_engine}"
+        f"with OCR: {ocr_engine}, VLM: {vlm_engine}, Chunker: {chunker_type}"
     )
 
     # Validate OCR engine parameter
@@ -89,6 +91,14 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid VLM engine: {vlm_engine}. Allowed: {', '.join(allowed_vlm_engines)}"
+        )
+
+    # Validate chunker type parameter
+    allowed_chunker_types = {"hybrid", "parent_child"}
+    if chunker_type not in allowed_chunker_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid chunker type: {chunker_type}. Allowed: {', '.join(allowed_chunker_types)}"
         )
 
     # Validate file
@@ -126,13 +136,13 @@ async def upload_document(
 
         logger.info(f"✅ File saved: {file_path} ({total_size} bytes)")
 
-        # Create ingestion job in database with OCR and VLM engine choices
+        # Create ingestion job in database with OCR, VLM engine, and chunker type choices
         async with database.db_pool.acquire() as conn:
             job = await conn.fetchrow("""
-                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, ocr_engine, vlm_engine)
-                VALUES ($1::uuid, $2, $3, 'pending', 0, $4, $5)
-                RETURNING id, filename, file_size, status, progress, ocr_engine, vlm_engine, created_at
-            """, str(job_id), file.filename, total_size, ocr_engine, vlm_engine)
+                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type)
+                VALUES ($1::uuid, $2, $3, 'pending', 0, $4, $5, $6)
+                RETURNING id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type, created_at
+            """, str(job_id), file.filename, total_size, ocr_engine, vlm_engine, chunker_type)
 
         logger.info(f"📝 Ingestion job created: {job_id}")
 

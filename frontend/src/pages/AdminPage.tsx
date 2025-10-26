@@ -12,6 +12,7 @@ type TabType = 'documents' | 'users';
 
 type OcrEngine = 'rapidocr' | 'easyocr' | 'tesseract';
 type VlmEngine = 'paddleocr-vl' | 'internvl' | 'none';
+type ChunkerType = 'hybrid' | 'parent_child';
 
 export default function AdminPage() {
   const { theme, toggleTheme } = useTheme();
@@ -25,6 +26,7 @@ export default function AdminPage() {
   const [showChunks, setShowChunks] = useState(false);
   const [selectedOcrEngine, setSelectedOcrEngine] = useState<OcrEngine>('rapidocr');
   const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('paddleocr-vl');
+  const [selectedChunkerType, setSelectedChunkerType] = useState<ChunkerType>('hybrid');
 
   useEffect(() => {
     loadCurrentUser();
@@ -80,7 +82,7 @@ export default function AdminPage() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     for (const file of acceptedFiles) {
       try {
-        const result = await api.uploadDocument(file, selectedOcrEngine, selectedVlmEngine);
+        const result = await api.uploadDocument(file, selectedOcrEngine, selectedVlmEngine, selectedChunkerType);
         const job: IngestionJob = {
           id: result.job_id,
           filename: result.filename,
@@ -95,7 +97,7 @@ export default function AdminPage() {
         alert(`Erreur lors de l'upload de ${file.name}`);
       }
     }
-  }, [selectedOcrEngine, selectedVlmEngine]);
+  }, [selectedOcrEngine, selectedVlmEngine, selectedChunkerType]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -202,12 +204,12 @@ export default function AdminPage() {
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Upload de documents</h2>
 
-              {/* OCR and VLM Engine Selectors */}
+              {/* OCR, VLM, and Chunker Selectors */}
               <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <h3 className="text-sm font-medium mb-3 text-gray-900 dark:text-white">
                   Configuration de l'ingestion
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* OCR Engine Dropdown */}
                   <div>
                     <label htmlFor="ocr-engine" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -245,6 +247,25 @@ export default function AdminPage() {
                     </select>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       Pour analyser et décrire les images
+                    </p>
+                  </div>
+
+                  {/* Chunker Type Dropdown */}
+                  <div>
+                    <label htmlFor="chunker-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Stratégie de découpage
+                    </label>
+                    <select
+                      id="chunker-type"
+                      value={selectedChunkerType}
+                      onChange={(e) => setSelectedChunkerType(e.target.value as ChunkerType)}
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="hybrid">Hybrid (Recommandé) - Respecte structure</option>
+                      <option value="parent_child">Parent-Child - Longs textes</option>
+                    </select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Hybrid pour docs structurés, Parent-Child pour transcriptions
                     </p>
                   </div>
                 </div>

@@ -401,6 +401,8 @@ open http://localhost:3000/admin
 # - Supported: PDF, DOCX, MD, TXT, HTML
 # - Max size: 100MB per file
 # - Progress shown in real-time
+# - Select OCR engine (RapidOCR, EasyOCR, Tesseract)
+# - Select VLM engine (PaddleOCR-VL, InternVL, None)
 
 # 4. Monitor ingestion worker
 docker-compose logs -f ingestion-worker
@@ -415,6 +417,7 @@ docker-compose exec postgres psql -U raguser -d ragdb -c "SELECT title, COUNT(c.
 - Frontend polling every 2s for status updates
 - Worker processes documents asynchronously
 - Shared volume between API and worker
+- **Dual-engine selection**: Per-job OCR and VLM engine configuration
 
 **Troubleshooting**:
 ```bash
@@ -840,35 +843,284 @@ CREATE TABLE document_images (
 - No runtime impact: Images pre-processed during ingestion
 - Network: One API call per image to VLM service
 
+### Triple-Engine Selection System (OCR + VLM + Chunker) - NEW (2025-01-26)
+
+**Architecture**: Per-job configuration allowing users to independently select:
+1. **OCR Engine** (for document text extraction via Docling)
+2. **VLM Engine** (for image analysis and description)
+3. **Chunker Type** (for document segmentation strategy)
+
+**Why Separate Configurations**:
+- OCR handles text extraction from PDFs (page-level processing)
+- VLM handles image analysis within documents (image-level processing)
+- Chunker handles document segmentation (structural vs hierarchical)
+- Different documents need different strategies (structured docs vs long transcripts)
+- Users can optimize per document type (technical manuals vs interview transcripts)
+
+**Migrations**:
+- `database/migrations/08_add_ocr_engine.sql` - OCR engine selection
+- `database/migrations/09_add_chunker_type.sql` - Chunker type selection + smart search function
+
+Adds `ocr_engine` column to `ingestion_jobs` table:
+```sql
+ALTER TABLE ingestion_jobs
+ADD COLUMN IF NOT EXISTS ocr_engine VARCHAR(50) DEFAULT 'rapidocr';
+```
+
+**OCR Engine Options**:
+
+1. **RapidOCR** (Default - Recommended)
+   - Speed: ~2x faster than EasyOCR
+   - Backend: PaddlePaddle ONNX Runtime
+   - Languages: Multilingual (100+ languages)
+   - Best for: General documents, fast processing required
+   - Dependency: `rapidocr-onnxruntime>=1.3.0`
+
+2. **EasyOCR** (Docling Default)
+   - Speed: Standard (baseline)
+   - Backend: PyTorch-based
+   - Languages: Multilingual (80+ languages)
+   - Best for: Robust fallback, proven accuracy
+   - Dependency: Included in Docling by default
+
+3. **Tesseract** (High Quality)
+   - Speed: Slower than RapidOCR
+   - Backend: Tesseract-OCR engine
+   - Languages: 100+ with trained data
+   - Best for: High-quality scans, archival documents
+   - Dependency: `pytesseract>=0.3.10` + system package `tesseract-ocr`
+
+**Chunker Type Options**:
+
+1. **Hybrid** (Default - Recommended for structured documents)
+   - Strategy: DoclingHybridChunker - respects document structure
+   - Size: Variable (respects semantic boundaries)
+   - Preserves: Sections, headings, tables, lists
+   - Best for: Technical docs, manuals, structured reports
+   - Never cuts: Paragraphs, tables, or lists arbitrarily
+   - Metadata: Section hierarchy, heading context
+
+2. **Parent-Child** (For long unstructured text)
+   - Strategy: ParentChildChunker - hierarchical architecture
+   - Parent size: 2000 tokens (rich context for LLM)
+   - Child size: ~600 tokens (precise search matching)
+   - Best for: Transcriptions, interviews, long narratives
+   - Search: Operates on children, returns parents
+   - Trade-off: More storage (3-5x chunks), may cut sections
+
+**Chunker Type Decision Matrix**:
+
+| Document Type | Recommended Chunker | Reason |
+|---------------|---------------------|--------|
+| Technical manual | Hybrid | Preserves table/section structure |
+| API documentation | Hybrid | Respects code blocks and headings |
+| Medical protocol | Hybrid | Maintains procedural steps |
+| Interview transcript | Parent-Child | Long continuous narrative |
+| Book chapter | Parent-Child | Unstructured long text |
+| Meeting notes | Hybrid | Structured with bullet points |
+
+**Implementation Pattern**:
+
+**Backend API** (`web-api/app/routes/admin.py`):
+```python
+@router.post("/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    ocr_engine: str = Form("rapidocr"),  # OCR engine selection
+    vlm_engine: str = Form("paddleocr-vl"),  # VLM engine selection
+    chunker_type: str = Form("hybrid"),  # NEW: Chunker type selection
+    current_user: dict = Depends(get_current_admin_user)
+):
+    # Validation
+    allowed_ocr_engines = {"rapidocr", "easyocr", "tesseract"}
+    allowed_vlm_engines = {"paddleocr-vl", "internvl", "none"}
+    allowed_chunker_types = {"hybrid", "parent_child"}  # NEW
+
+    # Store all 3 in database
+    job = await conn.fetchrow("""
+        INSERT INTO ingestion_jobs
+        (id, filename, status, ocr_engine, vlm_engine, chunker_type)
+        VALUES ($1, $2, 'pending', $3, $4, $5)
+    """, job_id, filename, ocr_engine, vlm_engine, chunker_type)
+```
+
+**OCR Engine Factory** (`rag-app/ingestion/ingest.py`):
+```python
+async def _read_document(
+    self,
+    file_path: str,
+    ocr_engine: Optional[str] = None  # Job-specific override
+) -> tuple[str, Optional[Any], List[dict]]:
+    selected_ocr = ocr_engine or os.getenv("DOCLING_OCR_ENGINE", "rapidocr")
+
+    # OCR Engine Factory Pattern
+    pipeline_options = PdfPipelineOptions()
+
+    if selected_ocr == "rapidocr":
+        from docling.backend.rapidocr_backend import RapidOcrOptions
+        pipeline_options.ocr_options = RapidOcrOptions()
+        converter = DocumentConverter(pipeline_options=pipeline_options)
+
+    elif selected_ocr == "tesseract":
+        from docling.backend.tesseract_ocr_backend import TesseractOcrOptions
+        pipeline_options.ocr_options = TesseractOcrOptions()
+        converter = DocumentConverter(pipeline_options=pipeline_options)
+
+    elif selected_ocr == "easyocr":
+        converter = DocumentConverter()  # Default Docling engine
+```
+
+**Worker Integration** (`ingestion-worker/worker.py`):
+```python
+async def process_job(self, job: dict):
+    ocr_engine = job.get("ocr_engine", "rapidocr")
+    vlm_engine = job.get("vlm_engine", "paddleocr-vl")
+    chunker_type = job.get("chunker_type", "hybrid")  # NEW
+
+    # Pass OCR and VLM engines to document reading
+    document_content, docling_doc, images = await self.pipeline._read_document(
+        file_path=str(file_path),
+        image_processor=create_image_processor(engine=vlm_engine),
+        ocr_engine=ocr_engine
+    )
+
+    # Create chunker based on job's chunker_type (NEW)
+    from ingestion.chunker import create_chunker
+    job_chunker = create_chunker(
+        use_parent_child=(chunker_type == "parent_child")
+    )
+
+    # Chunk with job-specific chunker
+    chunks = await job_chunker.chunk_document(
+        content=document_content,
+        title=document_title,
+        source=document_source,
+        metadata=document_metadata,
+        docling_doc=docling_doc
+    )
+```
+
+**Frontend UI** (`frontend/src/pages/AdminPage.tsx`):
+
+Replaced radio buttons with 3 compact dropdown selects:
+```typescript
+// State management
+const [selectedOcrEngine, setSelectedOcrEngine] = useState<OcrEngine>('rapidocr');
+const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('paddleocr-vl');
+const [selectedChunkerType, setSelectedChunkerType] = useState<ChunkerType>('hybrid');  // NEW
+
+// UI: Grid layout with 3 dropdowns
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+  {/* OCR Engine Dropdown */}
+  <div>
+    <label>Moteur OCR (Docling)</label>
+    <select value={selectedOcrEngine}
+            onChange={(e) => setSelectedOcrEngine(e.target.value as OcrEngine)}>
+      <option value="rapidocr">RapidOCR (Recommandé) - Rapide, multilingue</option>
+      <option value="easyocr">EasyOCR - Standard Docling</option>
+      <option value="tesseract">Tesseract - Haute qualité pour scans</option>
+    </select>
+  </div>
+
+  {/* VLM Engine Dropdown */}
+  <div>
+    <label>Moteur VLM (Images)</label>
+    <select value={selectedVlmEngine}
+            onChange={(e) => setSelectedVlmEngine(e.target.value as VlmEngine)}>
+      <option value="paddleocr-vl">PaddleOCR-VL - Local, rapide</option>
+      <option value="internvl">InternVL - API distant, descriptions riches</option>
+      <option value="none">Aucun - Pas d'extraction d'images</option>
+    </select>
+  </div>
+
+  {/* Chunker Type Dropdown (NEW) */}
+  <div>
+    <label>Stratégie de découpage</label>
+    <select value={selectedChunkerType}
+            onChange={(e) => setSelectedChunkerType(e.target.value as ChunkerType)}>
+      <option value="hybrid">Hybrid (Recommandé) - Respecte structure</option>
+      <option value="parent_child">Parent-Child - Longs textes</option>
+    </select>
+  </div>
+</div>
+
+// Upload callback
+const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  for (const file of acceptedFiles) {
+    await api.uploadDocument(file, selectedOcrEngine, selectedVlmEngine, selectedChunkerType);  // NEW 3rd param
+  }
+}, [selectedOcrEngine, selectedVlmEngine, selectedChunkerType]);
+```
+
+**Configuration** (`.env.example`):
+```bash
+# OCR Engine Default (can be overridden per job in UI)
+DOCLING_OCR_ENGINE=rapidocr
+
+# VLM Engine Default (can be overridden per job in UI)
+IMAGE_PROCESSOR_ENGINE=paddleocr-vl
+```
+
+**Benefits of Triple-Engine System**:
+- ✅ **Complete Flexibility**: Users choose optimal OCR + VLM + Chunker per document type
+- ✅ **Performance**: RapidOCR + PaddleOCR-VL + Hybrid = fastest combination (~2-4s/page)
+- ✅ **Quality**: Tesseract + InternVL + Parent-Child = highest quality for complex documents
+- ✅ **Cost Optimization**: PaddleOCR-VL (local) vs InternVL (API) based on budget
+- ✅ **Backward Compatible**: Defaults maintain existing behavior
+- ✅ **Per-Job Config**: No global .env changes needed for one-off documents
+- ✅ **Smart Search**: `match_chunks_smart()` automatically handles both hybrid and parent-child chunks
+
+**Use Case Examples**:
+
+1. **Modern digital PDF (text-heavy)**: RapidOCR + None + Hybrid
+2. **Technical manual (diagrams)**: RapidOCR + PaddleOCR-VL + Hybrid (preserves tables/structure)
+3. **Scanned archive (high quality)**: Tesseract + InternVL + Hybrid
+4. **Medical protocol (precision)**: EasyOCR + InternVL + Hybrid (structured steps)
+5. **Interview transcript**: RapidOCR + None + Parent-Child (long narrative)
+6. **Book chapter**: EasyOCR + None + Parent-Child (unstructured continuous text)
+
 **Testing & Troubleshooting**:
 
-**Step 1: Apply Database Migration**
+**Step 1: Apply Database Migrations**
 ```bash
-# Apply vlm_engine column migration
-docker-compose exec postgres psql -U raguser -d ragdb \
-  -f /docker-entrypoint-initdb.d/07_add_vlm_engine.sql
+# Migrations are now automatic with db-migrations service!
+# On container rebuild, new migrations are detected and applied automatically
 
-# Verify migration
+# Verify all 3 columns exist
 docker-compose exec postgres psql -U raguser -d ragdb \
-  -c "\d ingestion_jobs" | grep vlm_engine
+  -c "\d ingestion_jobs" | grep -E "(ocr_engine|vlm_engine|chunker_type)"
+
+# Check migration 09 applied successfully
+docker-compose exec postgres psql -U raguser -d ragdb \
+  -c "SELECT * FROM schema_migrations WHERE filename = '09_add_chunker_type.sql';"
+
+# Verify match_chunks_smart() function exists
+docker-compose exec postgres psql -U raguser -d ragdb \
+  -c "\df match_chunks_smart"
 ```
 
-**Step 2: Install Dependencies**
+**Step 2: Install OCR Engine Dependencies**
 ```bash
-# Install PaddleOCR + RapidOCR dependencies
+# Install all OCR engines
 cd rag-app
-pip install rapidocr-onnxruntime>=1.3.0 paddleocr>=2.7.0 paddlepaddle>=2.6.0
+pip install rapidocr-onnxruntime>=1.3.0  # RapidOCR
+pip install pytesseract>=0.3.10  # Tesseract (+ system package)
+# EasyOCR included in Docling by default
 
-# For GPU support (optional)
-pip install paddlepaddle-gpu>=2.6.0
+# For Tesseract: Install system package
+# macOS: brew install tesseract
+# Ubuntu: apt-get install tesseract-ocr
+# Alpine (Docker): apk add tesseract-ocr
+
+# For PaddleOCR-VL (if using VLM):
+pip install paddleocr>=2.7.0 paddlepaddle>=2.6.0
 ```
 
-**Step 3: Test VLM Engines**
+**Step 3: Test OCR Engines**
 
-**Test PaddleOCR-VL (local)**:
+**Test RapidOCR**:
 ```bash
-# Check PaddleOCR installation
-python -c "from paddleocr import PaddleOCR; print('PaddleOCR OK')"
+python -c "from docling.backend.rapidocr_backend import RapidOcrOptions; print('RapidOCR OK')"
 
 # Monitor worker logs for PaddleOCR processing
 docker-compose logs -f ingestion-worker | grep "PaddleOCR"
@@ -892,18 +1144,18 @@ curl https://apivlm.mynumih.fr/health
 docker-compose logs -f ingestion-worker | grep "InternVL"
 ```
 
-**Step 4: Verify Engine Selection**
+**Step 4: Verify Triple-Engine Selection**
 ```bash
-# Check which engine was used for each job
+# Check which engines were used for each job
 docker-compose exec postgres psql -U raguser -d ragdb -c \
-  "SELECT id, filename, vlm_engine, status FROM ingestion_jobs ORDER BY created_at DESC LIMIT 10;"
+  "SELECT id, filename, ocr_engine, vlm_engine, chunker_type, status FROM ingestion_jobs ORDER BY created_at DESC LIMIT 10;"
 
 # Example output:
-#   id    | filename        | vlm_engine    | status
-# --------+-----------------+---------------+-----------
-#  uuid1  | technical.pdf   | paddleocr-vl  | completed
-#  uuid2  | medical.pdf     | internvl      | completed
-#  uuid3  | no_images.pdf   | none          | completed
+#   id    | filename          | ocr_engine | vlm_engine    | chunker_type | status
+# --------+-------------------+------------+---------------+--------------+-----------
+#  uuid1  | technical.pdf     | rapidocr   | paddleocr-vl  | hybrid       | completed
+#  uuid2  | interview.txt     | rapidocr   | none          | parent_child | completed
+#  uuid3  | scanned_doc.pdf   | tesseract  | internvl      | hybrid       | completed
 ```
 
 **Step 5: Compare Results**

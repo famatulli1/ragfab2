@@ -141,12 +141,14 @@ class APIClient {
   async uploadDocument(
     file: File,
     ocrEngine: 'rapidocr' | 'easyocr' | 'tesseract' = 'rapidocr',
-    vlmEngine: 'paddleocr-vl' | 'internvl' | 'none' = 'paddleocr-vl'
+    vlmEngine: 'paddleocr-vl' | 'internvl' | 'none' = 'paddleocr-vl',
+    chunkerType: 'hybrid' | 'parent_child' = 'hybrid'
   ): Promise<{ job_id: string; filename: string; status: string; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('ocr_engine', ocrEngine);
     formData.append('vlm_engine', vlmEngine);
+    formData.append('chunker_type', chunkerType);
 
     const { data } = await this.client.post('/api/admin/documents/upload', formData, {
       headers: {

@@ -1114,6 +1114,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     - Enrichit automatiquement les queries courtes/vagues avec le contexte conversationnel
     - Récupère automatiquement les chunks adjacents (prev/next) pour contexte enrichi
     - Combine contexte séquentiel pour améliorer la pertinence des réponses
+    - Supporte automatiquement hybrid ET parent-child chunking (via match_chunks_smart)
 
     Args:
         query: Question de recherche (peut être courte si contexte disponible)
@@ -1197,40 +1198,21 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
-        # 🆕 RECHERCHE HIÉRARCHIQUE SI PARENT-CHILD ACTIVÉ
-        # Déterminer si on utilise la recherche hiérarchique (search enfants → return parents)
-        use_hierarchical = os.getenv("USE_PARENT_CHILD_CHUNKS", "false").lower() == "true"
-
-        # Rechercher dans la BD avec fonction match_chunks (supporte mode hiérarchique)
+        # 🆕 RECHERCHE INTELLIGENTE AVEC match_chunks_smart()
+        # Détecte automatiquement le type de chunk (hybrid ou parent-child)
+        # et applique la stratégie appropriée
+        logger.info("🧠 Recherche intelligente avec match_chunks_smart()")
         async with database.db_pool.acquire() as conn:
-            if use_hierarchical:
-                logger.info("🔍 Recherche hiérarchique: search dans enfants, contexte des parents")
-                results = await conn.fetch(
-                    """
-                    SELECT * FROM match_chunks(
-                        $1::vector,
-                        $2,
-                        0.0,
-                        true  -- use_hierarchical=true
-                    )
-                    """,
-                    embedding_str,
-                    search_limit
+            results = await conn.fetch(
+                """
+                SELECT * FROM match_chunks_smart(
+                    $1::vector,
+                    $2
                 )
-            else:
-                logger.info("📊 Recherche standard: tous les chunks")
-                results = await conn.fetch(
-                    """
-                    SELECT * FROM match_chunks(
-                        $1::vector,
-                        $2,
-                        0.0,
-                        false  -- use_hierarchical=false
-                    )
-                    """,
-                    embedding_str,
-                    search_limit
-                )
+                """,
+                embedding_str,
+                search_limit
+            )
 
             # Renommer les colonnes pour compatibilité avec le reste du code
             results = [

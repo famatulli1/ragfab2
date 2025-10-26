@@ -118,7 +118,7 @@ class IngestionWorker:
         """
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT id, filename, file_size, created_at, ocr_engine, vlm_engine
+                SELECT id, filename, file_size, created_at, ocr_engine, vlm_engine, chunker_type
                 FROM ingestion_jobs
                 WHERE status = 'pending'
                 ORDER BY created_at ASC
@@ -218,16 +218,17 @@ class IngestionWorker:
         Process a single ingestion job.
 
         Args:
-            job: Job dict with id, filename, file_size, ocr_engine, vlm_engine
+            job: Job dict with id, filename, file_size, ocr_engine, vlm_engine, chunker_type
         """
         job_id = str(job["id"])
         filename = job["filename"]
         ocr_engine = job.get("ocr_engine", "rapidocr")  # Default to RapidOCR
         vlm_engine = job.get("vlm_engine", "paddleocr-vl")  # Default to PaddleOCR-VL
+        chunker_type = job.get("chunker_type", "hybrid")  # Default to Hybrid
 
         logger.info(
             f"📄 Processing job {job_id}: {filename} "
-            f"with OCR engine: {ocr_engine}, VLM engine: {vlm_engine}"
+            f"with OCR engine: {ocr_engine}, VLM engine: {vlm_engine}, Chunker: {chunker_type}"
         )
 
         # Claim the job
@@ -284,9 +285,16 @@ class IngestionWorker:
             # Update progress: 40% (metadata extracted)
             await self.update_job_progress(job_id, 40)
 
+            # Create chunker based on job's chunker_type
+            from ingestion.chunker import create_chunker
+            job_chunker = create_chunker(
+                use_parent_child=(chunker_type == "parent_child")
+            )
+            logger.info(f"Using chunker: {chunker_type}")
+
             # Chunk the document
             logger.info("Chunking document...")
-            chunks = await self.pipeline.chunker.chunk_document(
+            chunks = await job_chunker.chunk_document(
                 content=document_content,
                 title=document_title,
                 source=document_source,
