@@ -83,15 +83,15 @@ BEGIN
     )
     -- Retrieve parents for child matches, or chunks directly for normal matches
     SELECT
-        COALESCE(p.id, c.id) AS id,
-        COALESCE(p.content, c.content) AS content,
-        COALESCE(p.document_id, c.document_id) AS document_id,
-        combined.dist AS distance,
+        COALESCE(p.id, c.id)::uuid AS id,
+        COALESCE(p.content, c.content)::text AS content,
+        COALESCE(p.document_id, c.document_id)::uuid AS document_id,
+        combined.dist::double precision AS distance,
         COALESCE(p.chunk_level, c.chunk_level) AS chunk_level,
-        COALESCE(p.metadata, c.metadata) AS metadata,
-        d.title AS document_title,
-        d.source AS document_source,
-        (1 - combined.dist) AS similarity
+        COALESCE(p.metadata, c.metadata)::jsonb AS metadata,
+        d.title::text AS document_title,
+        d.source::text AS document_source,
+        (1 - combined.dist)::double precision AS similarity
     FROM combined
     LEFT JOIN chunks c ON c.id = combined.id
     LEFT JOIN chunks p ON p.id = combined.parent_chunk_id

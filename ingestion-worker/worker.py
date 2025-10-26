@@ -286,8 +286,10 @@ class IngestionWorker:
             await self.update_job_progress(job_id, 40)
 
             # Create chunker based on job's chunker_type
-            from ingestion.chunker import create_chunker
+            from ingestion.chunker import create_chunker, ChunkingConfig
+            chunking_config = ChunkingConfig()  # Use default values
             job_chunker = create_chunker(
+                config=chunking_config,
                 use_parent_child=(chunker_type == "parent_child")
             )
             logger.info(f"Using chunker: {chunker_type}")
