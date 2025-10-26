@@ -625,7 +625,7 @@ class DocumentIngestionPipeline:
                     document_position = chunk.metadata.get("document_position", 0.0)
 
                     # 🆕 Extract chunk_level (parent/child) from metadata
-                    chunk_level = chunk.metadata.get("chunk_level", "parent")  # Default: parent for backward compat
+                    chunk_level = chunk.metadata.get("chunk_level", None)  # Default: None for hybrid chunks
 
                     chunk_result = await conn.fetchrow(
                         """
