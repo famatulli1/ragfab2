@@ -525,10 +525,10 @@ async def get_pending_job(db_pool: asyncpg.Pool) -> Optional[Dict[str, Any]]:
     """
     async with db_pool.acquire() as conn:
         job = await conn.fetchrow("""
-            SELECT id, started_by, created_at
+            SELECT id, started_by, started_at
             FROM analysis_runs
             WHERE status = 'pending'
-            ORDER BY created_at ASC
+            ORDER BY started_at ASC
             LIMIT 1
         """)
 

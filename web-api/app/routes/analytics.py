@@ -711,7 +711,7 @@ async def trigger_manual_analysis(
     async with database.db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO analysis_runs
-            (id, status, progress, started_by, created_at)
+            (id, status, progress, started_by, started_at)
             VALUES ($1, 'pending', 0, $2, NOW())
         """, run_id, str(current_user['id']))
 
