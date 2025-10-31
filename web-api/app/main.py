@@ -58,6 +58,8 @@ MISTRAL_MODEL_NAME = os.getenv("MISTRAL_MODEL_NAME", "mistral-small-latest")
 _current_request_sources: List[dict] = []
 _current_conversation_id: Optional[UUID] = None
 _current_reranking_enabled: Optional[bool] = None
+_current_hybrid_search_enabled: Optional[bool] = None
+_current_hybrid_search_alpha: Optional[float] = None
 
 # Rate limiter configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -1135,7 +1137,7 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     Returns:
         Résultats formatés pour le LLM avec sources, images, et contexte adjacent
     """
-    global _current_request_sources, _current_conversation_id, _current_reranking_enabled
+    global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
     try:
         # 🆕 ENRICHISSEMENT AUTOMATIQUE DE LA QUERY SI CONTEXTE DISPONIBLE
@@ -1210,21 +1212,53 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
-        # 🆕 HYBRID SEARCH (BM25 + Vector) si activé
+        # 🆕 HYBRID SEARCH (BM25 + Vector) - Système à 3 niveaux de priorité
+        # Priorité 1: Valeur passée explicitement dans la requête via variable globale
+        # Priorité 2: Préférence de la conversation (DB)
+        # Priorité 3: Variable d'environnement (fallback global)
         hybrid_search_enabled = os.getenv("HYBRID_SEARCH_ENABLED", "false").lower() == "true"
+        hybrid_search_alpha = 0.5  # Valeur par défaut
+
+        # Priorité 1: Valeur passée explicitement dans la requête via variable globale
+        if _current_hybrid_search_enabled is not None:
+            hybrid_search_enabled = _current_hybrid_search_enabled
+            logger.info(f"🎚️ Préférence requête: hybrid_search={hybrid_search_enabled}")
+        # Priorité 2: Préférence de la conversation
+        elif _current_conversation_id:
+            async with database.db_pool.acquire() as conn:
+                conv = await conn.fetchrow(
+                    "SELECT hybrid_search_enabled, hybrid_search_alpha FROM conversations WHERE id = $1",
+                    _current_conversation_id
+                )
+                if conv:
+                    # hybrid_search_enabled est NOT NULL dans la DB (default=false)
+                    hybrid_search_enabled = conv['hybrid_search_enabled']
+                    hybrid_search_alpha = conv['hybrid_search_alpha'] or 0.5
+                    logger.info(f"🎚️ Préférence conversation {_current_conversation_id}: hybrid_search={hybrid_search_enabled}, alpha={hybrid_search_alpha}")
+                else:
+                    # Conversation non trouvée: utiliser la variable d'environnement
+                    logger.info(f"🌐 Préférence globale (env): hybrid_search={hybrid_search_enabled}")
+        else:
+            # Priorité 3: Variable d'environnement
+            logger.info(f"🌐 Préférence globale (env): hybrid_search={hybrid_search_enabled}")
+
+        # Appliquer alpha depuis variable globale si fourni explicitement
+        if _current_hybrid_search_alpha is not None:
+            hybrid_search_alpha = _current_hybrid_search_alpha
+            logger.info(f"🎚️ Alpha override depuis requête: {hybrid_search_alpha}")
 
         if hybrid_search_enabled:
             # Import du module hybrid_search
             from .hybrid_search import smart_hybrid_search
 
-            logger.info("🔀 Recherche hybride activée (BM25 + Vector)")
+            logger.info(f"🔀 Recherche hybride activée (BM25 + Vector) avec alpha={hybrid_search_alpha}")
 
-            # Utiliser smart_hybrid_search qui gère automatiquement parent-child
+            # Utiliser smart_hybrid_search avec alpha depuis conversation
             hybrid_results = await smart_hybrid_search(
                 query=enriched_query,
                 query_embedding=query_embedding,
                 k=search_limit,
-                alpha=None  # Utilise adaptive_alpha automatiquement
+                alpha=hybrid_search_alpha  # 🆕 Passer alpha depuis conversation, plus None
             )
 
             # Convertir format hybrid_results vers format attendu
@@ -1682,12 +1716,14 @@ async def execute_rag_agent(
             enrich_query_with_context
         )
 
-        global _current_request_sources, _current_conversation_id, _current_reranking_enabled
+        global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha
 
         # Initialiser le contexte pour cette requête
         _current_request_sources = []
         _current_conversation_id = conversation_id
         _current_reranking_enabled = reranking_enabled
+        _current_hybrid_search_enabled = None  # Sera chargé depuis conversation.hybrid_search_enabled dans search_knowledge_base_tool()
+        _current_hybrid_search_alpha = None  # Sera chargé depuis conversation.hybrid_search_alpha dans search_knowledge_base_tool()
         sources = []
 
         # 🆕 CONSTRUIRE LE CONTEXTE CONVERSATIONNEL DEPUIS LA DB
