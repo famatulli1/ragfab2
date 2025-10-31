@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, createContext, useContext } from 'react';
 import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -69,6 +70,13 @@ function App() {
           <Route path="/admin" element={
             <ProtectedRoute adminOnly>
               <AdminPage />
+            </ProtectedRoute>
+          } />
+
+          {/* Route analytics - Protégée, réservée aux admins */}
+          <Route path="/analytics" element={
+            <ProtectedRoute adminOnly>
+              <AnalyticsPage />
             </ProtectedRoute>
           } />
 

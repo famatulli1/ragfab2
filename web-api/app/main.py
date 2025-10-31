@@ -40,6 +40,7 @@ from .routes import admin
 from .routes import images
 from .routes import users
 from .routes import templates
+from .routes import analytics
 
 # Configuration logging
 logging.basicConfig(
@@ -114,6 +115,7 @@ app.include_router(admin.router)
 app.include_router(images.router, prefix="/api", tags=["images"])
 app.include_router(users.router)
 app.include_router(templates.router)
+app.include_router(analytics.router)
 
 
 # ============================================================================

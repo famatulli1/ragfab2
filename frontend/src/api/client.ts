@@ -335,6 +335,47 @@ class APIClient {
     const { data} = await this.client.put(`/api/templates/admin/templates/${templateId}`, updates);
     return data;
   }
+
+  // ============================================================================
+  // Analytics
+  // ============================================================================
+
+  async getAnalyticsSummary(days = 30): Promise<any> {
+    const { data } = await this.client.get('/api/analytics/ratings/summary', {
+      params: { days }
+    });
+    return data;
+  }
+
+  async getWorstChunks(limit = 10, minAppearances = 3): Promise<any[]> {
+    const { data } = await this.client.get('/api/analytics/ratings/worst-chunks', {
+      params: { limit, min_appearances: minAppearances }
+    });
+    return data;
+  }
+
+  async getWorstDocuments(limit = 10, minAppearances = 5): Promise<any[]> {
+    const { data } = await this.client.get('/api/analytics/ratings/worst-documents', {
+      params: { limit, min_appearances: minAppearances }
+    });
+    return data;
+  }
+
+  async getRatingsByReranking(days = 30): Promise<any> {
+    const { data } = await this.client.get('/api/analytics/ratings/by-reranking', {
+      params: { days }
+    });
+    return data;
+  }
+
+  async getRatingsWithFeedback(limit = 50, ratingValue?: number): Promise<any[]> {
+    const params: any = { limit };
+    if (ratingValue !== undefined) {
+      params.rating_value = ratingValue;
+    }
+    const { data } = await this.client.get('/api/analytics/ratings/with-feedback', { params });
+    return data;
+  }
 }
 
 export const api = new APIClient();

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon } from 'lucide-react';
+import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
@@ -149,6 +149,13 @@ export default function AdminPage() {
               className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
             >
               ← Retour au chat
+            </button>
+            <button
+              onClick={() => navigate('/analytics')}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+            >
+              <BarChart3 size={16} />
+              Analytics
             </button>
             <button
               onClick={toggleTheme}
