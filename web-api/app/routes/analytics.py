@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from ..auth import get_current_admin_user
-from ..database import db_pool
+from .. import database
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ async def get_ratings_summary(
     - Distribution par profondeur conversation
     - Évolution temporelle (7/30 jours)
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         # KPIs globaux
         global_stats = await conn.fetchrow("""
             SELECT
@@ -135,7 +135,7 @@ async def get_worst_chunks(
     - Score impact = (thumbs_down / apparitions) × apparitions
     - Affiche contexte document (titre, section, page)
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         results = await conn.fetch("""
             WITH rated_chunks AS (
                 SELECT
@@ -193,7 +193,7 @@ async def get_worst_documents(
     Agrège satisfaction de tous les chunks d'un document
     Suggère documents prioritaires pour réingestion
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         results = await conn.fetch("""
             WITH rated_chunks AS (
                 SELECT
@@ -264,7 +264,7 @@ async def get_ratings_by_reranking(
     Permet de mesurer l'impact réel du reranking sur la qualité
     Inclut métriques : satisfaction, latence, taux feedback
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         # Stats détaillées par reranking
         stats = await conn.fetch("""
             SELECT
@@ -331,7 +331,7 @@ async def get_ratings_with_feedback(
     Permet analyse qualitative des problèmes
     Filtrable par type de rating (thumbs down par défaut)
     """
-    async with db_pool.acquire() as conn:
+    async with database.db_pool.acquire() as conn:
         query = """
             WITH user_messages AS (
                 SELECT
