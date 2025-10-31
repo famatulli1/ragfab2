@@ -21,7 +21,7 @@ interface HybridSearchToggleProps {
  * - 1.0 = 100% sémantique (vector)
  */
 export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
-  conversationId,
+  conversationId: _conversationId,
   onChange
 }) => {
   const [hybridEnabled, setHybridEnabled] = useState(false);
