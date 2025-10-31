@@ -68,6 +68,8 @@ export interface Conversation {
   message_count: number;
   is_archived: boolean;
   reranking_enabled?: boolean | null; // null = use global env var, true/false = override
+  hybrid_search_enabled: boolean; // Hybrid search per conversation
+  hybrid_search_alpha: number; // Alpha parameter (0=keywords, 1=vector)
 }
 
 export interface ConversationWithStats extends Conversation {

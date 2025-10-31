@@ -419,6 +419,18 @@ async def update_conversation(
         values.append(request.reranking_enabled)
         param_count += 1
 
+    # Support pour hybrid_search_enabled (settings par conversation)
+    if request.hybrid_search_enabled is not None:
+        updates.append(f"hybrid_search_enabled = ${param_count}")
+        values.append(request.hybrid_search_enabled)
+        param_count += 1
+
+    # Support pour hybrid_search_alpha (settings par conversation)
+    if request.hybrid_search_alpha is not None:
+        updates.append(f"hybrid_search_alpha = ${param_count}")
+        values.append(request.hybrid_search_alpha)
+        param_count += 1
+
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, HelpCircle } from 'lucide-react';
+import { Settings, HelpCircle, X } from 'lucide-react';
+import api from '../lib/api';
 
 interface HybridSearchToggleProps {
   conversationId?: string;
@@ -19,9 +20,11 @@ interface HybridSearchToggleProps {
  * - 0.0 = 100% mots-clés (BM25)
  * - 0.5 = Équilibré (recommandé)
  * - 1.0 = 100% sémantique (vector)
+ *
+ * Settings par conversation (nouveauté): Chaque conversation se rappelle de ses propres settings
  */
 export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
-  conversationId: _conversationId,
+  conversationId,
   onChange
 }) => {
   const [hybridEnabled, setHybridEnabled] = useState(false);
@@ -29,32 +32,54 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  // Charger l'état depuis localStorage au montage
+  // Charger l'état depuis la conversation (DB) au montage ou changement de conversation
   useEffect(() => {
-    const savedEnabled = localStorage.getItem('hybrid_search_enabled');
-    const savedAlpha = localStorage.getItem('hybrid_search_alpha');
-
-    if (savedEnabled !== null) {
-      setHybridEnabled(savedEnabled === 'true');
+    if (conversationId) {
+      api.getConversation(conversationId)
+        .then(conversation => {
+          setHybridEnabled(conversation.hybrid_search_enabled || false);
+          setAlpha(conversation.hybrid_search_alpha || 0.5);
+        })
+        .catch(err => {
+          console.error('Erreur chargement settings hybrid search:', err);
+        });
     }
+  }, [conversationId]);
 
-    if (savedAlpha !== null) {
-      setAlpha(parseFloat(savedAlpha));
-    }
-  }, []);
-
-  const handleToggle = (enabled: boolean) => {
+  const handleToggle = async (enabled: boolean) => {
     setHybridEnabled(enabled);
-    localStorage.setItem('hybrid_search_enabled', enabled.toString());
+
+    // Sauvegarder dans la DB (par conversation)
+    if (conversationId) {
+      try {
+        await api.updateConversation(conversationId, {
+          hybrid_search_enabled: enabled,
+          hybrid_search_alpha: alpha
+        });
+      } catch (err) {
+        console.error('Erreur sauvegarde hybrid_search_enabled:', err);
+      }
+    }
 
     if (onChange) {
       onChange(enabled, alpha);
     }
   };
 
-  const handleAlphaChange = (newAlpha: number) => {
+  const handleAlphaChange = async (newAlpha: number) => {
     setAlpha(newAlpha);
-    localStorage.setItem('hybrid_search_alpha', newAlpha.toString());
+
+    // Sauvegarder dans la DB (par conversation)
+    if (conversationId) {
+      try {
+        await api.updateConversation(conversationId, {
+          hybrid_search_enabled: hybridEnabled,
+          hybrid_search_alpha: newAlpha
+        });
+      } catch (err) {
+        console.error('Erreur sauvegarde hybrid_search_alpha:', err);
+      }
+    }
 
     if (onChange) {
       onChange(hybridEnabled, newAlpha);
@@ -115,19 +140,29 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
         )}
       </div>
 
-      {/* Help panel - Version compacte */}
+      {/* Help panel - Version compacte avec bouton fermer */}
       {showHelp && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs animate-fadeIn">
-          <div className="flex items-start gap-2">
-            <HelpCircle size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
-            <div className="text-blue-800 space-y-1">
-              <p className="font-semibold text-blue-900">Recherche Hybride = Sémantique + Mots-clés</p>
-              <p>
-                ✅ <strong>Activer</strong> pour termes précis (acronymes, noms propres)
-                <br />
-                ❌ <strong>Désactiver</strong> pour questions générales
-              </p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2 flex-1">
+              <HelpCircle size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="text-blue-800 space-y-1">
+                <p className="font-semibold text-blue-900">Recherche Hybride = Sémantique + Mots-clés</p>
+                <p>
+                  ✅ <strong>Activer</strong> pour termes précis (acronymes, noms propres)
+                  <br />
+                  ❌ <strong>Désactiver</strong> pour questions générales
+                </p>
+              </div>
             </div>
+            {/* Bouton fermer explicite */}
+            <button
+              onClick={() => setShowHelp(false)}
+              className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
+              title="Fermer l'aide"
+            >
+              <X size={14} />
+            </button>
           </div>
         </div>
       )}

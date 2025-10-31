@@ -142,6 +142,8 @@ class ConversationUpdate(BaseModel):
     title: Optional[str] = None
     is_archived: Optional[bool] = None
     reranking_enabled: Optional[bool] = None  # Update reranking preference
+    hybrid_search_enabled: Optional[bool] = None  # Update hybrid search per conversation
+    hybrid_search_alpha: Optional[float] = None  # Update alpha parameter per conversation
 
 
 class Conversation(BaseModel):
@@ -156,6 +158,8 @@ class Conversation(BaseModel):
     message_count: int = 0
     is_archived: bool = Field(default=False, alias="archived")  # Alias pour la colonne DB "archived"
     reranking_enabled: Optional[bool] = None  # None=use env var, True/False=explicit
+    hybrid_search_enabled: bool = False  # Hybrid search setting per conversation
+    hybrid_search_alpha: float = 0.5  # Alpha parameter (0=keywords, 1=vector)
 
 
 class ConversationWithStats(Conversation):
