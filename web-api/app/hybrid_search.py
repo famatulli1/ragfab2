@@ -200,6 +200,9 @@ async def hybrid_search(
 
     logger.info(f"🔀 Hybrid search: query='{query}' → tsquery='{processed_query}', alpha={alpha:.2f}, k={k}")
 
+    # Convertir embedding liste Python en chaîne PostgreSQL vector
+    embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+
     try:
         async with database.db_pool.acquire() as conn:
             # Appeler fonction PostgreSQL match_chunks_hybrid
@@ -220,9 +223,9 @@ async def hybrid_search(
                     document_position,
                     chunk_level,
                     parent_chunk_id
-                FROM match_chunks_hybrid($1, $2, $3, $4, $5)
+                FROM match_chunks_hybrid($1::vector, $2, $3, $4, $5)
             """,
-            query_embedding,   # $1: query_embedding vector(1024)
+            embedding_str,     # $1: query_embedding vector(1024) as string
             processed_query,   # $2: query_text preprocessed
             k,                 # $3: match_count
             alpha,             # $4: alpha weight
@@ -314,6 +317,9 @@ async def smart_hybrid_search(
 
     logger.info(f"🧠 Smart hybrid search: query='{query}', alpha={alpha:.2f}")
 
+    # Convertir embedding liste Python en chaîne PostgreSQL vector
+    embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+
     try:
         async with database.db_pool.acquire() as conn:
             results = await conn.fetch("""
@@ -323,9 +329,9 @@ async def smart_hybrid_search(
                     prev_chunk_id, next_chunk_id,
                     section_hierarchy, heading_context, document_position,
                     chunk_level, parent_chunk_id
-                FROM match_chunks_smart_hybrid($1, $2, $3, $4)
+                FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4)
             """,
-            query_embedding,
+            embedding_str,
             processed_query,
             k,
             alpha
