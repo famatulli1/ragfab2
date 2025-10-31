@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3 } from 'lucide-react';
+import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
@@ -157,6 +157,13 @@ export default function AdminPage() {
             >
               <BarChart3 size={16} />
               Analytics
+            </button>
+            <button
+              onClick={() => navigate('/admin/quality-management')}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Shield size={16} />
+              Quality
             </button>
             <ReingestionBadge />
             <button
