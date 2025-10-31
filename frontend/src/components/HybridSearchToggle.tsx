@@ -115,30 +115,19 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
         )}
       </div>
 
-      {/* Help panel */}
+      {/* Help panel - Version compacte */}
       {showHelp && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm space-y-2 animate-fadeIn">
-          <div className="font-semibold text-blue-900 flex items-center gap-2">
-            <HelpCircle size={16} />
-            Qu'est-ce que la Recherche Hybride ?
-          </div>
-          <div className="text-blue-800 space-y-2">
-            <p>
-              <strong>Combine deux approches :</strong>
-            </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li><strong>Recherche sémantique</strong> : Comprend le sens de votre question</li>
-              <li><strong>Recherche par mots-clés</strong> : Trouve les termes exacts (acronymes, noms propres)</li>
-            </ul>
-            <p className="pt-2">
-              <strong>📈 Impact :</strong> +15-25% de précision, particulièrement efficace pour :
-            </p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li>Acronymes (RTT, CDI, PeopleDoc)</li>
-              <li>Noms propres et marques</li>
-              <li>Phrases exactes</li>
-              <li>Termes techniques spécifiques</li>
-            </ul>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs animate-fadeIn">
+          <div className="flex items-start gap-2">
+            <HelpCircle size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="text-blue-800 space-y-1">
+              <p className="font-semibold text-blue-900">Recherche Hybride = Sémantique + Mots-clés</p>
+              <p>
+                ✅ <strong>Activer</strong> pour termes précis (acronymes, noms propres)
+                <br />
+                ❌ <strong>Désactiver</strong> pour questions générales
+              </p>
+            </div>
           </div>
         </div>
       )}
