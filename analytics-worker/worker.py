@@ -282,7 +282,7 @@ async def run_quality_analysis(
                 UPDATE analysis_runs SET progress = 10 WHERE id = $1
             """, run_id)
 
-            # Aggregate chunk-level scores
+            # Aggregate chunk-level scores (only for existing chunks)
             await conn.execute("""
                 INSERT INTO chunk_quality_scores (chunk_id, thumbs_up_count, thumbs_down_count, total_appearances, last_appearance_at, updated_at)
                 SELECT
@@ -297,6 +297,10 @@ async def run_quality_analysis(
                 CROSS JOIN LATERAL jsonb_array_elements(m.sources) as source
                 WHERE m.role = 'assistant' AND m.sources IS NOT NULL
                   AND source->>'chunk_id' IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM chunks c
+                      WHERE c.id = (source->>'chunk_id')::uuid
+                  )
                 GROUP BY chunk_id
                 ON CONFLICT (chunk_id) DO UPDATE SET
                     thumbs_up_count = EXCLUDED.thumbs_up_count,
