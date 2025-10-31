@@ -96,9 +96,14 @@ CRITÈRES IMPORTANTS :
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
+                # Construire les headers (ne pas inclure Authorization si api_key est vide)
+                headers = {}
+                if self.api_key:
+                    headers["Authorization"] = f"Bearer {self.api_key}"
+
                 response = await client.post(
                     f"{self.api_url}/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers=headers,
                     json={
                         "model": self.model,
                         "messages": [
@@ -192,9 +197,14 @@ CRITÈRES :
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
+                # Construire les headers (ne pas inclure Authorization si api_key est vide)
+                headers = {}
+                if self.api_key:
+                    headers["Authorization"] = f"Bearer {self.api_key}"
+
                 response = await client.post(
                     f"{self.api_url}/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers=headers,
                     json={
                         "model": self.model,
                         "messages": [
