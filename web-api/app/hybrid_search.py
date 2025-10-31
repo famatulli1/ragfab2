@@ -322,14 +322,9 @@ async def smart_hybrid_search(
 
     try:
         async with database.db_pool.acquire() as conn:
+            # Appeler directement la fonction sans SELECT (évite réordonnancement)
             results = await conn.fetch("""
-                SELECT
-                    id, content, similarity, bm25_score, combined_score,
-                    metadata, document_id, chunk_index,
-                    prev_chunk_id, next_chunk_id,
-                    section_hierarchy, heading_context, document_position,
-                    chunk_level, parent_chunk_id
-                FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4)
+                SELECT * FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4)
             """,
             embedding_str,
             processed_query,
