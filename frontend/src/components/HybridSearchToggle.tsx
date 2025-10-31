@@ -78,7 +78,7 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="relative flex flex-col gap-2">
       {/* Toggle principal */}
       <div className="flex items-center justify-between gap-4 p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
         <div className="flex items-center gap-3">
@@ -132,12 +132,30 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
         </div>
       )}
 
-      {/* Advanced settings panel */}
+      {/* Advanced settings panel - Modal overlay */}
       {showSettings && hybridEnabled && (
-        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg animate-fadeIn space-y-4">
-          <div className="text-sm font-semibold text-gray-700">
-            Réglages Avancés
-          </div>
+        <>
+          {/* Backdrop overlay */}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-40 animate-fadeIn"
+            onClick={() => setShowSettings(false)}
+          />
+
+          {/* Modal panel */}
+          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-50 animate-fadeIn">
+            <div className="p-4 bg-white border border-gray-300 rounded-lg shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-700">
+                  Réglages Avancés
+                </div>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                  title="Fermer"
+                >
+                  ✕
+                </button>
+              </div>
 
           {/* Alpha slider */}
           <div className="space-y-3">
@@ -216,7 +234,9 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
             <strong>Note :</strong> Le système ajuste automatiquement α si vous ne le personnalisez pas.
             Les acronymes et noms propres sont détectés automatiquement.
           </div>
-        </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Status indicator when enabled */}
