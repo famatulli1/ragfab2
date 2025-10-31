@@ -713,7 +713,7 @@ async def trigger_manual_analysis(
             INSERT INTO analysis_runs
             (id, status, progress, started_by, started_at)
             VALUES ($1, 'running', 0, $2, NOW())
-        """, run_id, current_user['id'])
+        """, run_id, str(current_user['id']))
 
     # Lancer l'analyse en arrière-plan
     async def run_analysis_background():
