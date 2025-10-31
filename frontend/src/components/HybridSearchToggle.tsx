@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, HelpCircle, X } from 'lucide-react';
-import api from '../lib/api';
+import api from '../api/client';
+import type { Conversation } from '../types';
 
 interface HybridSearchToggleProps {
   conversationId?: string;
@@ -36,11 +37,11 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   useEffect(() => {
     if (conversationId) {
       api.getConversation(conversationId)
-        .then(conversation => {
+        .then((conversation: Conversation) => {
           setHybridEnabled(conversation.hybrid_search_enabled || false);
           setAlpha(conversation.hybrid_search_alpha || 0.5);
         })
-        .catch(err => {
+        .catch((err: Error) => {
           console.error('Erreur chargement settings hybrid search:', err);
         });
     }
