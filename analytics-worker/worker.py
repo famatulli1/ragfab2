@@ -9,7 +9,7 @@ import httpx
 import os
 import json
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
 
@@ -512,7 +512,7 @@ async def scheduled_analysis(db_pool: asyncpg.Pool, chocolatine: ChocolatineClie
 
         # If we passed 3 AM today, schedule for tomorrow
         if now >= target_time:
-            target_time = target_time.replace(day=target_time.day + 1)
+            target_time = target_time + timedelta(days=1)
 
         # Calculate sleep duration
         sleep_seconds = (target_time - now).total_seconds()
