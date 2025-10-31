@@ -225,9 +225,16 @@ export default function ChatPage() {
       console.log('🎯 Rating message:', messageId, 'with rating:', rating);
       await api.rateMessage(messageId, { rating });
       console.log('✅ Rating successful');
+
+      // Mettre à jour optimistiquement le state local
       setMessages(msgs =>
         msgs.map(m => m.id === messageId ? { ...m, rating } : m)
       );
+
+      // Recharger les messages depuis la base pour avoir le rating persisté
+      if (currentConversation) {
+        await loadMessages(currentConversation.id);
+      }
     } catch (error) {
       console.error('❌ Error rating message:', error);
       alert(`Erreur lors du rating: ${error}`);
