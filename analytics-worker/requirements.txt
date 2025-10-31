@@ -1,0 +1,10 @@
+# Analytics Worker Dependencies
+
+# Database
+asyncpg>=0.29.0
+
+# HTTP Client for Chocolatine API
+httpx>=0.26.0
+
+# Environment variables
+python-dotenv>=1.0.0

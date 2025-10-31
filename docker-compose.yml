@@ -187,6 +187,33 @@ services:
           cpus: '1'
           memory: 2G
 
+  # Analytics Worker (Quality Analysis with Chocolatine AI)
+  analytics-worker:
+    build:
+      context: ./analytics-worker
+      dockerfile: Dockerfile
+    container_name: ragfab-analytics-worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
+      CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
+      CHOCOLATINE_API_KEY: ${CHOCOLATINE_API_KEY:-}
+      CHOCOLATINE_MODEL: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+      CHOCOLATINE_TIMEOUT: ${CHOCOLATINE_TIMEOUT:-120.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
   # API Backend FastAPI
   ragfab-api:
     build:

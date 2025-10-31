@@ -3,6 +3,7 @@ import { useState, useEffect, createContext, useContext } from 'react';
 import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import QualityManagementPage from './pages/QualityManagementPage';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -77,6 +78,13 @@ function App() {
           <Route path="/analytics" element={
             <ProtectedRoute adminOnly>
               <AnalyticsPage />
+            </ProtectedRoute>
+          } />
+
+          {/* Route quality management - Protégée, réservée aux admins */}
+          <Route path="/admin/quality-management" element={
+            <ProtectedRoute adminOnly>
+              <QualityManagementPage />
             </ProtectedRoute>
           } />
 

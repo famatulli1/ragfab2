@@ -376,6 +376,77 @@ class APIClient {
     const { data } = await this.client.get('/api/analytics/ratings/with-feedback', { params });
     return data;
   }
+
+  // ============================================================================
+  // QUALITY MANAGEMENT ENDPOINTS (Quick Win #4)
+  // ============================================================================
+
+  async getBlacklistedChunks(limit = 50): Promise<any[]> {
+    const { data } = await this.client.get('/api/analytics/quality/blacklisted-chunks', {
+      params: { limit }
+    });
+    return data;
+  }
+
+  async getReingestionRecommendations(limit = 20): Promise<any[]> {
+    const { data } = await this.client.get('/api/analytics/quality/reingestion-recommendations', {
+      params: { limit }
+    });
+    return data;
+  }
+
+  async getQualityAuditLog(limit = 100, action?: string): Promise<any[]> {
+    const params: any = { limit };
+    if (action) {
+      params.action = action;
+    }
+    const { data } = await this.client.get('/api/analytics/quality/audit-log', { params });
+    return data;
+  }
+
+  async unblacklistChunk(chunkId: string, reason: string): Promise<any> {
+    const { data } = await this.client.post(`/api/analytics/quality/chunk/${chunkId}/unblacklist`, {
+      reason
+    });
+    return data;
+  }
+
+  async whitelistChunk(chunkId: string, reason: string): Promise<any> {
+    const { data } = await this.client.post(`/api/analytics/quality/chunk/${chunkId}/whitelist`, {
+      reason
+    });
+    return data;
+  }
+
+  async ignoreReingestionRecommendation(documentId: string, reason: string): Promise<any> {
+    const { data } = await this.client.post(
+      `/api/analytics/quality/document/${documentId}/ignore-recommendation`,
+      { reason }
+    );
+    return data;
+  }
+
+  async triggerQualityAnalysis(): Promise<any> {
+    const { data } = await this.client.post('/api/analytics/quality/trigger-analysis', {});
+    return data;
+  }
+
+  async getAnalysisStatus(runId: string): Promise<any> {
+    const { data } = await this.client.get(`/api/analytics/quality/analysis-status/${runId}`);
+    return data;
+  }
+
+  async getAnalysisHistory(limit = 50): Promise<any[]> {
+    const { data } = await this.client.get('/api/analytics/quality/analysis-history', {
+      params: { limit }
+    });
+    return data;
+  }
+
+  async getReingestionCount(): Promise<{ count: number }> {
+    const { data } = await this.client.get('/api/analytics/quality/reingestion-count');
+    return data;
+  }
 }
 
 export const api = new APIClient();

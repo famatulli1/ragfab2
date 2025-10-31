@@ -6,6 +6,7 @@ import { useDropzone } from 'react-dropzone';
 import api from '../api/client';
 import UserManagement from '../components/UserManagement';
 import UserMenu from '../components/UserMenu';
+import ReingestionBadge from '../components/ReingestionBadge';
 import type { DocumentStats, Chunk, IngestionJob, User } from '../types';
 
 type TabType = 'documents' | 'users';
@@ -157,6 +158,7 @@ export default function AdminPage() {
               <BarChart3 size={16} />
               Analytics
             </button>
+            <ReingestionBadge />
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"

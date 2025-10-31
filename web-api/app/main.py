@@ -1294,33 +1294,61 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
             # 🆕 RECHERCHE VECTORIELLE CLASSIQUE AVEC match_chunks_smart()
             # Détecte automatiquement le type de chunk (hybrid ou parent-child)
             # et applique la stratégie appropriée
-            logger.info("🧠 Recherche vectorielle avec match_chunks_smart()")
-            async with database.db_pool.acquire() as conn:
-                results = await conn.fetch(
-                    """
-                    SELECT * FROM match_chunks_smart(
-                        $1::vector,
-                        $2
-                    )
-                    """,
-                    embedding_str,
-                    search_limit
-                )
 
-                # Renommer les colonnes pour compatibilité avec le reste du code
-                results = [
-                    {
-                        "chunk_id": row["id"],
-                        "content": row["content"],
-                        "chunk_index": 0,  # Not used in current flow
-                        "metadata": row["metadata"],
-                        "document_id": row["document_id"],
-                        "document_title": row["document_title"],
-                        "document_source": row["document_source"],
-                        "similarity": row["similarity"]
-                    }
-                    for row in results
-                ]
+            # 🛡️ QUALITY FILTER (Quick Win #5)
+            quality_filter_enabled = os.getenv("QUALITY_FILTER_ENABLED", "false").lower() == "true"
+
+            if quality_filter_enabled:
+                logger.info("🛡️ Recherche vectorielle avec filtrage qualité activé")
+                satisfaction_threshold = float(os.getenv("QUALITY_SATISFACTION_THRESHOLD", "0.3"))
+                min_appearances = int(os.getenv("QUALITY_MIN_APPEARANCES", "3"))
+
+                async with database.db_pool.acquire() as conn:
+                    results = await conn.fetch(
+                        """
+                        SELECT * FROM match_chunks_quality_filtered(
+                            $1::vector,
+                            $2,
+                            $3,
+                            $4
+                        )
+                        """,
+                        embedding_str,
+                        search_limit,
+                        satisfaction_threshold,
+                        min_appearances
+                    )
+
+                    logger.info(f"✅ Filtrage qualité appliqué: satisfaction>{satisfaction_threshold*100:.0f}%, min_appearances={min_appearances}")
+            else:
+                logger.info("🧠 Recherche vectorielle avec match_chunks_smart() (sans filtrage qualité)")
+                async with database.db_pool.acquire() as conn:
+                    results = await conn.fetch(
+                        """
+                        SELECT * FROM match_chunks_smart(
+                            $1::vector,
+                            $2
+                        )
+                        """,
+                        embedding_str,
+                        search_limit
+                    )
+
+            # Renommer les colonnes pour compatibilité avec le reste du code
+            results = [
+                {
+                    "chunk_id": row["id"],
+                    "content": row["content"],
+                    "chunk_index": 0,  # Not used in current flow
+                    "metadata": row["metadata"],
+                    "document_id": row["document_id"],
+                    "document_title": row["document_title"],
+                    "document_source": row["document_source"],
+                    "similarity": row["similarity"],
+                    "quality_score": row.get("quality_score")  # Inclure quality_score si disponible
+                }
+                for row in results
+            ]
 
         if not results:
             _current_request_sources = []
