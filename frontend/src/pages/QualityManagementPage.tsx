@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import {
   Brain,
-  Trash2,
   Star,
   CheckCircle,
   XCircle,
-  Clock,
   TrendingDown,
   FileText,
   History,
@@ -85,12 +83,12 @@ const QualityManagementPage = () => {
   // Tab 1: Blacklisted Chunks
   const [blacklistedChunks, setBlacklistedChunks] = useState<BlacklistedChunk[]>([]);
   const [loadingBlacklisted, setLoadingBlacklisted] = useState(false);
-  const [selectedChunk, setSelectedChunk] = useState<BlacklistedChunk | null>(null);
+  const [_selectedChunk, setSelectedChunk] = useState<BlacklistedChunk | null>(null);
 
   // Tab 2: Reingestion Recommendations
   const [reingestionDocs, setReingestionDocs] = useState<ReingestionDoc[]>([]);
   const [loadingReingestion, setLoadingReingestion] = useState(false);
-  const [selectedDoc, setSelectedDoc] = useState<ReingestionDoc | null>(null);
+  const [_selectedDoc, setSelectedDoc] = useState<ReingestionDoc | null>(null);
 
   // Tab 3: Manual Trigger
   const [analysisInProgress, setAnalysisInProgress] = useState(false);
@@ -121,7 +119,7 @@ const QualityManagementPage = () => {
 
     const interval = setInterval(async () => {
       try {
-        const status = await api.get(`/analytics/quality/analysis-status/${currentRunId}`);
+        const status = await api.getAnalysisStatus(currentRunId);
         setAnalysisStatus(status);
         setProgress(status.progress);
 
@@ -146,7 +144,7 @@ const QualityManagementPage = () => {
   const fetchBlacklistedChunks = async () => {
     setLoadingBlacklisted(true);
     try {
-      const data = await api.get('/analytics/quality/blacklisted-chunks');
+      const data = await api.getBlacklistedChunks();
       setBlacklistedChunks(data);
     } catch (error) {
       console.error('Error fetching blacklisted chunks:', error);
@@ -158,7 +156,7 @@ const QualityManagementPage = () => {
   const fetchReingestionDocs = async () => {
     setLoadingReingestion(true);
     try {
-      const data = await api.get('/analytics/quality/reingestion-recommendations');
+      const data = await api.getReingestionRecommendations();
       setReingestionDocs(data);
     } catch (error) {
       console.error('Error fetching reingestion docs:', error);
@@ -170,7 +168,7 @@ const QualityManagementPage = () => {
   const fetchAnalysisHistory = async () => {
     setLoadingHistory(true);
     try {
-      const data = await api.get('/analytics/quality/analysis-history');
+      const data = await api.getAnalysisHistory();
       setAnalysisHistory(data);
     } catch (error) {
       console.error('Error fetching analysis history:', error);
@@ -182,7 +180,7 @@ const QualityManagementPage = () => {
   const fetchAuditLog = async () => {
     setLoadingAudit(true);
     try {
-      const data = await api.get('/analytics/quality/audit-log?limit=50');
+      const data = await api.getQualityAuditLog(50);
       setAuditLog(data);
     } catch (error) {
       console.error('Error fetching audit log:', error);
@@ -193,7 +191,7 @@ const QualityManagementPage = () => {
 
   const handleUnblacklist = async (chunkId: string, reason: string) => {
     try {
-      await api.post(`/analytics/quality/chunk/${chunkId}/unblacklist`, { reason });
+      await api.unblacklistChunk(chunkId, reason);
       fetchBlacklistedChunks();
       setSelectedChunk(null);
     } catch (error) {
@@ -204,7 +202,7 @@ const QualityManagementPage = () => {
 
   const handleWhitelist = async (chunkId: string, reason: string) => {
     try {
-      await api.post(`/analytics/quality/chunk/${chunkId}/whitelist`, { reason });
+      await api.whitelistChunk(chunkId, reason);
       fetchBlacklistedChunks();
       setSelectedChunk(null);
     } catch (error) {
@@ -215,7 +213,7 @@ const QualityManagementPage = () => {
 
   const handleIgnoreRecommendation = async (documentId: string, reason: string) => {
     try {
-      await api.post(`/analytics/quality/document/${documentId}/ignore-recommendation`, { reason });
+      await api.ignoreReingestionRecommendation(documentId, reason);
       fetchReingestionDocs();
       setSelectedDoc(null);
     } catch (error) {
@@ -228,7 +226,7 @@ const QualityManagementPage = () => {
     try {
       setAnalysisInProgress(true);
       setProgress(0);
-      const response = await api.post('/analytics/quality/trigger-analysis', {});
+      const response = await api.triggerQualityAnalysis();
       setCurrentRunId(response.run_id);
     } catch (error) {
       console.error('Error triggering analysis:', error);

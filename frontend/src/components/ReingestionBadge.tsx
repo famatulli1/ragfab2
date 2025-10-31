@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
-import { api } from '../lib/api';
+import { api } from '../api/client';
 
 const ReingestionBadge = () => {
   const [count, setCount] = useState<number>(0);
@@ -17,7 +17,7 @@ const ReingestionBadge = () => {
   const fetchCount = async () => {
     try {
       setLoading(true);
-      const data = await api.get('/analytics/quality/reingestion-count');
+      const data = await api.getReingestionCount();
       setCount(data.count);
     } catch (error) {
       console.error('Error fetching reingestion count:', error);
