@@ -37,8 +37,8 @@ nano .env
 DATABASE_URL=postgresql://raguser:VOTRE_MOT_DE_PASSE@ragfab-postgres.internal:5432/ragdb
 
 # Chocolatine (obligatoire pour validation IA)
-CHOCOLATINE_WORKER_API_URL=https://apigpt.mynumih.fr
-CHOCOLATINE_WORKER_MODEL=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
+CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
+CHOCOLATINE_MODEL=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
 
 # Horaire d'exécution (format HH:MM)
 QUALITY_ANALYSIS_SCHEDULE=03:00
