@@ -3,11 +3,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY analytics-worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy worker code
-COPY worker.py .
+COPY analytics-worker/worker.py .
 
 # Run worker
 CMD ["python", "-u", "worker.py"]
