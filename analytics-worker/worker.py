@@ -254,11 +254,25 @@ async def run_quality_analysis(
 
     async with db_pool.acquire() as conn:
         try:
-            # Create analysis run record
-            await conn.execute("""
-                INSERT INTO analysis_runs (id, status, progress, started_by, started_at)
-                VALUES ($1, 'running', 0, $2, NOW())
-            """, run_id, started_by)
+            # Check if run already exists (from manual trigger)
+            existing_run = await conn.fetchrow("""
+                SELECT id, status FROM analysis_runs WHERE id = $1
+            """, run_id)
+
+            if existing_run:
+                # Update existing run to 'running' status
+                logger.info(f"📝 Updating existing run {run_id} to 'running'")
+                await conn.execute("""
+                    UPDATE analysis_runs
+                    SET status = 'running', progress = 0, started_at = NOW()
+                    WHERE id = $1
+                """, run_id)
+            else:
+                # Create new analysis run record (scheduled runs)
+                await conn.execute("""
+                    INSERT INTO analysis_runs (id, status, progress, started_by, started_at)
+                    VALUES ($1, 'running', 0, $2, NOW())
+                """, run_id, started_by)
 
             # ============================================================
             # STEP 1: Aggregate ratings and calculate basic scores (0-30%)
@@ -502,6 +516,64 @@ async def run_quality_analysis(
             raise
 
 
+async def get_pending_job(db_pool: asyncpg.Pool) -> Optional[Dict[str, Any]]:
+    """
+    Get the next pending analysis job from the database
+
+    Returns:
+        Job record if found, None otherwise
+    """
+    async with db_pool.acquire() as conn:
+        job = await conn.fetchrow("""
+            SELECT id, started_by, created_at
+            FROM analysis_runs
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+        """)
+
+        if job:
+            return dict(job)
+        return None
+
+
+async def poll_jobs(db_pool: asyncpg.Pool, chocolatine: ChocolatineClient, poll_interval: int = 3):
+    """
+    Poll for pending analysis jobs and execute them
+
+    Args:
+        db_pool: Database connection pool
+        chocolatine: Chocolatine API client
+        poll_interval: Seconds between polls (default: 3)
+    """
+    logger.info(f"🔄 Starting job polling (interval: {poll_interval}s)")
+
+    while True:
+        try:
+            # Check for pending jobs
+            job = await get_pending_job(db_pool)
+
+            if job:
+                logger.info(f"📥 Found pending job: {job['id']} (triggered by {job['started_by']})")
+
+                # Execute the analysis
+                await run_quality_analysis(
+                    db_pool=db_pool,
+                    chocolatine=chocolatine,
+                    run_id=str(job['id']),
+                    started_by=str(job['started_by'])
+                )
+
+                logger.info(f"✅ Job {job['id']} completed")
+            else:
+                # No pending jobs, wait before polling again
+                await asyncio.sleep(poll_interval)
+
+        except Exception as e:
+            logger.error(f"❌ Error in poll loop: {e}", exc_info=True)
+            await asyncio.sleep(poll_interval)
+
+
 async def scheduled_analysis(db_pool: asyncpg.Pool, chocolatine: ChocolatineClient):
     """
     Runs quality analysis at 3 AM every day
@@ -529,6 +601,10 @@ async def scheduled_analysis(db_pool: asyncpg.Pool, chocolatine: ChocolatineClie
 async def main():
     """
     Main entry point for analytics worker
+
+    Runs two parallel tasks:
+    1. Job polling: Checks for pending jobs every 3 seconds
+    2. Scheduled analysis: Runs at 3 AM daily
     """
     logger.info("🚀 Starting Analytics Worker...")
 
@@ -547,8 +623,11 @@ async def main():
     logger.info(f"📡 Chocolatine API: {CHOCOLATINE_API_URL}")
     logger.info(f"🤖 Model: {CHOCOLATINE_MODEL}")
 
-    # Start scheduled analysis loop
-    await scheduled_analysis(db_pool, chocolatine)
+    # Run both job polling and scheduled analysis in parallel
+    await asyncio.gather(
+        poll_jobs(db_pool, chocolatine, poll_interval=3),
+        scheduled_analysis(db_pool, chocolatine)
+    )
 
 
 if __name__ == "__main__":

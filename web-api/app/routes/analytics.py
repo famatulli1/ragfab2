@@ -1,7 +1,7 @@
 """
 Routes pour l'analytics et l'amélioration continue du RAG via ratings utilisateurs
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import uuid4, UUID
@@ -697,66 +697,29 @@ async def ignore_reingestion_recommendation(
 
 @router.post("/quality/trigger-analysis")
 async def trigger_manual_analysis(
-    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
     Déclencher une analyse qualité manuellement (ne pas attendre le cron)
 
-    Lance l'analyse en arrière-plan, renvoie run_id pour polling
+    Crée un job pending qui sera détecté par analytics-worker
     """
     run_id = str(uuid4())
 
-    # Créer l'entrée analysis_runs immédiatement
+    # Créer l'entrée analysis_runs avec status='pending'
+    # Le analytics-worker va le détecter et exécuter l'analyse
     async with database.db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO analysis_runs
-            (id, status, progress, started_by, started_at)
-            VALUES ($1, 'running', 0, $2, NOW())
+            (id, status, progress, started_by, created_at)
+            VALUES ($1, 'pending', 0, $2, NOW())
         """, run_id, str(current_user['id']))
 
-    # Lancer l'analyse en arrière-plan
-    async def run_analysis_background():
-        """Wrapper pour exécuter l'analyse en arrière-plan"""
-        try:
-            import sys
-            import os
-            # Ajouter le répertoire analytics-worker au path
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../analytics-worker'))
-
-            from worker import run_quality_analysis, ChocolatineClient
-            import asyncpg
-
-            # Créer pool de connexion
-            db_pool = await asyncpg.create_pool(
-                os.getenv("DATABASE_URL"),
-                min_size=1,
-                max_size=5
-            )
-
-            # Créer client Chocolatine
-            chocolatine = ChocolatineClient()
-
-            # Exécuter l'analyse
-            await run_quality_analysis(db_pool, chocolatine, run_id=run_id, started_by=current_user['id'])
-
-            await db_pool.close()
-
-        except Exception as e:
-            logger.error(f"❌ Manual analysis failed: {e}", exc_info=True)
-            async with database.db_pool.acquire() as conn:
-                await conn.execute("""
-                    SELECT fail_analysis_run($1, $2)
-                """, run_id, str(e))
-
-    # Ajouter la tâche en arrière-plan
-    background_tasks.add_task(run_analysis_background)
-
-    logger.info(f"🚀 Manual analysis triggered by admin {current_user['username']} (run_id={run_id})")
+    logger.info(f"🚀 Manual analysis job created by admin {current_user['username']} (run_id={run_id})")
 
     return {
         "success": True,
-        "message": "Analyse qualité démarrée en arrière-plan",
+        "message": "Analyse qualité programmée - le worker va la démarrer dans quelques secondes",
         "run_id": run_id
     }
 

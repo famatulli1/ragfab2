@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import {
   Brain,
@@ -12,7 +13,8 @@ import {
   AlertCircle,
   RefreshCw,
   Shield,
-  Ban
+  Ban,
+  ArrowLeft
 } from 'lucide-react';
 
 interface BlacklistedChunk {
@@ -78,6 +80,7 @@ interface AuditLogEntry {
 }
 
 const QualityManagementPage = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'blacklisted' | 'reingestion' | 'trigger' | 'history'>('blacklisted');
 
   // Tab 1: Blacklisted Chunks
@@ -252,6 +255,13 @@ const QualityManagementPage = () => {
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/admin')}
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Retour à l'administration"
+            >
+              <ArrowLeft className="w-6 h-6" />
+            </button>
             <Shield className="w-8 h-8 text-blue-600 dark:text-blue-400" />
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
