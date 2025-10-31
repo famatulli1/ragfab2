@@ -198,7 +198,7 @@ export default function AnalyticsPage() {
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">Satisfaction</p>
                       <p className="text-3xl font-bold text-green-500">
-                        {(globalStats?.satisfaction_rate || 0).toFixed(1)}%
+                        {(Number(globalStats?.satisfaction_rate) || 0).toFixed(1)}%
                       </p>
                     </div>
                     <ThumbsUp className="w-8 h-8 text-green-500 opacity-50" />
@@ -265,7 +265,7 @@ export default function AnalyticsPage() {
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <span className="text-sm text-gray-500 dark:text-gray-400">Satisfaction</span>
-                          <span className="font-semibold">{(stat.satisfaction_rate || 0).toFixed(1)}%</span>
+                          <span className="font-semibold">{(Number(stat.satisfaction_rate) || 0).toFixed(1)}%</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-sm text-gray-500 dark:text-gray-400">Thumbs Up</span>
@@ -307,19 +307,19 @@ export default function AnalyticsPage() {
                         <div className="flex justify-between items-center mb-2">
                           <span className="font-medium">{stat.depth_category}</span>
                           <span className="text-sm text-gray-500 dark:text-gray-400">
-                            {(stat.satisfaction_rate || 0).toFixed(1)}%
+                            {(Number(stat.satisfaction_rate) || 0).toFixed(1)}%
                           </span>
                         </div>
                         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
                           <div
                             className={`h-3 rounded-full ${
-                              stat.satisfaction_rate >= 70
+                              (Number(stat.satisfaction_rate) || 0) >= 70
                                 ? 'bg-green-500'
-                                : stat.satisfaction_rate >= 50
+                                : (Number(stat.satisfaction_rate) || 0) >= 50
                                 ? 'bg-yellow-500'
                                 : 'bg-red-500'
                             }`}
-                            style={{ width: `${stat.satisfaction_rate}%` }}
+                            style={{ width: `${Number(stat.satisfaction_rate) || 0}%` }}
                           />
                         </div>
                         <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -382,13 +382,13 @@ export default function AnalyticsPage() {
                             </td>
                             <td className="px-4 py-3 text-center text-sm">
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                (chunk.dissatisfaction_rate || 0) > 0.7
+                                (Number(chunk.dissatisfaction_rate) || 0) > 0.7
                                   ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                                  : (chunk.dissatisfaction_rate || 0) > 0.5
+                                  : (Number(chunk.dissatisfaction_rate) || 0) > 0.5
                                   ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
                                   : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                               }`}>
-                                {((chunk.dissatisfaction_rate || 0) * 100).toFixed(0)}%
+                                {((Number(chunk.dissatisfaction_rate) || 0) * 100).toFixed(0)}%
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center text-sm font-semibold">
@@ -435,13 +435,13 @@ export default function AnalyticsPage() {
                             </td>
                             <td className="px-4 py-3 text-center text-sm">
                               <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                                (doc.satisfaction_rate || 0) < 30
+                                (Number(doc.satisfaction_rate) || 0) < 30
                                   ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                                  : (doc.satisfaction_rate || 0) < 60
+                                  : (Number(doc.satisfaction_rate) || 0) < 60
                                   ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
                                   : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                               }`}>
-                                {(doc.satisfaction_rate || 0).toFixed(1)}%
+                                {(Number(doc.satisfaction_rate) || 0).toFixed(1)}%
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center text-sm text-green-600">{doc.thumbs_up}</td>
@@ -450,7 +450,7 @@ export default function AnalyticsPage() {
                               {doc.chunks_with_ratings} / {doc.total_chunks}
                             </td>
                             <td className="px-4 py-3 text-center text-sm">
-                              {(doc.coverage_rate || 0).toFixed(0)}%
+                              {(Number(doc.coverage_rate) || 0).toFixed(0)}%
                             </td>
                           </tr>
                         ))}
