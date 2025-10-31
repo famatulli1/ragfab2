@@ -7,6 +7,7 @@ import type { Conversation, Message, Provider, User } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
+import HybridSearchToggle from '../components/HybridSearchToggle';
 import ImageViewer from '../components/ImageViewer';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserMenu from '../components/UserMenu';
@@ -415,26 +416,37 @@ export default function ChatPage() {
               {currentConversation?.title || 'RAGFab'}
             </h1>
             {currentConversation && (
-              <RerankingToggle
-                initialValue={currentConversation.reranking_enabled}
-                onUpdate={(value) => {
-                  // Update local conversation state
-                  if (currentConversation) {
-                    setCurrentConversation({
-                      ...currentConversation,
-                      reranking_enabled: value,
-                    });
-                    // Update in conversations list
-                    setConversations(convs =>
-                      convs.map(c =>
-                        c.id === currentConversation.id
-                          ? { ...c, reranking_enabled: value }
-                          : c
-                      )
-                    );
-                  }
-                }}
-              />
+              <div className="flex items-center gap-3">
+                <RerankingToggle
+                  initialValue={currentConversation.reranking_enabled}
+                  onUpdate={(value) => {
+                    // Update local conversation state
+                    if (currentConversation) {
+                      setCurrentConversation({
+                        ...currentConversation,
+                        reranking_enabled: value,
+                      });
+                      // Update in conversations list
+                      setConversations(convs =>
+                        convs.map(c =>
+                          c.id === currentConversation.id
+                            ? { ...c, reranking_enabled: value }
+                            : c
+                        )
+                      );
+                    }
+                  }}
+                />
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
+                <HybridSearchToggle
+                  conversationId={currentConversation.id}
+                  onChange={(enabled, alpha) => {
+                    console.log('🔀 Hybrid search settings:', { enabled, alpha });
+                    // Les paramètres sont sauvegardés dans localStorage par le composant
+                    // Ils seront envoyés avec chaque requête de chat via l'API
+                  }}
+                />
+              </div>
             )}
           </div>
 

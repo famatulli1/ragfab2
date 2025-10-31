@@ -1198,36 +1198,81 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
-        # 🆕 RECHERCHE INTELLIGENTE AVEC match_chunks_smart()
-        # Détecte automatiquement le type de chunk (hybrid ou parent-child)
-        # et applique la stratégie appropriée
-        logger.info("🧠 Recherche intelligente avec match_chunks_smart()")
-        async with database.db_pool.acquire() as conn:
-            results = await conn.fetch(
-                """
-                SELECT * FROM match_chunks_smart(
-                    $1::vector,
-                    $2
-                )
-                """,
-                embedding_str,
-                search_limit
+        # 🆕 HYBRID SEARCH (BM25 + Vector) si activé
+        hybrid_search_enabled = os.getenv("HYBRID_SEARCH_ENABLED", "false").lower() == "true"
+
+        if hybrid_search_enabled:
+            # Import du module hybrid_search
+            from .hybrid_search import smart_hybrid_search
+
+            logger.info("🔀 Recherche hybride activée (BM25 + Vector)")
+
+            # Utiliser smart_hybrid_search qui gère automatiquement parent-child
+            hybrid_results = await smart_hybrid_search(
+                query=enriched_query,
+                query_embedding=query_embedding,
+                k=search_limit,
+                alpha=None  # Utilise adaptive_alpha automatiquement
             )
 
-            # Renommer les colonnes pour compatibilité avec le reste du code
-            results = [
-                {
-                    "chunk_id": row["id"],
-                    "content": row["content"],
-                    "chunk_index": 0,  # Not used in current flow
-                    "metadata": row["metadata"],
-                    "document_id": row["document_id"],
-                    "document_title": row["document_title"],
-                    "document_source": row["document_source"],
-                    "similarity": row["similarity"]
-                }
-                for row in results
-            ]
+            # Convertir format hybrid_results vers format attendu
+            results = []
+            for h_result in hybrid_results:
+                # Récupérer document info depuis database
+                async with database.db_pool.acquire() as conn:
+                    doc_info = await conn.fetchrow(
+                        "SELECT title, source FROM documents WHERE id = $1",
+                        h_result["document_id"]
+                    )
+
+                results.append({
+                    "chunk_id": h_result["chunk_id"],
+                    "content": h_result["content"],
+                    "chunk_index": h_result["chunk_index"],
+                    "metadata": h_result["metadata"],
+                    "document_id": h_result["document_id"],
+                    "document_title": doc_info["title"] if doc_info else "Unknown",
+                    "document_source": doc_info["source"] if doc_info else "Unknown",
+                    "similarity": h_result["scores"]["combined_score"],  # Utiliser combined score
+                    "scores": h_result["scores"]  # Garder tous les scores pour debug
+                })
+
+            logger.info(
+                f"✅ Hybrid search: {len(results)} résultats | "
+                f"Alpha moyen: {sum(r['scores']['alpha_used'] for r in results) / len(results):.2f}"
+            )
+
+        else:
+            # 🆕 RECHERCHE VECTORIELLE CLASSIQUE AVEC match_chunks_smart()
+            # Détecte automatiquement le type de chunk (hybrid ou parent-child)
+            # et applique la stratégie appropriée
+            logger.info("🧠 Recherche vectorielle avec match_chunks_smart()")
+            async with database.db_pool.acquire() as conn:
+                results = await conn.fetch(
+                    """
+                    SELECT * FROM match_chunks_smart(
+                        $1::vector,
+                        $2
+                    )
+                    """,
+                    embedding_str,
+                    search_limit
+                )
+
+                # Renommer les colonnes pour compatibilité avec le reste du code
+                results = [
+                    {
+                        "chunk_id": row["id"],
+                        "content": row["content"],
+                        "chunk_index": 0,  # Not used in current flow
+                        "metadata": row["metadata"],
+                        "document_id": row["document_id"],
+                        "document_title": row["document_title"],
+                        "document_source": row["document_source"],
+                        "similarity": row["similarity"]
+                    }
+                    for row in results
+                ]
 
         if not results:
             _current_request_sources = []

@@ -35,42 +35,19 @@ RAGFab est un système RAG (Retrieval Augmented Generation) dual-provider optimi
 
 **Performance**: ~10-15s par image
 
-### 4. Chunking Adaptatif Intelligent
+### 4. Chunking
 
-**Stratégie principale**: Docling HybridChunker avec paramètres adaptatifs
-**Configuration**:
-- `CHUNK_SIZE=1500` caractères
-- `CHUNK_OVERLAP=400` tokens (augmenté pour préserver continuité)
-
-**✨ NOUVEAU : Chunking Adaptatif par Taille Document**
-
-Le système détecte automatiquement la taille du document et ajuste les paramètres :
-
-| Taille Document | Catégorie | max_tokens | Objectif |
-|-----------------|-----------|------------|----------|
-| **<800 mots (≈2.5 pages)** | **Very Small** | **4000 tokens** | **1 chunk complet - contexte total** |
-| 800-2000 mots (≈2.5-6 pages) | Small | 1500 tokens | Préserver contexte global |
-| 2000-5000 mots (≈6-15 pages) | Medium | 800 tokens | Équilibre contexte/précision |
-| >5000 mots (≈15+ pages) | Large | 512 tokens | Granularité fine |
+**Stratégie principale**: Docling HybridChunker
+**Paramètres**:
+- `CHUNK_SIZE=1500` tokens
+- `CHUNK_OVERLAP=200` tokens
 
 **Caractéristiques**:
-- **Respect des frontières naturelles** : Sections, paragraphes, tableaux
-- **Préservation du contexte sémantique** : Overlap augmenté à 400 tokens
-- **Enrichissement contextuel** : Chaque chunk préfixé avec `[Document: Titre] [Section: Hiérarchie]`
-- **Métadonnées étendues** : `doc_size_category`, `word_count`, `has_enrichment`
-- **Fallback automatique** : SimpleChunker en cas d'erreur
+- Respect des frontières naturelles du document
+- Préservation du contexte sémantique
+- Fallback automatique sur SimpleChunker en cas d'erreur
 
-**Avantages chunking adaptatif** :
-- ✅ Petits documents : Chunks 3-4x plus gros → contexte riche → meilleure qualité RAG
-- ✅ Documents moyens : Équilibre optimal entre contexte et précision
-- ✅ Grands documents : Granularité fine pour recherche précise
-
-**Enrichissement contextuel** (selon étude Anthropic 2024) :
-```
-Chunk original : "Le protocole utilise AES-256"
-Chunk enrichi : "[Document: Guide Sécurité] [Section: Cryptographie > Chiffrement]\n\nLe protocole utilise AES-256"
-```
-→ Gain de précision : +67% sur petits documents
+**Fallback**: SimpleChunker (split sur `\n\n`)
 
 ### 5. Génération d'Embeddings
 
@@ -115,58 +92,37 @@ Chunk enrichi : "[Document: Guide Sécurité] [Section: Cryptographie > Chiffrem
 
 ### 2. Recherche Vectorielle
 
-**Mode Rapide** (défaut - `RERANKER_ENABLED=false`):
+**Sans reranking** (`RERANKER_ENABLED=false`):
 1. Question → Embedding (E5-Large)
 2. Recherche similarité cosinus
 3. Top-5 chunks directs → Contexte LLM
-4. Latence: ~1-2s
 
-**Mode Précis** (activation manuelle - `RERANKER_ENABLED=true`):
+**Avec reranking** (`RERANKER_ENABLED=true`):
 1. Question → Embedding (E5-Large)
 2. Recherche vectorielle → Top-20 candidats
 3. Reranking CrossEncoder → Score précis
 4. Top-5 après reranking → Contexte LLM
-5. Latence: ~2-4s (+200-500ms)
 
-### 3. Reranking (Optionnel - Activation Manuelle)
+### 3. Reranking (Optionnel)
 
-**Statut**: DÉSACTIVÉ PAR DÉFAUT (activation via interface)
-**Modèle**: BAAI/bge-reranker-v2-m3 (CrossEncoder multilingue)
+**Modèle**: BAAI/bge-reranker-v2-m3
 **Service**: FastAPI dédié (port 8002)
 **Configuration**:
-- `RERANKER_ENABLED=false` (défaut)
 - `RERANKER_TOP_K=20` (candidats avant reranking)
-- `RERANKER_RETURN_K=5` (résultats finaux après scoring précis)
+- `RERANKER_RETURN_K=5` (résultats finaux)
 
-**Activation interface** :
-- Toggle "Recherche approfondie" dans barre de conversation
-- État sauvegardé par conversation en base de données
-- Activation recommandée pour :
-  - Questions complexes nécessitant précision maximale
-  - Recherche dans documentation technique dense
-  - Cas ambigus nécessitant affinage sémantique
+**Cas d'usage recommandés**:
+- Documentation technique/médicale/juridique
+- Terminologie similaire avec nuances sémantiques
+- Base documentaire >1000 documents
+- Besoin de précision maximale
 
-**Workflow reranking** (si activé) :
-1. Vector search récupère 20 candidats potentiels
-2. CrossEncoder calcule score précis pour chaque paire (query, chunk)
-3. Top-5 vraiment pertinents envoyés au LLM
+**Performance**:
+- Latence additionnelle: +100-300ms
+- Ressources: ~4GB RAM
+- Amélioration pertinence: +20-30%
 
-**Bénéfices activation** :
-- ✅ **Précision accrue** : +20-30% amélioration vs vector search seul
-- ✅ **Documentation technique** : Gère terminologie similaire avec nuances
-- ✅ **Cas ambigus** : Affinage sémantique pour meilleure pertinence
-
-**Performance** :
-- Mode rapide (OFF) : ~1-2s
-- Mode précis (ON) : ~2-4s (+200-500ms)
-- Ressources : ~4GB RAM service reranker
-- Amélioration qualité : **+20-30%**
-
-**Utilisation recommandée** :
-- Par défaut (OFF) : Questions simples, réponses rapides
-- Activation manuelle (ON) : Questions complexes, documentation technique
-
-**Fallback gracieux** : Si échec reranker → Top-5 du vector search direct
+**Fallback gracieux**: Si échec reranker → Top-5 du vector search
 
 ### 4. Génération de Réponse
 
@@ -378,207 +334,19 @@ Réponse + Sources → Frontend
 **Services**:
 - PostgreSQL + pgvector
 - Embeddings API (E5-Large)
-- Reranker API (BGE-M3) - activé par défaut
+- Reranker API (BGE-M3) - optionnel
 - Web API (FastAPI)
 - Frontend (React + Vite)
 - Ingestion Worker (background processing)
 
 **Réseau**: Traefik reverse proxy avec labels pour routing automatique
 
----
-
-## 🎯 Améliorations Qualité RAG - Petits Documents (2025-01)
-
-### Problème Résolu
-
-**Symptôme initial** : Recherche RAG inefficace sur petits documents (1-3 pages)
-- Chunks trop petits → perte de contexte
-- Sur-fragmentation → réponses incomplètes
-- Information dispersée → mauvaise qualité LLM
-
-### Solutions Implémentées
-
-#### ✅ Phase 1 : Quick Wins (Impact Immédiat)
-
-**1. Augmentation Context Window Chunks**
-- `max_tokens` : 512 → 800 tokens (+56% contexte)
-- Chunks plus riches sans dégradation E5-large
-- Compatible context window Chocolatine (8K tokens)
-
-**2. Reranker Activé par Défaut**
-- `RERANKER_ENABLED=true` (au lieu de false)
-- CrossEncoder BGE-M3 affine sélection top-5
-- +20-30% précision, latence +200ms (acceptable)
-
-**3. Overlap Augmenté**
-- `CHUNK_OVERLAP` : 200 → 400 caractères
-- Préserve continuité sémantique entre chunks
-- Crucial pour petits documents fragmentés
-
-#### ✅ Phase 2 : Chunking Adaptatif (Impact Majeur)
-
-**4. Détection Automatique Taille Document**
-```python
-word_count = len(content.split())
-
-if word_count < 800:       # Very Small (<2.5 pages)
-    max_tokens = 4000      # 1 seul chunk - contexte complet
-elif word_count < 2000:    # Small (2.5-6 pages)
-    max_tokens = 1500      # Très gros chunks
-elif word_count < 5000:    # Medium (6-15 pages)
-    max_tokens = 800       # Chunks équilibrés
-else:                      # Large (>15 pages)
-    max_tokens = 512       # Chunks granulaires
-```
-
-**5. Enrichissement Contextuel Avancé**
-```python
-# Avant
-chunk_content = "Le protocole utilise AES-256"
-
-# Après (embeddings)
-enriched_chunk = "[Document: Guide Sécurité] [Section: Cryptographie > Chiffrement]\n\nLe protocole utilise AES-256"
-```
-
-**Bénéfices contextuels** :
-- Chunks gardent contexte document dans embedding
-- +67% précision selon étude Anthropic (Contextual Retrieval)
-- Compense chunks petits avec contexte sémantique
-
-#### ✅ Phase 3 : Optimisations Avancées (2025-01-10)
-
-**Test réel "erreur fusappel 6102"** : Document 331 mots → 7 chunks (trop fragmenté)
-
-**6. Bypass HybridChunker pour Documents Très Petits**
-- Seuil : Documents <800 mots
-- Comportement : Création 1 seul chunk avec contenu complet (bypass HybridChunker)
-- `max_tokens` : 4000 tokens (force chunk unique)
-- → Document 331 mots = 1 seul chunk complet au lieu de 7
-
-**7. Optimisation Performance Reranking**
-- `RERANKER_ENABLED` : true → **false** (désactivation par défaut)
-- `RERANKER_TOP_K` : 30 → **20** (réduction candidats)
-- `RERANKER_RETURN_K` : 8 → **5** (équilibre contexte/vitesse)
-- → Activation manuelle via toggle "Recherche approfondie"
-- → Latence réduite : 3-5s → 1-2s (mode rapide par défaut)
-
-**8. Enrichissement Chunks Images**
-```python
-# Ajout contexte document + keywords titre
-content_parts = [
-    f"[Document: {document_title}]",  # Nouveau
-    f"[Image {idx+1} depuis la page {page_num}]",
-    f"Description: {description}",
-    f"Texte extrait: {ocr_text}",
-    f"Contexte: {title_keywords}"     # Nouveau
-]
-```
-- → Meilleure pertinence recherche images dans résultats RAG
-
-### Gains Mesurables Attendus
-
-| Métrique | Avant | Phase 1-2 | Phase 3 | Gain Total |
-|----------|-------|-----------|---------|------------|
-| Context par chunk | 512 tokens | 800-1500 tokens | **800-4000 tokens** | **+56-681%** |
-| Chunks doc 331 mots | 7 | 7 | **1** | **-86% fragmentation** |
-| Latence mode rapide | 3-5s | 3-5s | **1-2s** | **-60%** |
-| Latence mode précis | N/A | 3-5s | **2-4s** | Manuel |
-| Chunks retournés LLM | 5 | 5 | 5 | Optimisé |
-| Pool candidats reranker | 20 | 20 | 20 | Équilibré |
-| Reranking par défaut | Systématique | Systématique | **Manuel (toggle)** | Flexibilité |
-| Précision recherche | Baseline | +20-30% | +20-30% (si activé) | Reranker |
-| Continuité chunks | 200 overlap | 400 overlap | 400 overlap | +100% |
-| Contexte sémantique | Minimal | Enrichi | Enrichi images | +67% |
-| **Qualité globale petits docs** | **Baseline** | **+85%** | **+120%** | **Combiné** |
-| **Expérience utilisateur** | Lente | Lente | **Rapide (choix précision)** | **Optimal** |
-
-### Migration et Ré-indexation
-
-**Ré-indexation requise** : OUI (nouveaux paramètres chunking)
-
-**Procédure Phase 1-2** :
-```bash
-# 1. Mettre à jour .env avec nouvelles valeurs
-RERANKER_ENABLED=true
-CHUNK_OVERLAP=400
-
-# 2. Rebuild services
-docker-compose down
-docker-compose build ragfab-api ingestion-worker
-docker-compose up -d
-```
-
-**Procédure Phase 3 (Coolify)** :
-```bash
-# Service: ragfab-api
-RERANKER_TOP_K=30      # Augmenté de 20 → 30
-RERANKER_RETURN_K=8    # Augmenté de 5 → 8
-
-# Service: ingestion-worker
-CHUNK_OVERLAP=400      # Déjà fait Phase 1
-# (nouvelles valeurs chunking dans code)
-
-# Redémarrer services via Coolify UI
-# 1. ragfab-api → Restart
-# 2. ingestion-worker → Restart
-
-# 3. Ré-indexer documents (conserve documents, recrée chunks)
-docker-compose exec ragfab-api python -m ingestion.ingest --documents /app/uploads
-
-# 4. Vérifier qualité sur documents tests
-# Comparer réponses avant/après sur corpus de questions
-```
-
-**Temps estimé** :
-- Petite base (<100 docs) : ~15-30 minutes
-- Moyenne base (100-1000 docs) : ~1-2 heures
-- Grande base (>1000 docs) : ~3-6 heures
-
-**Rollback possible** :
-```bash
-# Revenir aux anciens paramètres
-RERANKER_ENABLED=false
-CHUNK_OVERLAP=200
-
-# Ré-indexer avec anciens paramètres
-```
-
-### Validation Qualité
-
-**Tests recommandés** :
-1. Sélectionner 10 petits documents représentatifs (<1000 mots)
-2. Créer 5 questions par document (50 questions total)
-3. Benchmark avant/après :
-   - MRR (Mean Reciprocal Rank) : Position premier résultat pertinent
-   - NDCG@5 : Qualité top-5 résultats
-   - User Satisfaction : Qualité réponses LLM (échelle 1-5)
-
-**Seuils d'acceptation** :
-- MRR > 0.8 (réponse pertinente dans top-3)
-- NDCG@5 > 0.75
-- User Satisfaction > 4.0/5.0
-
-### Prochaines Améliorations Possibles
-
-**Si qualité encore insuffisante après Phase 1+2** :
-
-1. **Hierarchical Retrieval** (parent-child chunks)
-   - Recherche sur child chunks (précis)
-   - Contexte via parent chunks (riche)
-   - Gain attendu : +30% qualité
-
-2. **Migration BGE-M3 Embeddings** (8K tokens context)
-   - Chunks jusqu'à 4000 tokens sans dégradation
-   - Context window 16x plus large que E5-large
-   - Gain attendu : +40% sur très petits docs
-
-3. **Multi-Query Retrieval**
-   - 3 variations de la question
-   - Fusion des résultats (Reciprocal Rank Fusion)
-   - Gain attendu : +15% recall
-
 
 
 Matraquer qu'il faut des moyens, pour industrialiser et répondre à la conformité et la qualité
 Comment tu arrives à ca , dans d'autres usages
 
+
+curl -X POST https://backend-nava.lab-numihfrance.fr/api/reports/test-email \
+    -H "Content-Type: application/json" \
+    -d '{"to":"famatulli@gmail.com"}'
