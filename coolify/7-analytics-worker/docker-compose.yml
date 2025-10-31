@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  ragfab-analytics-worker:
+    build:
+      context: .
+      dockerfile: analytics-worker/Dockerfile
+    container_name: ragfab-analytics-worker
+    environment:
+      # Database connection
+      DATABASE_URL: ${DATABASE_URL:-postgresql://raguser:ragpass@ragfab-postgres.internal:5432/ragdb}
+
+      # Chocolatine LLM pour validation IA
+      CHOCOLATINE_WORKER_API_URL: ${CHOCOLATINE_WORKER_API_URL:-https://apigpt.mynumih.fr}
+      CHOCOLATINE_WORKER_API_KEY: ${CHOCOLATINE_WORKER_API_KEY:-}
+      CHOCOLATINE_WORKER_MODEL: ${CHOCOLATINE_WORKER_MODEL:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+      CHOCOLATINE_WORKER_TIMEOUT: ${CHOCOLATINE_WORKER_TIMEOUT:-120.0}
+
+      # Worker configuration
+      QUALITY_ANALYSIS_SCHEDULE: ${QUALITY_ANALYSIS_SCHEDULE:-03:00}
+      WORKER_CHECK_INTERVAL: ${WORKER_CHECK_INTERVAL:-60}
+
+      # Quality thresholds
+      QUALITY_SATISFACTION_THRESHOLD: ${QUALITY_SATISFACTION_THRESHOLD:-0.3}
+      QUALITY_MIN_APPEARANCES: ${QUALITY_MIN_APPEARANCES:-3}
+
+      # Logs
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    restart: unless-stopped
+
+    # Limites de ressources (analytics worker est léger)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Healthcheck (vérifie que le worker est actif)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    external: true
+    name: coolify
