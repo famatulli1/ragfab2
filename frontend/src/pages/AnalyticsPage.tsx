@@ -8,8 +8,7 @@ import {
   FileText,
   MessageSquare,
   ArrowLeft,
-  ThumbsUp,
-  ThumbsDown
+  ThumbsUp
 } from 'lucide-react';
 import { useTheme } from '../App';
 import UserMenu from '../components/UserMenu';
@@ -117,6 +116,16 @@ export default function AnalyticsPage() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      navigate('/login');
+    }
+  };
+
   const globalStats: GlobalStats | null = summary?.global;
   const depthStats: DepthStats[] = summary?.by_depth || [];
   const rerankingStats: RerankingStats[] = rerankingComparison?.stats || [];
@@ -161,7 +170,7 @@ export default function AnalyticsPage() {
                 <option value={90}>90 derniers jours</option>
               </select>
 
-              {currentUser && <UserMenu user={currentUser} />}
+              {currentUser && <UserMenu user={currentUser} onLogout={handleLogout} />}
             </div>
           </div>
         </div>
