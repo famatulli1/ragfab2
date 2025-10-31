@@ -222,12 +222,15 @@ export default function ChatPage() {
 
   const rateMessage = async (messageId: string, rating: 1 | -1) => {
     try {
+      console.log('🎯 Rating message:', messageId, 'with rating:', rating);
       await api.rateMessage(messageId, { rating });
+      console.log('✅ Rating successful');
       setMessages(msgs =>
         msgs.map(m => m.id === messageId ? { ...m, rating } : m)
       );
     } catch (error) {
-      console.error('Error rating message:', error);
+      console.error('❌ Error rating message:', error);
+      alert(`Erreur lors du rating: ${error}`);
     }
   };
 
@@ -659,20 +662,30 @@ export default function ChatPage() {
                           <RotateCw size={16} />
                         </button>
                         <button
-                          onClick={() => rateMessage(message.id, 1)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            rateMessage(message.id, 1);
+                          }}
                           className={`btn-ghost p-1 ${
                             message.rating === 1 ? 'text-green-500' : ''
                           }`}
                           title="Bon"
+                          type="button"
                         >
                           <ThumbsUp size={16} />
                         </button>
                         <button
-                          onClick={() => rateMessage(message.id, -1)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            rateMessage(message.id, -1);
+                          }}
                           className={`btn-ghost p-1 ${
                             message.rating === -1 ? 'text-red-500' : ''
                           }`}
                           title="Mauvais"
+                          type="button"
                         >
                           <ThumbsDown size={16} />
                         </button>
