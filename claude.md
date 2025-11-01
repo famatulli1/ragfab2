@@ -1014,11 +1014,11 @@ VLM_ENABLED=false  # Set to true to activate
 
 # Moteur VLM par défaut pour extraction d'images
 # Options:
-#   - paddleocr-vl: Local, rapide, excellent OCR (RECOMMANDÉ pour documents techniques)
-#   - internvl: API distant, descriptions riches (meilleur pour contexte narratif)
+#   - internvl: API distant, descriptions riches, excellent OCR (RECOMMANDÉ - meilleure qualité globale)
+#   - paddleocr-vl: Local, rapide, bon OCR mais peut échouer sur screenshots/contraste faible
 #   - none: Pas d'extraction d'images
 # Note: Peut être surchargé par utilisateur à l'upload via interface admin
-IMAGE_PROCESSOR_ENGINE=paddleocr-vl
+IMAGE_PROCESSOR_ENGINE=internvl
 
 # -------- PaddleOCR-VL Configuration (local) --------
 # Activer accélération GPU pour PaddleOCR (true/false)
@@ -1351,13 +1351,13 @@ const onDrop = useCallback(async (acceptedFiles: File[]) => {
 DOCLING_OCR_ENGINE=rapidocr
 
 # VLM Engine Default (can be overridden per job in UI)
-IMAGE_PROCESSOR_ENGINE=paddleocr-vl
+IMAGE_PROCESSOR_ENGINE=internvl  # CHANGED: InternVL is now default for better quality
 ```
 
 **Benefits of Triple-Engine System**:
 - ✅ **Complete Flexibility**: Users choose optimal OCR + VLM + Chunker per document type
+- ✅ **Quality**: RapidOCR + InternVL + Hybrid = best balance quality/speed (RECOMMENDED default)
 - ✅ **Performance**: RapidOCR + PaddleOCR-VL + Hybrid = fastest combination (~2-4s/page)
-- ✅ **Quality**: Tesseract + InternVL + Parent-Child = highest quality for complex documents
 - ✅ **Cost Optimization**: PaddleOCR-VL (local) vs InternVL (API) based on budget
 - ✅ **Backward Compatible**: Defaults maintain existing behavior
 - ✅ **Per-Job Config**: No global .env changes needed for one-off documents
@@ -1366,11 +1366,12 @@ IMAGE_PROCESSOR_ENGINE=paddleocr-vl
 **Use Case Examples**:
 
 1. **Modern digital PDF (text-heavy)**: RapidOCR + None + Hybrid
-2. **Technical manual (diagrams)**: RapidOCR + PaddleOCR-VL + Hybrid (preserves tables/structure)
+2. **Technical manual (screenshots/diagrams)**: RapidOCR + InternVL + Hybrid (DEFAULT - best quality)
 3. **Scanned archive (high quality)**: Tesseract + InternVL + Hybrid
 4. **Medical protocol (precision)**: EasyOCR + InternVL + Hybrid (structured steps)
 5. **Interview transcript**: RapidOCR + None + Parent-Child (long narrative)
 6. **Book chapter**: EasyOCR + None + Parent-Child (unstructured continuous text)
+7. **Speed priority (local processing)**: RapidOCR + PaddleOCR-VL + Hybrid (fastest, but may fail on low-contrast screenshots)
 
 **Testing & Troubleshooting**:
 
