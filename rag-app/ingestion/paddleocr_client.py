@@ -146,11 +146,20 @@ class PaddleOCRVLClient:
             if result and len(result) > 0:
                 # Get first page results
                 page_results = result[0]
-                logger.debug(f"Page results type: {type(page_results)}, count: {len(page_results) if page_results else 0}")
+                logger.info(f"📊 Page results type: {type(page_results)}, count: {len(page_results) if page_results else 0}")
+
+                # Debug: Log first few items to understand structure
+                if page_results and len(page_results) > 0:
+                    logger.info(f"🔍 First result item type: {type(page_results[0])}")
+                    logger.info(f"🔍 First result item: {page_results[0]}")
+                    if len(page_results) > 1:
+                        logger.info(f"🔍 Second result item: {page_results[1]}")
 
                 if page_results:
                     for idx, line in enumerate(page_results):
                         # Each line: [box_coords, (text, confidence)]
+                        logger.debug(f"Processing line {idx}: type={type(line)}, content={line}")
+
                         if len(line) >= 2:
                             text_info = line[1]  # (text, confidence)
                             if isinstance(text_info, (tuple, list)) and len(text_info) >= 2:
@@ -160,15 +169,15 @@ class PaddleOCRVLClient:
                                 if text:
                                     texts.append(str(text))
                                     confidences.append(float(confidence))
-                                    logger.debug(f"Line {idx}: '{text}' (confidence: {confidence:.2f})")
+                                    logger.debug(f"✅ Line {idx}: '{text}' (confidence: {confidence:.2f})")
                             else:
-                                logger.warning(f"Line {idx}: Unexpected text_info format: {text_info}")
+                                logger.warning(f"❌ Line {idx}: Unexpected text_info format: {text_info} (type: {type(text_info)})")
                         else:
-                            logger.warning(f"Line {idx}: Unexpected line format (length={len(line)}): {line}")
+                            logger.warning(f"❌ Line {idx}: Unexpected line format (length={len(line)}): {line}")
                 else:
-                    logger.warning("Page results is None or empty")
+                    logger.warning("⚠️ Page results is None or empty")
             else:
-                logger.warning(f"OCR result is empty or None: {result}")
+                logger.warning(f"⚠️ OCR result is empty or None: {result}")
 
             # Combine extracted texts
             ocr_text = "\n".join(texts) if texts else ""
