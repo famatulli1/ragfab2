@@ -139,57 +139,47 @@ class PaddleOCRVLClient:
             confidences = []
 
             # Handle PaddleOCR 3.x output format
-            # Can be either:
-            # 1. Tuple: (status_code, results) where status_code=0 for success
-            # 2. List: [[...]] for direct results
-            page_results = None
+            # PaddleOCR 3.x returns an OCRResult object with attributes:
+            # - rec_texts: list of text strings
+            # - rec_scores: list of confidence scores
+            # - rec_polys: list of polygon coordinates
+            # Access via attributes, not dict methods
 
-            if isinstance(ocr_output, tuple) and len(ocr_output) >= 2:
-                # Format: (0, [[box, (text, conf)], ...])
-                status_code = ocr_output[0]
-                page_results = ocr_output[1]
-                logger.info(f"📊 Tuple format detected: status={status_code}, results type={type(page_results)}")
-            elif isinstance(ocr_output, list) and len(ocr_output) > 0:
-                # Format: [[box, (text, conf)], ...]
-                page_results = ocr_output[0] if ocr_output else None
-                logger.info(f"📊 List format detected: results type={type(page_results)}")
+            # Check if it's an OCRResult object (has rec_texts attribute)
+            if hasattr(ocr_output, 'rec_texts') and hasattr(ocr_output, 'rec_scores'):
+                # PaddleOCR 3.x OCRResult object - use attributes directly
+                rec_texts = ocr_output.rec_texts
+                rec_scores = ocr_output.rec_scores
+
+                logger.info(f"📊 OCRResult format detected: {len(rec_texts)} texts extracted")
+                logger.info(f"🔍 Sample texts: {rec_texts[:3] if rec_texts else 'None'}")
+                logger.info(f"🔍 Sample scores: {rec_scores[:3] if rec_scores else 'None'}")
+
+                # Extract text and confidence pairs
+                for idx, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                    if text and isinstance(text, str):
+                        texts.append(text)
+                        confidences.append(float(score))
+                        logger.debug(f"✅ Line {idx}: '{text}' (confidence: {score:.2f})")
+                    else:
+                        logger.warning(f"❌ Line {idx}: Unexpected text format: {text} (type: {type(text)})")
+
+            # Fallback: try dict access for compatibility
+            elif hasattr(ocr_output, 'get') or isinstance(ocr_output, dict):
+                rec_texts = ocr_output.get('rec_texts', [])
+                rec_scores = ocr_output.get('rec_scores', [])
+
+                logger.info(f"📊 Dict format detected: {len(rec_texts)} texts extracted")
+
+                for idx, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                    if text and isinstance(text, str):
+                        texts.append(text)
+                        confidences.append(float(score))
+                        logger.debug(f"✅ Line {idx}: '{text}' (confidence: {score:.2f})")
+
             else:
                 logger.warning(f"⚠️ Unexpected OCR output format: {type(ocr_output)}")
-
-            # Debug: Log first few items to understand structure
-            if page_results:
-                if isinstance(page_results, (list, tuple)) and len(page_results) > 0:
-                    logger.info(f"🔍 Page results count: {len(page_results)}")
-                    logger.info(f"🔍 First result item type: {type(page_results[0])}")
-                    logger.info(f"🔍 First result item: {page_results[0]}")
-                    if len(page_results) > 1:
-                        logger.info(f"🔍 Second result item: {page_results[1]}")
-                else:
-                    logger.warning(f"⚠️ Page results not indexable: type={type(page_results)}, value={page_results}")
-
-                if page_results:
-                    for idx, line in enumerate(page_results):
-                        # Each line: [box_coords, (text, confidence)]
-                        logger.debug(f"Processing line {idx}: type={type(line)}, content={line}")
-
-                        if len(line) >= 2:
-                            text_info = line[1]  # (text, confidence)
-                            if isinstance(text_info, (tuple, list)) and len(text_info) >= 2:
-                                text = text_info[0]
-                                confidence = text_info[1]
-
-                                if text:
-                                    texts.append(str(text))
-                                    confidences.append(float(confidence))
-                                    logger.debug(f"✅ Line {idx}: '{text}' (confidence: {confidence:.2f})")
-                            else:
-                                logger.warning(f"❌ Line {idx}: Unexpected text_info format: {text_info} (type: {type(text_info)})")
-                        else:
-                            logger.warning(f"❌ Line {idx}: Unexpected line format (length={len(line)}): {line}")
-                else:
-                    logger.warning("⚠️ Page results is None or empty")
-            else:
-                logger.warning(f"⚠️ OCR result is empty or None: {result}")
+                logger.warning(f"⚠️ Output structure: {dir(ocr_output)}")
 
             # Combine extracted texts
             ocr_text = "\n".join(texts) if texts else ""
