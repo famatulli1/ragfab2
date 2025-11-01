@@ -313,3 +313,136 @@ async def delete_ingestion_job(
                 logger.warning(f"Could not cleanup job directory {job_dir}: {e}")
 
         return {"message": f"Job {job_id} supprimé"}
+
+
+class ReingestionRequest(BaseModel):
+    ocr_engine: str = "rapidocr"
+    vlm_engine: str = "paddleocr-vl"
+    chunker_type: str = "hybrid"
+
+
+@router.post("/documents/{document_id}/reingest")
+async def reingest_document(
+    request: Request,
+    document_id: UUID,
+    config: ReingestionRequest,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """
+    Réingère un document existant avec de nouveaux paramètres.
+
+    Workflow:
+    1. Récupère le job d'ingestion original
+    2. Vérifie que le fichier existe encore
+    3. Supprime l'ancien document (CASCADE sur chunks/images)
+    4. Crée un nouveau job d'ingestion
+    5. Copie le fichier dans le nouveau dossier job
+    6. Le worker traitera le fichier automatiquement
+
+    Retourne 404 si le fichier original n'existe plus.
+    """
+    logger.info(f"🔄 Reingest request for document {document_id} with ocr={config.ocr_engine}, vlm={config.vlm_engine}, chunker={config.chunker_type}")
+
+    # Validate parameters
+    allowed_ocr = {"rapidocr", "easyocr", "tesseract"}
+    allowed_vlm = {"paddleocr-vl", "internvl", "none"}
+    allowed_chunker = {"hybrid", "parent_child"}
+
+    if config.ocr_engine not in allowed_ocr:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OCR engine invalide. Valeurs acceptées : {allowed_ocr}"
+        )
+
+    if config.vlm_engine not in allowed_vlm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"VLM engine invalide. Valeurs acceptées : {allowed_vlm}"
+        )
+
+    if config.chunker_type not in allowed_chunker:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chunker type invalide. Valeurs acceptées : {allowed_chunker}"
+        )
+
+    async with database.db_pool.acquire() as conn:
+        # Get original document info
+        document = await conn.fetchrow("""
+            SELECT title, source FROM documents WHERE id = $1::uuid
+        """, str(document_id))
+
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document {document_id} non trouvé"
+            )
+
+        # Get original ingestion job (most recent)
+        original_job = await conn.fetchrow("""
+            SELECT id, filename
+            FROM ingestion_jobs
+            WHERE document_id = $1::uuid
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, str(document_id))
+
+        if not original_job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job d'ingestion original non trouvé pour le document {document_id}"
+            )
+
+        # Check if original file still exists
+        original_job_dir = Path(settings.UPLOAD_DIR) / str(original_job["id"])
+        original_file_path = original_job_dir / original_job["filename"]
+
+        if not original_file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Fichier original non trouvé dans {original_file_path}. Veuillez re-uploader le document manuellement."
+            )
+
+        logger.info(f"✅ Original file found: {original_file_path}")
+
+        # Create new ingestion job
+        new_job_id = uuid4()
+        new_job_dir = Path(settings.UPLOAD_DIR) / str(new_job_id)
+        new_job_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy file to new job directory
+        new_file_path = new_job_dir / original_job["filename"]
+        try:
+            shutil.copy2(original_file_path, new_file_path)
+            logger.info(f"✅ File copied to: {new_file_path}")
+        except Exception as e:
+            # Cleanup on error
+            if new_job_dir.exists():
+                shutil.rmtree(new_job_dir)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Erreur lors de la copie du fichier : {str(e)}"
+            )
+
+        # Create ingestion job in database
+        await conn.execute("""
+            INSERT INTO ingestion_jobs
+            (id, filename, status, ocr_engine, vlm_engine, chunker_type)
+            VALUES ($1, $2, 'pending', $3, $4, $5)
+        """, str(new_job_id), original_job["filename"], config.ocr_engine, config.vlm_engine, config.chunker_type)
+
+        logger.info(f"✅ New ingestion job created: {new_job_id}")
+
+        # Delete old document (CASCADE will delete chunks, images, ratings, etc.)
+        await conn.execute("""
+            DELETE FROM documents WHERE id = $1::uuid
+        """, str(document_id))
+
+        logger.info(f"✅ Old document deleted: {document_id}")
+
+        return {
+            "job_id": str(new_job_id),
+            "message": f"Réingestion lancée pour '{document['title']}' avec OCR={config.ocr_engine}, VLM={config.vlm_engine}, Chunker={config.chunker_type}",
+            "old_document_id": str(document_id),
+            "new_job_id": str(new_job_id)
+        }

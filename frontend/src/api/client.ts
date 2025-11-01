@@ -167,6 +167,18 @@ class APIClient {
     await this.client.delete(`/api/documents/${id}`);
   }
 
+  async reingestDocument(
+    documentId: string,
+    config: {
+      ocr_engine: 'rapidocr' | 'easyocr' | 'tesseract';
+      vlm_engine: 'paddleocr-vl' | 'internvl' | 'none';
+      chunker_type: 'hybrid' | 'parent_child';
+    }
+  ): Promise<{ job_id: string; message: string; old_document_id: string; new_job_id: string }> {
+    const { data } = await this.client.post(`/api/admin/documents/${documentId}/reingest`, config);
+    return data;
+  }
+
   // ============================================================================
   // Conversations
   // ============================================================================

@@ -105,6 +105,20 @@ const QualityManagementPage = () => {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
+  // Reingestion Modal
+  const [showReingestionModal, setShowReingestionModal] = useState(false);
+  const [selectedDocForReingest, setSelectedDocForReingest] = useState<ReingestionDoc | null>(null);
+  const [reingestionConfig, setReingestionConfig] = useState<{
+    ocr_engine: 'rapidocr' | 'easyocr' | 'tesseract';
+    vlm_engine: 'paddleocr-vl' | 'internvl' | 'none';
+    chunker_type: 'hybrid' | 'parent_child';
+  }>({
+    ocr_engine: 'rapidocr',
+    vlm_engine: 'paddleocr-vl',
+    chunker_type: 'hybrid'
+  });
+  const [reingesting, setReingesting] = useState(false);
+
   useEffect(() => {
     if (activeTab === 'blacklisted') {
       fetchBlacklistedChunks();
@@ -222,6 +236,60 @@ const QualityManagementPage = () => {
     } catch (error) {
       console.error('Error ignoring recommendation:', error);
       alert('Erreur lors de l\'ignorage de la recommandation');
+    }
+  };
+
+  const openReingestionModal = (doc: ReingestionDoc) => {
+    // Parse Chocolatine recommendations to pre-fill config
+    const aiConfig = doc.last_ai_analysis?.reingestion_config || '';
+    const configText = aiConfig.toLowerCase();
+
+    // Smart parsing of Chocolatine recommendations
+    const newConfig = {
+      ocr_engine: (
+        configText.includes('tesseract') ? 'tesseract' :
+        configText.includes('easyocr') ? 'easyocr' :
+        'rapidocr'
+      ) as 'rapidocr' | 'easyocr' | 'tesseract',
+      vlm_engine: (
+        configText.includes('internvl') ? 'internvl' :
+        configText.includes('vlm') || configText.includes('image') ? 'paddleocr-vl' :
+        'paddleocr-vl'
+      ) as 'paddleocr-vl' | 'internvl' | 'none',
+      chunker_type: (
+        configText.includes('parent') || configText.includes('child') ? 'parent_child' :
+        'hybrid'
+      ) as 'hybrid' | 'parent_child'
+    };
+
+    setSelectedDocForReingest(doc);
+    setReingestionConfig(newConfig);
+    setShowReingestionModal(true);
+  };
+
+  const handleConfirmReingest = async () => {
+    if (!selectedDocForReingest) return;
+
+    try {
+      setReingesting(true);
+      const response = await api.reingestDocument(selectedDocForReingest.document_id, reingestionConfig);
+      console.log('✅ Reingestion started:', response);
+
+      // Close modal and reload list
+      setShowReingestionModal(false);
+      setSelectedDocForReingest(null);
+
+      // Show success message
+      alert(`Réingestion lancée avec succès !\n\nJob ID: ${response.job_id}\n\n${response.message}`);
+
+      // Reload docs list
+      await fetchReingestionDocs();
+    } catch (error: any) {
+      console.error('❌ Error during reingestion:', error);
+      const message = error.response?.data?.detail || error.message || 'Erreur inconnue';
+      alert(`Erreur lors de la réingestion:\n\n${message}`);
+    } finally {
+      setReingesting(false);
     }
   };
 
@@ -527,12 +595,7 @@ const QualityManagementPage = () => {
 
                       <div className="flex flex-col gap-2 ml-4">
                         <button
-                          onClick={() => {
-                            if (confirm(`Voulez-vous supprimer et réingérer "${doc.title}" ?`)) {
-                              // TODO: Implement reingest flow
-                              alert('Fonctionnalité de réingestion à implémenter via l\'interface d\'upload');
-                            }
-                          }}
+                          onClick={() => openReingestionModal(doc)}
                           className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm flex items-center gap-1"
                         >
                           <RefreshCw className="w-4 h-4" />
@@ -815,6 +878,132 @@ const QualityManagementPage = () => {
           </div>
         )}
       </div>
+
+      {/* Reingestion Modal */}
+      {showReingestionModal && selectedDocForReingest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+              Réingérer le document
+            </h3>
+
+            {/* Document Info */}
+            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded">
+              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                Document : {selectedDocForReingest.title}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                Satisfaction : {selectedDocForReingest.satisfaction_rate !== null
+                  ? `${(selectedDocForReingest.satisfaction_rate * 100).toFixed(1)}%`
+                  : 'N/A'}
+              </p>
+            </div>
+
+            {/* AI Recommendations */}
+            {selectedDocForReingest.reingestion_reason && (
+              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
+                <p className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                  🤖 Recommandation IA :
+                </p>
+                <p className="text-xs text-blue-800 dark:text-blue-300">
+                  {selectedDocForReingest.reingestion_reason}
+                </p>
+                {selectedDocForReingest.last_ai_analysis?.reingestion_config && (
+                  <p className="text-xs text-blue-700 dark:text-blue-400 mt-2">
+                    <strong>Config suggérée :</strong> {selectedDocForReingest.last_ai_analysis.reingestion_config}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Configuration Dropdowns */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Moteur OCR (Docling)
+                </label>
+                <select
+                  value={reingestionConfig.ocr_engine}
+                  onChange={(e) => setReingestionConfig({
+                    ...reingestionConfig,
+                    ocr_engine: e.target.value as any
+                  })}
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="rapidocr">RapidOCR (Recommandé) - Rapide, multilingue</option>
+                  <option value="easyocr">EasyOCR - Standard Docling</option>
+                  <option value="tesseract">Tesseract - Haute qualité pour scans</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Moteur VLM (Images)
+                </label>
+                <select
+                  value={reingestionConfig.vlm_engine}
+                  onChange={(e) => setReingestionConfig({
+                    ...reingestionConfig,
+                    vlm_engine: e.target.value as any
+                  })}
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="paddleocr-vl">PaddleOCR-VL - Local, rapide</option>
+                  <option value="internvl">InternVL - API distant, descriptions riches</option>
+                  <option value="none">Aucun - Pas d'extraction d'images</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Stratégie de découpage
+                </label>
+                <select
+                  value={reingestionConfig.chunker_type}
+                  onChange={(e) => setReingestionConfig({
+                    ...reingestionConfig,
+                    chunker_type: e.target.value as any
+                  })}
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="hybrid">Hybrid (Recommandé) - Respecte structure</option>
+                  <option value="parent_child">Parent-Child - Longs textes</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Warning */}
+            <div className="mb-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                ⚠️ L'ancien document sera supprimé et remplacé par une nouvelle version.
+                Tous les chunks, images et ratings associés seront perdus.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowReingestionModal(false);
+                  setSelectedDocForReingest(null);
+                }}
+                disabled={reingesting}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleConfirmReingest}
+                disabled={reingesting}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {reingesting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {reingesting ? 'Réingestion en cours...' : 'Confirmer la réingestion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
