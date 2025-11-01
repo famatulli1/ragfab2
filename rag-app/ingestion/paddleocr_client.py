@@ -85,23 +85,20 @@ class PaddleOCRVLClient:
         )
 
         # Initialize PaddleOCR
-        # Note: PaddleOCR 2.7+ auto-detects GPU via PaddlePaddle backend
-        # GPU is used if paddlepaddle-gpu is installed, otherwise CPU
+        # Note: PaddleOCR 2.7+ has a simplified API
+        # - GPU auto-detected via PaddlePaddle backend (paddlepaddle vs paddlepaddle-gpu)
+        # - Many parameters removed (use_gpu, show_log, max_text_length)
         logger.info(
-            f"Initializing PaddleOCR-VL: lang={self.lang}, "
-            f"show_log={self.show_log} (GPU auto-detected by PaddlePaddle)"
+            f"Initializing PaddleOCR-VL: lang={self.lang} "
+            f"(GPU auto-detected by PaddlePaddle)"
         )
 
         try:
-            # PaddleOCR 2.7+ removed use_gpu parameter
-            # GPU is auto-detected based on installed backend (paddlepaddle vs paddlepaddle-gpu)
+            # PaddleOCR 2.7+ minimal configuration
+            # Only core parameters are supported
             self.ocr = PaddleOCR(
                 use_angle_cls=True,  # Auto rotation for angled text
-                lang=self.lang,  # Language model
-                show_log=self.show_log,  # Debug logs
-                det_db_thresh=0.3,  # Detection threshold (lower = more sensitive)
-                rec_batch_num=6,  # Batch size for recognition (higher = faster)
-                max_text_length=1000  # Support long texts in screenshots
+                lang=self.lang,  # Language model (e.g., 'fr', 'en')
             )
 
             # Log backend info
