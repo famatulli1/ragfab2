@@ -26,7 +26,7 @@ export default function AdminPage() {
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, IngestionJob>>(new Map());
   const [showChunks, setShowChunks] = useState(false);
   const [selectedOcrEngine, setSelectedOcrEngine] = useState<OcrEngine>('rapidocr');
-  const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('paddleocr-vl');
+  const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('internvl');
   const [selectedChunkerType, setSelectedChunkerType] = useState<ChunkerType>('hybrid');
 
   useEffect(() => {
@@ -257,8 +257,8 @@ export default function AdminPage() {
                       onChange={(e) => setSelectedVlmEngine(e.target.value as VlmEngine)}
                       className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="paddleocr-vl">PaddleOCR-VL (Recommandé) - Local, rapide</option>
-                      <option value="internvl">InternVL - API distant, descriptions riches</option>
+                      <option value="internvl">InternVL (Recommandé) - API distant, meilleure qualité</option>
+                      <option value="paddleocr-vl">PaddleOCR-VL - Local, rapide (peut échouer sur screenshots)</option>
                       <option value="none">Aucun - Pas d'extraction d'images</option>
                     </select>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
