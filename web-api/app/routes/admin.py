@@ -434,7 +434,26 @@ async def reingest_document(
 
         logger.info(f"✅ New ingestion job created: {new_job_id}")
 
-        # Delete old document (CASCADE will delete chunks, images, ratings, etc.)
+        # Delete ratings for messages that reference chunks from this document
+        # (important pour analytics - sinon les anciens ratings polluent les stats)
+        deleted_ratings = await conn.fetchval("""
+            WITH document_chunks AS (
+                SELECT id FROM chunks WHERE document_id = $1::uuid
+            ),
+            messages_to_clean AS (
+                SELECT DISTINCT m.id
+                FROM messages m
+                CROSS JOIN LATERAL jsonb_array_elements(m.sources) AS source
+                WHERE (source->>'chunk_id')::uuid IN (SELECT id FROM document_chunks)
+            )
+            DELETE FROM message_ratings
+            WHERE message_id IN (SELECT id FROM messages_to_clean)
+            RETURNING COUNT(*)
+        """, str(document_id))
+
+        logger.info(f"✅ Deleted {deleted_ratings or 0} ratings from messages referencing old document chunks")
+
+        # Delete old document (CASCADE will delete chunks, images, etc.)
         await conn.execute("""
             DELETE FROM documents WHERE id = $1::uuid
         """, str(document_id))
