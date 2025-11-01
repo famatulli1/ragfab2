@@ -127,33 +127,45 @@ class PaddleOCRVLClient:
             logger.debug(f"Image converted to numpy: shape={image_np.shape}")
 
             # Run OCR (synchronous - PaddleOCR doesn't support async)
-            # PaddleOCR 3.x API: ocr() method returns structure:
-            # result = [
-            #   [  # page 1 (for images, always single page)
-            #     [ [[x1,y1], [x2,y2], [x3,y3], [x4,y4]], ('text', confidence) ],
-            #     ...
-            #   ]
-            # ]
+            # PaddleOCR 3.x API: ocr() method returns tuple (status, result)
+            # status = 0 for success
+            # result = list of detected text items
             logger.info("🔄 PaddleOCR: Running OCR...")
-            result = self.ocr.ocr(image_np)
-            logger.debug(f"OCR result type: {type(result)}, length: {len(result) if result else 0}")
+            ocr_output = self.ocr.ocr(image_np)
+            logger.info(f"OCR output type: {type(ocr_output)}, content: {ocr_output}")
 
             # Extract text lines and confidence scores
             texts = []
             confidences = []
 
-            # PaddleOCR returns results for each page (images have 1 page)
-            if result and len(result) > 0:
-                # Get first page results
-                page_results = result[0]
-                logger.info(f"📊 Page results type: {type(page_results)}, count: {len(page_results) if page_results else 0}")
+            # Handle PaddleOCR 3.x output format
+            # Can be either:
+            # 1. Tuple: (status_code, results) where status_code=0 for success
+            # 2. List: [[...]] for direct results
+            page_results = None
 
-                # Debug: Log first few items to understand structure
-                if page_results and len(page_results) > 0:
+            if isinstance(ocr_output, tuple) and len(ocr_output) >= 2:
+                # Format: (0, [[box, (text, conf)], ...])
+                status_code = ocr_output[0]
+                page_results = ocr_output[1]
+                logger.info(f"📊 Tuple format detected: status={status_code}, results type={type(page_results)}")
+            elif isinstance(ocr_output, list) and len(ocr_output) > 0:
+                # Format: [[box, (text, conf)], ...]
+                page_results = ocr_output[0] if ocr_output else None
+                logger.info(f"📊 List format detected: results type={type(page_results)}")
+            else:
+                logger.warning(f"⚠️ Unexpected OCR output format: {type(ocr_output)}")
+
+            # Debug: Log first few items to understand structure
+            if page_results:
+                if isinstance(page_results, (list, tuple)) and len(page_results) > 0:
+                    logger.info(f"🔍 Page results count: {len(page_results)}")
                     logger.info(f"🔍 First result item type: {type(page_results[0])}")
                     logger.info(f"🔍 First result item: {page_results[0]}")
                     if len(page_results) > 1:
                         logger.info(f"🔍 Second result item: {page_results[1]}")
+                else:
+                    logger.warning(f"⚠️ Page results not indexable: type={type(page_results)}, value={page_results}")
 
                 if page_results:
                     for idx, line in enumerate(page_results):
