@@ -15,7 +15,8 @@
       "Bash(do)",
       "Bash(echo \"=== $file ===\")",
       "Bash(done)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "mcp__fetch__imageFetch"
     ],
     "deny": [],
     "ask": []
