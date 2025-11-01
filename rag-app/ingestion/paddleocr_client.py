@@ -183,6 +183,11 @@ class PaddleOCRVLClient:
             # Fallback: try OCRResult object format (PaddleX or older PaddleOCR)
             elif hasattr(ocr_output, '__class__') and 'OCRResult' in str(type(ocr_output)):
                 logger.info(f"📊 OCRResult object detected: {type(ocr_output)}")
+
+                # DEBUG: Print ALL non-private attributes with their values
+                debug_attrs = {attr: getattr(ocr_output, attr, None) for attr in dir(ocr_output) if not attr.startswith('_')}
+                logger.info(f"🔍 DEBUG - OCRResult attributes: {debug_attrs}")
+
                 logger.debug(f"Available attributes: {[attr for attr in dir(ocr_output) if not attr.startswith('_')]}")
 
                 # Try multiple attribute patterns for different PaddleX/PaddleOCR versions
