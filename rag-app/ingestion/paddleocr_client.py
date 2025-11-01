@@ -145,17 +145,40 @@ class PaddleOCRVLClient:
             # Angle classification is now controlled by use_angle_cls in __init__
             result = self.ocr.ocr(image_np)
 
+            # Debug: Log result structure to understand format (INFO level for visibility)
+            logger.info(f"PaddleOCR raw result type: {type(result)}")
+            if result:
+                logger.info(f"PaddleOCR result length: {len(result)}")
+                if result and len(result) > 0:
+                    logger.info(f"PaddleOCR result[0] type: {type(result[0])}")
+                    if result[0] and len(result[0]) > 0:
+                        logger.info(f"PaddleOCR first line sample: {result[0][0]}")
+
             # Extract text lines and confidence scores
             texts = []
             confidences = []
 
             if result and result[0]:
                 for line in result[0]:
-                    # PaddleOCR result format: [[box], (text, confidence)]
-                    text = line[1][0]
-                    conf = line[1][1]
-                    texts.append(text)
-                    confidences.append(conf)
+                    # PaddleOCR 2.7+ result format: [[box], [text, confidence]]
+                    # Old format was: [[box], (text, confidence)]
+                    # Handle both formats for compatibility
+                    try:
+                        # line[0] = box coordinates [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                        # line[1] = [text, confidence] or (text, confidence)
+                        text_data = line[1]
+
+                        # Extract text and confidence (works for both list and tuple)
+                        if isinstance(text_data, (list, tuple)) and len(text_data) >= 2:
+                            text = text_data[0]
+                            conf = text_data[1]
+                            texts.append(str(text))
+                            confidences.append(float(conf))
+                        else:
+                            logger.warning(f"Unexpected PaddleOCR result format: {text_data}")
+                    except (IndexError, TypeError, ValueError) as e:
+                        logger.warning(f"Failed to parse PaddleOCR line: {line}, error: {e}")
+                        continue
 
             # Combine extracted texts
             ocr_text = "\n".join(texts) if texts else ""
