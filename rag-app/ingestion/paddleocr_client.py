@@ -141,7 +141,9 @@ class PaddleOCRVLClient:
             image_np = np.array(image)
 
             # Run OCR (synchronous - PaddleOCR doesn't support async)
-            result = self.ocr.ocr(image_np, cls=True)
+            # Note: PaddleOCR 2.7+ removed 'cls' parameter
+            # Angle classification is now controlled by use_angle_cls in __init__
+            result = self.ocr.ocr(image_np)
 
             # Extract text lines and confidence scores
             texts = []
