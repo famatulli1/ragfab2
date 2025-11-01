@@ -85,22 +85,28 @@ class PaddleOCRVLClient:
         )
 
         # Initialize PaddleOCR
+        # Note: PaddleOCR 2.7+ auto-detects GPU via PaddlePaddle backend
+        # GPU is used if paddlepaddle-gpu is installed, otherwise CPU
         logger.info(
             f"Initializing PaddleOCR-VL: lang={self.lang}, "
-            f"gpu={self.use_gpu}, show_log={self.show_log}"
+            f"show_log={self.show_log} (GPU auto-detected by PaddlePaddle)"
         )
 
         try:
+            # PaddleOCR 2.7+ removed use_gpu parameter
+            # GPU is auto-detected based on installed backend (paddlepaddle vs paddlepaddle-gpu)
             self.ocr = PaddleOCR(
                 use_angle_cls=True,  # Auto rotation for angled text
                 lang=self.lang,  # Language model
-                use_gpu=self.use_gpu,  # GPU acceleration
                 show_log=self.show_log,  # Debug logs
                 det_db_thresh=0.3,  # Detection threshold (lower = more sensitive)
                 rec_batch_num=6,  # Batch size for recognition (higher = faster)
                 max_text_length=1000  # Support long texts in screenshots
             )
-            logger.info("✅ PaddleOCR-VL initialized successfully (local processing)")
+
+            # Log backend info
+            backend = "GPU" if self.use_gpu else "CPU"
+            logger.info(f"✅ PaddleOCR-VL initialized successfully (backend: {backend})")
         except Exception as e:
             logger.error(f"Failed to initialize PaddleOCR: {e}")
             raise
