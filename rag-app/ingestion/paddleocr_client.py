@@ -180,16 +180,54 @@ class PaddleOCRVLClient:
                             logger.warning(f"⚠️ Error parsing line {line_idx}: {e}")
                             continue
 
-            # Fallback: try OCRResult object format (older versions)
-            elif hasattr(ocr_output, 'rec_texts') and hasattr(ocr_output, 'rec_scores'):
-                logger.info("📊 OCRResult object format detected")
-                rec_texts = ocr_output.rec_texts
-                rec_scores = ocr_output.rec_scores
+            # Fallback: try OCRResult object format (PaddleX or older PaddleOCR)
+            elif hasattr(ocr_output, '__class__') and 'OCRResult' in str(type(ocr_output)):
+                logger.info(f"📊 OCRResult object detected: {type(ocr_output)}")
+                logger.debug(f"Available attributes: {[attr for attr in dir(ocr_output) if not attr.startswith('_')]}")
 
-                for idx, (text, score) in enumerate(zip(rec_texts, rec_scores)):
-                    if text and isinstance(text, str):
-                        texts.append(text)
-                        confidences.append(float(score))
+                # Try multiple attribute patterns for different PaddleX/PaddleOCR versions
+                # Pattern 1: rec_texts, rec_scores (PaddleOCR 2.x style)
+                if hasattr(ocr_output, 'rec_texts') and hasattr(ocr_output, 'rec_scores'):
+                    rec_texts = ocr_output.rec_texts
+                    rec_scores = ocr_output.rec_scores
+                    logger.info(f"Using rec_texts/rec_scores attributes: {len(rec_texts)} lines")
+
+                    for idx, (text, score) in enumerate(zip(rec_texts, rec_scores)):
+                        if text and isinstance(text, str):
+                            texts.append(text)
+                            confidences.append(float(score))
+
+                # Pattern 2: Try accessing as list-like with __getitem__ (PaddleX might use this)
+                elif hasattr(ocr_output, '__iter__') and not isinstance(ocr_output, str):
+                    logger.info("Trying to iterate OCRResult object")
+                    try:
+                        for page_result in ocr_output:
+                            if page_result and hasattr(page_result, '__iter__'):
+                                for line in page_result:
+                                    if isinstance(line, (list, tuple)) and len(line) >= 2:
+                                        bbox, text_info = line[0], line[1]
+                                        if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
+                                            text, confidence = text_info[0], text_info[1]
+                                            if text and isinstance(text, str):
+                                                texts.append(text.strip())
+                                                confidences.append(float(confidence))
+                    except Exception as e:
+                        logger.warning(f"Failed to iterate OCRResult: {e}")
+
+                # Pattern 3: Check for common PaddleX attributes
+                elif hasattr(ocr_output, 'boxes') and hasattr(ocr_output, 'texts'):
+                    logger.info("Using boxes/texts attributes (PaddleX format)")
+                    ocr_texts = ocr_output.texts if hasattr(ocr_output, 'texts') else []
+                    ocr_scores = ocr_output.scores if hasattr(ocr_output, 'scores') else [1.0] * len(ocr_texts)
+
+                    for text, score in zip(ocr_texts, ocr_scores):
+                        if text and isinstance(text, str):
+                            texts.append(text)
+                            confidences.append(float(score) if isinstance(score, (int, float)) else 1.0)
+
+                else:
+                    logger.warning(f"⚠️ OCRResult object has no recognized attributes")
+                    logger.warning(f"Available: {[attr for attr in dir(ocr_output) if not attr.startswith('_')]}")
 
             else:
                 logger.warning(f"⚠️ Unexpected OCR output format: {type(ocr_output)}")
