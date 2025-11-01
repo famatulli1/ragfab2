@@ -115,12 +115,16 @@ class PaddleOCRVLClient:
             RuntimeError: If PaddleOCR processing fails
         """
         try:
+            logger.info("🔍 PaddleOCR: Starting image analysis...")
+
             # Decode base64 to image
             image_bytes = base64.b64decode(image_base64)
             image = Image.open(io.BytesIO(image_bytes))
+            logger.debug(f"Image decoded: size={image.size}, mode={image.mode}")
 
             # Convert to numpy array for PaddleOCR
             image_np = np.array(image)
+            logger.debug(f"Image converted to numpy: shape={image_np.shape}")
 
             # Run OCR (synchronous - PaddleOCR doesn't support async)
             # PaddleOCR 3.x API: ocr() method returns structure:
@@ -130,7 +134,9 @@ class PaddleOCRVLClient:
             #     ...
             #   ]
             # ]
+            logger.info("🔄 PaddleOCR: Running OCR...")
             result = self.ocr.ocr(image_np)
+            logger.debug(f"OCR result type: {type(result)}, length: {len(result) if result else 0}")
 
             # Extract text lines and confidence scores
             texts = []
@@ -140,9 +146,10 @@ class PaddleOCRVLClient:
             if result and len(result) > 0:
                 # Get first page results
                 page_results = result[0]
+                logger.debug(f"Page results type: {type(page_results)}, count: {len(page_results) if page_results else 0}")
 
                 if page_results:
-                    for line in page_results:
+                    for idx, line in enumerate(page_results):
                         # Each line: [box_coords, (text, confidence)]
                         if len(line) >= 2:
                             text_info = line[1]  # (text, confidence)
@@ -153,6 +160,15 @@ class PaddleOCRVLClient:
                                 if text:
                                     texts.append(str(text))
                                     confidences.append(float(confidence))
+                                    logger.debug(f"Line {idx}: '{text}' (confidence: {confidence:.2f})")
+                            else:
+                                logger.warning(f"Line {idx}: Unexpected text_info format: {text_info}")
+                        else:
+                            logger.warning(f"Line {idx}: Unexpected line format (length={len(line)}): {line}")
+                else:
+                    logger.warning("Page results is None or empty")
+            else:
+                logger.warning(f"OCR result is empty or None: {result}")
 
             # Combine extracted texts
             ocr_text = "\n".join(texts) if texts else ""
@@ -171,8 +187,10 @@ class PaddleOCRVLClient:
                     f"Document avec {len(texts)} ligne(s) de texte. "
                     f"Confiance moyenne: {avg_confidence:.1%}"
                 )
+                logger.info(f"✅ PaddleOCR extracted {len(texts)} text lines (avg confidence: {avg_confidence:.1%})")
             else:
                 description = "Image sans texte détectable"
+                logger.warning("❌ PaddleOCR found no text in image")
 
             logger.debug(
                 f"PaddleOCR 3.x extracted {len(texts)} text lines "
@@ -186,7 +204,7 @@ class PaddleOCRVLClient:
             raise ValueError(f"Invalid base64 image data: {e}")
 
         except Exception as e:
-            logger.error(f"PaddleOCR 3.x processing failed: {e}")
+            logger.error(f"PaddleOCR 3.x processing failed: {e}", exc_info=True)
             raise RuntimeError(f"PaddleOCR 3.x analysis error: {e}")
 
     def __repr__(self) -> str:
