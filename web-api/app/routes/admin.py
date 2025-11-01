@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from typing import List
 from uuid import UUID, uuid4
 from datetime import datetime
+from pydantic import BaseModel
 import logging
 import os
 import shutil
