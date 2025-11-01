@@ -126,30 +126,50 @@ class PaddleOCRVLClient:
             # PaddleOCR 3.x: use ocr() method (compatible with 2.x)
             result = self.ocr.ocr(image_np)
 
+            # Debug: Log raw result structure
+            logger.debug(f"PaddleOCR raw result type: {type(result)}")
+            if result:
+                logger.debug(f"PaddleOCR result length: {len(result)}")
+                if len(result) > 0:
+                    logger.debug(f"First element type: {type(result[0])}")
+                    if result[0] and len(result[0]) > 0:
+                        logger.debug(f"First line structure: {result[0][0]}")
+
             # Extract text lines and confidence scores
             texts = []
             confidences = []
 
-            # PaddleOCR 3.x result format: same as 2.x
-            # result[0] is a list of detection results
-            # Each result is [[box_coordinates], (text, confidence)]
+            # PaddleOCR 3.x result format: may vary
+            # Expected: result[0] = list of [[box], (text, conf)]
+            # But sometimes returns different structures
             if result and result[0]:
-                for line in result[0]:
+                for idx, line in enumerate(result[0]):
                     try:
-                        # line[0] = box coordinates [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-                        # line[1] = (text, confidence) or [text, confidence]
+                        # Debug first few lines
+                        if idx < 3:
+                            logger.debug(f"Line {idx} structure: {line}")
+
+                        # line should be: [[box_coordinates], (text, confidence)]
+                        if not isinstance(line, (list, tuple)) or len(line) < 2:
+                            logger.warning(f"Line {idx} invalid structure: {line}")
+                            continue
+
                         text_data = line[1]
 
-                        # Extract text and confidence (works for both tuple and list)
+                        # Extract text and confidence
                         if isinstance(text_data, (list, tuple)) and len(text_data) >= 2:
                             text = str(text_data[0])
                             conf = float(text_data[1])
                             texts.append(text)
                             confidences.append(conf)
+                        elif isinstance(text_data, str):
+                            # Single string (no confidence) - use default
+                            texts.append(text_data)
+                            confidences.append(0.9)  # Default confidence
                         else:
-                            logger.warning(f"Unexpected result format: {text_data}")
+                            logger.warning(f"Line {idx} unexpected text_data format: {text_data} (type: {type(text_data)})")
                     except (IndexError, TypeError, ValueError) as e:
-                        logger.warning(f"Failed to parse line: {line}, error: {e}")
+                        logger.warning(f"Failed to parse line {idx}: {line}, error: {e}")
                         continue
 
             # Combine extracted texts
