@@ -1,7 +1,7 @@
 """
 PaddleOCR-VL client for local OCR and image analysis.
 
-This module provides a wrapper around PaddleOCR for:
+This module provides a wrapper around PaddleOCR 3.x for:
 - Multilingual OCR (109 languages supported)
 - Layout detection (tables, figures, text blocks)
 - Fast local processing (no API calls needed)
@@ -9,6 +9,10 @@ This module provides a wrapper around PaddleOCR for:
 
 PaddleOCR-VL is optimized for documents with structured text (menus, buttons, code),
 making it ideal for software screenshots and technical documentation.
+
+Requires:
+- paddleocr>=3.0.0
+- paddlepaddle==3.2.0 (Python 3.11 compatible)
 """
 
 import os
@@ -27,7 +31,8 @@ try:
 except ImportError:
     PADDLEOCR_AVAILABLE = False
     logging.warning(
-        "PaddleOCR not installed. Install with: pip install paddleocr paddlepaddle"
+        "PaddleOCR not installed. Install with: "
+        "pip install paddleocr>=3.0.0 paddlepaddle==3.2.0"
     )
 
 load_dotenv()
@@ -37,70 +42,52 @@ logger = logging.getLogger(__name__)
 
 class PaddleOCRVLClient:
     """
-    Local PaddleOCR-VL client for image analysis.
+    Local PaddleOCR-VL client for image analysis (PaddleOCR 3.x API).
 
     Features:
     - Multilingual OCR (109 languages including French, English)
     - Layout detection and structure analysis
     - Local processing (no API calls, faster than VLM API)
     - Optimized for technical documents and screenshots
+    - GPU auto-detection (no manual configuration needed)
 
     Configuration via environment variables:
-    - PADDLEOCR_USE_GPU: Enable GPU acceleration (default: false)
-    - PADDLEOCR_LANG: OCR language(s), comma-separated (default: 'fr')
-    - PADDLEOCR_SHOW_LOG: Show PaddleOCR logs (default: false)
+    - PADDLEOCR_LANG: OCR language(s) (default: 'fr')
+
+    Note: GPU acceleration is auto-detected by PaddlePaddle in version 3.x
     """
 
     def __init__(
         self,
-        lang: Optional[str] = None,
-        use_gpu: Optional[bool] = None,
-        show_log: Optional[bool] = None
+        lang: Optional[str] = None
     ):
         """
-        Initialize PaddleOCR-VL client.
+        Initialize PaddleOCR 3.x client.
 
         Args:
             lang: OCR language ('fr', 'en', 'ch', etc.). Falls back to env PADDLEOCR_LANG
-            use_gpu: Use GPU acceleration. Falls back to env PADDLEOCR_USE_GPU
-            show_log: Show PaddleOCR debug logs. Falls back to env PADDLEOCR_SHOW_LOG
+
+        Note: GPU acceleration is automatically detected by PaddlePaddle 3.x
         """
         if not PADDLEOCR_AVAILABLE:
             raise ImportError(
                 "PaddleOCR not installed. Install with: "
-                "pip install paddleocr paddlepaddle"
+                "pip install paddleocr>=3.0.0 paddlepaddle==3.2.0"
             )
 
         # Configuration from params or environment
         self.lang = lang or os.getenv("PADDLEOCR_LANG", "fr")
-        self.use_gpu = (
-            use_gpu
-            if use_gpu is not None
-            else os.getenv("PADDLEOCR_USE_GPU", "false").lower() == "true"
-        )
-        self.show_log = (
-            show_log
-            if show_log is not None
-            else os.getenv("PADDLEOCR_SHOW_LOG", "false").lower() == "true"
-        )
 
-        # Initialize PaddleOCR 2.6.x (stable API)
-        logger.info(
-            f"Initializing PaddleOCR-VL: lang={self.lang}, "
-            f"gpu={self.use_gpu}, show_log={self.show_log}"
-        )
+        # Initialize PaddleOCR 3.x (simplified API)
+        logger.info(f"Initializing PaddleOCR 3.x: lang={self.lang} (GPU auto-detected)")
 
         try:
-            # PaddleOCR 2.6.x configuration (stable API)
-            self.ocr = PaddleOCR(
-                use_angle_cls=True,  # Auto rotation for angled text
-                lang=self.lang,  # Language model
-                use_gpu=self.use_gpu,  # GPU acceleration
-                show_log=self.show_log,  # Debug logs
-            )
-            logger.info("✅ PaddleOCR-VL initialized successfully (local processing)")
+            # PaddleOCR 3.x simplified initialization
+            # GPU is automatically detected, no need for use_gpu parameter
+            self.ocr = PaddleOCR(lang=self.lang)
+            logger.info("✅ PaddleOCR 3.x initialized successfully (local processing, GPU auto-detected)")
         except Exception as e:
-            logger.error(f"Failed to initialize PaddleOCR: {e}")
+            logger.error(f"Failed to initialize PaddleOCR 3.x: {e}")
             raise
 
     async def analyze_image(
@@ -108,7 +95,7 @@ class PaddleOCRVLClient:
         image_base64: str
     ) -> Tuple[str, str, Optional[float]]:
         """
-        Analyze image with PaddleOCR-VL.
+        Analyze image with PaddleOCR 3.x.
 
         Performs OCR to extract text and generates a basic structural description.
         PaddleOCR excels at text extraction but provides simpler descriptions
@@ -136,19 +123,34 @@ class PaddleOCRVLClient:
             image_np = np.array(image)
 
             # Run OCR (synchronous - PaddleOCR doesn't support async)
-            result = self.ocr.ocr(image_np, cls=True)
+            # PaddleOCR 3.x: use ocr() method (compatible with 2.x)
+            result = self.ocr.ocr(image_np)
 
             # Extract text lines and confidence scores
             texts = []
             confidences = []
 
+            # PaddleOCR 3.x result format: same as 2.x
+            # result[0] is a list of detection results
+            # Each result is [[box_coordinates], (text, confidence)]
             if result and result[0]:
                 for line in result[0]:
-                    # PaddleOCR 2.6.x result format: [[box], (text, confidence)]
-                    text = line[1][0]
-                    conf = line[1][1]
-                    texts.append(text)
-                    confidences.append(conf)
+                    try:
+                        # line[0] = box coordinates [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                        # line[1] = (text, confidence) or [text, confidence]
+                        text_data = line[1]
+
+                        # Extract text and confidence (works for both tuple and list)
+                        if isinstance(text_data, (list, tuple)) and len(text_data) >= 2:
+                            text = str(text_data[0])
+                            conf = float(text_data[1])
+                            texts.append(text)
+                            confidences.append(conf)
+                        else:
+                            logger.warning(f"Unexpected result format: {text_data}")
+                    except (IndexError, TypeError, ValueError) as e:
+                        logger.warning(f"Failed to parse line: {line}, error: {e}")
+                        continue
 
             # Combine extracted texts
             ocr_text = "\n".join(texts) if texts else ""
@@ -171,7 +173,7 @@ class PaddleOCRVLClient:
                 description = "Image sans texte détectable"
 
             logger.debug(
-                f"PaddleOCR extracted {len(texts)} text lines "
+                f"PaddleOCR 3.x extracted {len(texts)} text lines "
                 f"(avg confidence: {avg_confidence:.2f})"
             )
 
@@ -182,12 +184,9 @@ class PaddleOCRVLClient:
             raise ValueError(f"Invalid base64 image data: {e}")
 
         except Exception as e:
-            logger.error(f"PaddleOCR processing failed: {e}")
-            raise RuntimeError(f"PaddleOCR analysis error: {e}")
+            logger.error(f"PaddleOCR 3.x processing failed: {e}")
+            raise RuntimeError(f"PaddleOCR 3.x analysis error: {e}")
 
     def __repr__(self) -> str:
         """String representation for debugging."""
-        return (
-            f"PaddleOCRVLClient(lang={self.lang}, "
-            f"gpu={self.use_gpu}, show_log={self.show_log})"
-        )
+        return f"PaddleOCRVLClient(lang={self.lang}, version=3.x, gpu=auto-detected)"

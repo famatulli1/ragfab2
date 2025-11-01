@@ -17,5 +17,6 @@ rapidocr-onnxruntime>=1.3.25  # RapidOCR (recommended, ~2x faster than EasyOCR)
 pytesseract>=0.3.10  # Tesseract OCR Python wrapper (requires tesseract-ocr system package)
 
 # VLM (Vision Language Model) engines for image analysis
-paddleocr==2.6.1.3  # PaddleOCR-VL (stable version, 2.7+ has breaking API changes)
-paddlepaddle==2.5.2  # PaddlePaddle backend (CPU version, compatible with paddleocr 2.6.x)
+# PaddleOCR 3.x with PaddlePaddle 3.2.0+ (compatible with Python 3.11)
+paddlepaddle==3.2.0  # CPU version - Python 3.11 compatible
+paddleocr>=3.0.0  # Latest PaddleOCR with simplified API
