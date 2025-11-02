@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 import api from '../api/client';
 
 interface DocumentViewModalProps {
@@ -66,12 +66,27 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
               Source: {document.source}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <X size={24} className="text-gray-500 dark:text-gray-400" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Bouton pour ouvrir le PDF annoté */}
+            <a
+              href={`/api/documents/${documentId}/annotated-pdf?chunk_ids=${chunkId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              title="Ouvrir le PDF original avec le chunk surligné"
+            >
+              <FileText size={18} />
+              <span className="hidden sm:inline">Voir dans PDF</span>
+            </a>
+
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <X size={24} className="text-gray-500 dark:text-gray-400" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}

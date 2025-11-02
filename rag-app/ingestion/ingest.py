@@ -627,13 +627,17 @@ class DocumentIngestionPipeline:
                     # 🆕 Extract chunk_level (parent/child) from metadata
                     chunk_level = chunk.metadata.get("chunk_level", None)  # Default: None for hybrid chunks
 
+                    # 🆕 Extract bbox (bounding box) from metadata
+                    bbox_data = chunk.metadata.get("bbox")  # None if not available
+
                     chunk_result = await conn.fetchrow(
                         """
                         INSERT INTO chunks (
                             document_id, content, embedding, chunk_index, metadata, token_count,
-                            section_hierarchy, heading_context, document_position, chunk_level
+                            section_hierarchy, heading_context, document_position, chunk_level,
+                            bbox
                         )
-                        VALUES ($1::uuid, $2, $3::vector, $4, $5, $6, $7, $8, $9, $10::chunk_level_enum)
+                        VALUES ($1::uuid, $2, $3::vector, $4, $5, $6, $7, $8, $9, $10::chunk_level_enum, $11)
                         RETURNING id::text
                         """,
                         document_id,
@@ -645,7 +649,8 @@ class DocumentIngestionPipeline:
                         json.dumps(section_hierarchy),  # 🆕 Section hierarchy
                         heading_context,  # 🆕 Heading context
                         document_position,  # 🆕 Document position
-                        chunk_level  # 🆕 Chunk level (parent/child)
+                        chunk_level,  # 🆕 Chunk level (parent/child)
+                        json.dumps(bbox_data) if bbox_data else None  # 🆕 Bounding box for PDF highlighting
                     )
 
                     chunk_id_map[chunk.index] = chunk_result["id"]

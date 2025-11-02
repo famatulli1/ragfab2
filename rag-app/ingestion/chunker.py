@@ -221,6 +221,8 @@ class DoclingHybridChunker:
 
                 # Extract page number from chunk provenance if available
                 page_number = 1  # Default page
+                bbox_data = None  # 🆕 Bounding box for PDF highlighting
+
                 if hasattr(chunk, 'meta') and chunk.meta:
                     # DocMeta object - use attribute access, not dict .get()
                     if hasattr(chunk.meta, 'page_number'):
@@ -229,7 +231,23 @@ class DoclingHybridChunker:
                         page_number = chunk.meta.page
                 elif hasattr(chunk, 'prov') and len(chunk.prov) > 0:
                     # Docling chunks have provenance information
-                    page_number = chunk.prov[0].page_no if hasattr(chunk.prov[0], 'page_no') else 1
+                    prov = chunk.prov[0]
+                    page_number = prov.page_no if hasattr(prov, 'page_no') else 1
+
+                    # 🆕 Extract bounding box if available (for PDF highlighting)
+                    # Docling format: bottom-left origin (l, t, r, b)
+                    if hasattr(prov, 'bbox') and prov.bbox:
+                        try:
+                            bbox_data = {
+                                "l": float(prov.bbox.l),
+                                "t": float(prov.bbox.t),
+                                "r": float(prov.bbox.r),
+                                "b": float(prov.bbox.b)
+                            }
+                            logger.debug(f"Extracted bbox for chunk {i}: page={page_number}, bbox={bbox_data}")
+                        except (AttributeError, TypeError) as e:
+                            logger.warning(f"Failed to extract bbox for chunk {i}: {e}")
+                            bbox_data = None
 
                 # 🆕 Extract section hierarchy and heading context
                 section_hierarchy = []
@@ -261,6 +279,7 @@ class DoclingHybridChunker:
                     "section_hierarchy": section_hierarchy,  # Heading path from root
                     "heading_context": heading_context,  # Immediate heading for this chunk
                     "document_position": document_position,  # Normalized position (0.0-1.0)
+                    "bbox": bbox_data,  # 🆕 Bounding box for PDF highlighting (None if unavailable)
                 }
 
                 # Estimate character positions (based on enriched text)
