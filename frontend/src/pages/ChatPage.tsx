@@ -27,7 +27,7 @@ export default function ChatPage() {
   // const [showSettings, setShowSettings] = useState(false); // Hidden - kept for future reactivation
   const [provider] = useState<Provider>('chocolatine'); // setProvider hidden with settings
   const [useTools] = useState(true); // setUseTools hidden with settings
-  const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkId: string } | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkIds: string[]; initialChunkId: string } | null>(null);
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
@@ -567,7 +567,13 @@ export default function ChatPage() {
                           {message.sources.map((source: any, i: number) => (
                             <div key={i} className="space-y-2">
                               <div
-                                onClick={() => setSelectedDocument({ documentId: source.document_id, chunkId: source.chunk_id })}
+                                onClick={() => setSelectedDocument({
+                                  documentId: source.document_id,
+                                  chunkIds: message.sources
+                                    .filter((s: any) => s.document_id === source.document_id)
+                                    .map((s: any) => s.chunk_id),
+                                  initialChunkId: source.chunk_id
+                                })}
                                 className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
                               >
                                 <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
@@ -748,7 +754,8 @@ export default function ChatPage() {
       {selectedDocument && (
         <DocumentViewModal
           documentId={selectedDocument.documentId}
-          chunkId={selectedDocument.chunkId}
+          chunkIds={selectedDocument.chunkIds}
+          initialChunkId={selectedDocument.initialChunkId}
           onClose={() => setSelectedDocument(null)}
         />
       )}

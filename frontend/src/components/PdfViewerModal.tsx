@@ -7,13 +7,15 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 interface PdfViewerModalProps {
   documentId: string;
-  chunkId: string;
+  chunkIds: string[];
+  initialChunkId: string;
   documentTitle: string;
   onClose: () => void;
 }
 
 interface ChunkBbox {
   id: string;
+  chunk_index: number;
   page_number: number;
   bbox: {
     l: number;
@@ -23,9 +25,12 @@ interface ChunkBbox {
   };
 }
 
+const PADDING = 10; // 10px de marge autour du texte surligné
+
 const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   documentId,
-  chunkId,
+  chunkIds,
+  initialChunkId,
   documentTitle,
   onClose,
 }) => {
@@ -69,10 +74,10 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           throw new Error('Non authentifié. Veuillez vous reconnecter.');
         }
 
-        // Étape 1: Fetch metadata du chunk cliqué (page_number)
-        console.log('📍 Fetching chunk metadata...');
+        // Étape 1: Fetch metadata du chunk initial (pour page_number de scroll)
+        console.log('📍 Fetching initial chunk metadata...');
         const metadataResponse = await fetch(
-          `/api/documents/${documentId}/chunks/${chunkId}/metadata`,
+          `/api/documents/${documentId}/chunks/${initialChunkId}/metadata`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -82,14 +87,14 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
         if (metadataResponse.ok) {
           const metadata = await metadataResponse.json();
-          console.log('✅ Chunk metadata:', metadata);
+          console.log('✅ Initial chunk metadata:', metadata);
           setTargetPageNumber(metadata.page_number || 1);
         } else {
           console.warn('⚠️ Could not fetch chunk metadata, using default page 1');
         }
 
-        // Étape 2: Fetch TOUS les chunks avec bbox du document
-        console.log('📦 Fetching all chunks with bbox...');
+        // Étape 2: Fetch bbox SEULEMENT pour les chunks sources fournis
+        console.log(`📦 Fetching bbox for ${chunkIds.length} source chunks...`);
         const chunksResponse = await fetch(
           `/api/documents/${documentId}/chunks-bbox`,
           {
@@ -101,8 +106,12 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
         if (chunksResponse.ok) {
           const chunksData = await chunksResponse.json();
-          console.log(`✅ Retrieved ${chunksData.chunks_with_bbox.length} chunks with bbox`);
-          setAllChunksBbox(chunksData.chunks_with_bbox);
+          // Filtrer pour ne garder que les chunks sources
+          const sourceChunks = chunksData.chunks_with_bbox.filter((chunk: ChunkBbox) =>
+            chunkIds.includes(chunk.id)
+          );
+          console.log(`✅ Retrieved ${sourceChunks.length} source chunks with bbox (filtered from ${chunksData.chunks_with_bbox.length} total)`);
+          setAllChunksBbox(sourceChunks);
         } else {
           console.warn('⚠️ Could not fetch chunks bbox');
         }
@@ -110,7 +119,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         // Étape 3: Fetch le PDF avec authentification
         console.log('📄 Fetching annotated PDF...');
         const response = await fetch(
-          `/api/documents/${documentId}/annotated-pdf?chunk_ids=${chunkId}`,
+          `/api/documents/${documentId}/annotated-pdf?chunk_ids=${chunkIds.join(',')}`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -145,7 +154,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         console.error('Full error details:', {
           message: errorMessage,
           documentId,
-          chunkId,
+          chunkIds,
           error: err
         });
         setError(errorMessage);
@@ -161,7 +170,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         URL.revokeObjectURL(pdfUrl);
       }
     };
-  }, [documentId, chunkId]);
+  }, [documentId, chunkIds, initialChunkId]);
 
   // Auto-scroll vers la page cible après chargement
   useEffect(() => {
@@ -227,6 +236,54 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     return acc;
   }, {} as Record<number, ChunkBbox[]>);
 
+  // Détecter les continuations de chunks sur page suivante
+  const detectMultiPageContinuations = (): Record<number, ChunkBbox[]> => {
+    const extensions: Record<number, ChunkBbox[]> = {};
+
+    allChunksBbox.forEach(chunk => {
+      const pageHeight = pageHeights[chunk.page_number] || 0;
+      if (!pageHeight) return;
+
+      // Chunk se termine près du bas de page ? (< 50px du bas)
+      if (chunk.bbox.b < 50) {
+        // Chercher chunk avec chunk_index consécutif sur page suivante
+        const nextChunk = allChunksBbox.find(c =>
+          c.chunk_index === chunk.chunk_index + 1 &&
+          c.page_number === chunk.page_number + 1
+        );
+
+        if (nextChunk) {
+          const nextPageHeight = pageHeights[nextChunk.page_number] || 0;
+          // Le suivant commence près du haut ? (< 100px du haut de page)
+          if (nextChunk.bbox.t > nextPageHeight - 100) {
+            console.log(`🔗 Detected multi-page chunk: ${chunk.id} continues on page ${chunk.page_number + 1}`);
+
+            // Créer bbox synthétique de continuation
+            if (!extensions[chunk.page_number + 1]) {
+              extensions[chunk.page_number + 1] = [];
+            }
+
+            extensions[chunk.page_number + 1].push({
+              ...chunk,
+              page_number: chunk.page_number + 1,
+              bbox: {
+                l: chunk.bbox.l,
+                t: nextPageHeight, // Du haut de la page
+                r: chunk.bbox.r,
+                b: nextChunk.bbox.t // Jusqu'au début du chunk suivant
+              }
+            });
+          }
+        }
+      }
+    });
+
+    return extensions;
+  };
+
+  // Obtenir les extensions multi-pages
+  const multiPageExtensions = detectMultiPageContinuations();
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60] p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col">
@@ -237,7 +294,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               PDF Annoté - {documentTitle}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Chunks sources surlignés en jaune
+              {allChunksBbox.length} chunk{allChunksBbox.length > 1 ? 's' : ''} source{allChunksBbox.length > 1 ? 's' : ''} surligné{allChunksBbox.length > 1 ? 's' : ''} en jaune
             </p>
           </div>
 
@@ -361,6 +418,10 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                 {/* Render ALL pages in continuous scroll mode */}
                 {Array.from(new Array(numPages), (_, index) => {
                   const pageNum = index + 1;
+                  const pageChunks = bboxByPage[pageNum] || [];
+                  const pageExtensions = multiPageExtensions[pageNum] || [];
+                  const allHighlights = [...pageChunks, ...pageExtensions];
+
                   return (
                     <div
                       key={`page_${pageNum}`}
@@ -387,24 +448,25 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                         }}
                       />
 
-                      {/* Overlays de highlighting pour TOUS les chunks de cette page */}
-                      {bboxByPage[pageNum]?.map((chunk, idx) => {
+                      {/* Overlays de highlighting pour TOUS les chunks de cette page (y compris continuations) */}
+                      {allHighlights.map((chunk, idx) => {
                         const pageHeight = pageHeights[pageNum];
                         if (!pageHeight || !chunk.bbox) return null;
 
                         return (
                           <div
-                            key={`highlight_${pageNum}_${idx}`}
+                            key={`highlight_${pageNum}_${chunk.id}_${idx}`}
                             className="absolute pointer-events-none border-2 border-yellow-400 bg-yellow-300 bg-opacity-30"
                             style={{
                               // Docling bbox: origin bottom-left (l, t, r, b)
                               // Convert to top-left origin for CSS
-                              left: `${chunk.bbox.l * scale}px`,
-                              top: `${(pageHeight - chunk.bbox.t) * scale}px`,
-                              width: `${(chunk.bbox.r - chunk.bbox.l) * scale}px`,
-                              height: `${(chunk.bbox.t - chunk.bbox.b) * scale}px`,
+                              // Ajouter PADDING de 10px autour du texte
+                              left: `${(chunk.bbox.l - PADDING) * scale}px`,
+                              top: `${(pageHeight - chunk.bbox.t - PADDING) * scale}px`,
+                              width: `${(chunk.bbox.r - chunk.bbox.l + (PADDING * 2)) * scale}px`,
+                              height: `${(chunk.bbox.t - chunk.bbox.b + (PADDING * 2)) * scale}px`,
                             }}
-                            title="Chunk source surligné"
+                            title={idx >= pageChunks.length ? "Continuation du chunk précédent" : "Chunk source surligné"}
                           />
                         );
                       })}
@@ -424,7 +486,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            💡 Les chunks utilisés pour générer la réponse sont surlignés en jaune dans le PDF
+            💡 Seuls les chunks sources utilisés pour générer la réponse sont surlignés en jaune
           </p>
           <button
             onClick={onClose}

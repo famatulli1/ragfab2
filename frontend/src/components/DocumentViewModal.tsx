@@ -5,11 +5,12 @@ import PdfViewerModal from './PdfViewerModal';
 
 interface DocumentViewModalProps {
   documentId: string;
-  chunkId: string;
+  chunkIds: string[];
+  initialChunkId: string;
   onClose: () => void;
 }
 
-const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunkId, onClose }) => {
+const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunkIds, initialChunkId, onClose }) => {
   const [document, setDocument] = useState<any>(null);
   const [chunks, setChunks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,9 +25,9 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
         setChunks(data.chunks);
         setLoading(false);
 
-        // Scroll vers le chunk après un court délai pour laisser le DOM se mettre à jour
+        // Scroll vers le chunk initial après un court délai pour laisser le DOM se mettre à jour
         setTimeout(() => {
-          const targetChunk = chunkRefs.current[chunkId];
+          const targetChunk = chunkRefs.current[initialChunkId];
           if (targetChunk) {
             targetChunk.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
@@ -38,7 +39,7 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
     };
 
     loadDocument();
-  }, [documentId, chunkId]);
+  }, [documentId, chunkIds, initialChunkId]);
 
   if (loading) {
     return (
@@ -97,7 +98,7 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
                 key={chunk.id}
                 ref={(el) => (chunkRefs.current[chunk.id] = el)}
                 className={`mb-4 p-3 rounded-lg transition-all duration-300 ${
-                  chunk.id === chunkId
+                  chunkIds.includes(chunk.id)
                     ? 'bg-yellow-100 dark:bg-yellow-900/30 border-2 border-yellow-500 shadow-lg'
                     : 'bg-transparent'
                 }`}
@@ -105,12 +106,12 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
                 <div className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
                   {chunk.content}
                 </div>
-                {chunk.id === chunkId && (
+                {chunkIds.includes(chunk.id) && (
                   <div className="mt-2 text-xs font-semibold text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>
-                    Chunk utilisé pour générer la réponse
+                    {chunk.id === initialChunkId ? 'Chunk cliqué (source de la réponse)' : 'Chunk source utilisé pour la réponse'}
                   </div>
                 )}
               </div>
@@ -136,7 +137,8 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
       {showPdfModal && (
         <PdfViewerModal
           documentId={documentId}
-          chunkId={chunkId}
+          chunkIds={chunkIds}
+          initialChunkId={initialChunkId}
           documentTitle={document.title}
           onClose={() => setShowPdfModal(false)}
         />
