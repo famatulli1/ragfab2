@@ -41,10 +41,19 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         );
 
         if (!response.ok) {
+          // Essayer de récupérer le message d'erreur du backend
+          let errorMessage = response.statusText;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorData.message || errorMessage;
+          } catch {
+            // Si la réponse n'est pas du JSON, utiliser statusText
+          }
+
           if (response.status === 401 || response.status === 403) {
             throw new Error('Session expirée. Veuillez vous reconnecter.');
           }
-          throw new Error(`Erreur lors du chargement du PDF: ${response.statusText}`);
+          throw new Error(`Erreur ${response.status}: ${errorMessage}`);
         }
 
         // Créer un blob URL depuis la réponse
@@ -54,7 +63,14 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         setLoading(false);
       } catch (err) {
         console.error('Error loading PDF:', err);
-        setError(err instanceof Error ? err.message : 'Erreur inconnue');
+        const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+        console.error('Full error details:', {
+          message: errorMessage,
+          documentId,
+          chunkId,
+          error: err
+        });
+        setError(errorMessage);
         setLoading(false);
       }
     };

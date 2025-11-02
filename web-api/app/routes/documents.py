@@ -49,6 +49,8 @@ async def get_annotated_pdf(
         HTTPException 400: Invalid chunk IDs or missing bounding boxes
     """
     try:
+        logger.info(f"📄 Annotated PDF request: document_id={document_id}, chunk_ids={chunk_ids}")
+
         # 1. Retrieve document from database
         async with database.db_pool.acquire() as conn:
             document = await conn.fetchrow(
@@ -57,41 +59,62 @@ async def get_annotated_pdf(
             )
 
             if not document:
+                logger.error(f"❌ Document not found: {document_id}")
                 raise HTTPException(status_code=404, detail="Document not found")
+
+            logger.info(f"✅ Document found: {document['title']}, source={document['source']}")
 
             # 2. Retrieve chunks with bounding boxes
             if chunk_ids:
                 # Parse chunk IDs from comma-separated string
                 try:
                     chunk_uuid_list = [UUID(cid.strip()) for cid in chunk_ids.split(",")]
+                    logger.info(f"🔍 Searching for {len(chunk_uuid_list)} specific chunks")
                 except ValueError as e:
+                    logger.error(f"❌ Invalid chunk ID format: {e}")
                     raise HTTPException(status_code=400, detail=f"Invalid chunk ID format: {e}")
 
                 # Use helper function to get chunks for annotation
-                chunks = await conn.fetch(
-                    """
-                    SELECT * FROM get_chunks_for_annotation(
-                        $1::uuid,
-                        $2::uuid[]
+                try:
+                    chunks = await conn.fetch(
+                        """
+                        SELECT * FROM get_chunks_for_annotation(
+                            $1::uuid,
+                            $2::uuid[]
+                        )
+                        """,
+                        UUID(document_id),
+                        chunk_uuid_list
                     )
-                    """,
-                    UUID(document_id),
-                    chunk_uuid_list
-                )
+                except Exception as e:
+                    logger.error(f"❌ Database function error (migration 11 not applied?): {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Database error: get_chunks_for_annotation function not found. Please apply migration 11."
+                    )
             else:
                 # Get all chunks with bbox for this document
-                chunks = await conn.fetch(
-                    """
-                    SELECT * FROM get_chunks_for_annotation(
-                        $1::uuid,
-                        NULL::uuid[]
+                try:
+                    chunks = await conn.fetch(
+                        """
+                        SELECT * FROM get_chunks_for_annotation(
+                            $1::uuid,
+                            NULL::uuid[]
+                        )
+                        """,
+                        UUID(document_id)
                     )
-                    """,
-                    UUID(document_id)
-                )
+                except Exception as e:
+                    logger.error(f"❌ Database function error (migration 11 not applied?): {e}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Database error: get_chunks_for_annotation function not found. Please apply migration 11."
+                    )
+
+            logger.info(f"📊 Retrieved {len(chunks)} chunks with bbox data")
 
         if not chunks:
-            logger.warning(f"No chunks with bounding boxes found for document {document_id}")
+            logger.warning(f"⚠️ No chunks with bounding boxes found for document {document_id}")
             # Still return the original PDF without annotation
             # (fallback for documents without bbox data)
 
@@ -107,23 +130,32 @@ async def get_annotated_pdf(
             os.path.join(uploads_dir, "jobs", document['source']),  # Jobs subdirectory
         ]
 
+        logger.info(f"🔍 Searching for PDF in: {potential_paths}")
+
         pdf_path = None
         for path in potential_paths:
             if os.path.exists(path):
                 pdf_path = path
-                logger.info(f"Found PDF at: {pdf_path}")
+                logger.info(f"✅ Found PDF at: {pdf_path}")
                 break
+            else:
+                logger.debug(f"❌ Not found at: {path}")
 
         if not pdf_path:
+            logger.error(f"❌ PDF source file not found for document {document_id}")
+            logger.error(f"   Searched in: {potential_paths}")
+            logger.error(f"   Document source: {document['source']}")
             raise HTTPException(
                 status_code=404,
-                detail=f"PDF source file not found for document {document_id}"
+                detail=f"PDF source file not found for document {document_id}. Source: {document['source']}"
             )
 
         # 4. Open and annotate the PDF
         try:
             doc = fitz.open(pdf_path)
+            logger.info(f"📖 Opened PDF successfully: {len(doc)} pages")
         except Exception as e:
+            logger.error(f"❌ Failed to open PDF: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to open PDF: {str(e)}"
@@ -131,6 +163,7 @@ async def get_annotated_pdf(
 
         # 5. Add highlights for each chunk
         annotations_added = 0
+        logger.info(f"🎨 Starting annotation of {len(chunks)} chunks")
 
         for chunk in chunks:
             if not chunk['bbox']:
@@ -174,14 +207,23 @@ async def get_annotated_pdf(
                 logger.error(f"Failed to annotate chunk {chunk['chunk_id']}: {e}")
                 continue
 
-        logger.info(f"Added {annotations_added} highlights to PDF {document['title']}")
+        logger.info(f"✅ Added {annotations_added} highlights to PDF {document['title']}")
 
         # 6. Save annotated PDF to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            doc.save(tmp.name, garbage=4, deflate=True)  # Optimize output
-            tmp_path = tmp.name
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                doc.save(tmp.name, garbage=4, deflate=True)  # Optimize output
+                tmp_path = tmp.name
+                logger.info(f"💾 Saved annotated PDF to temp file: {tmp_path}")
 
-        doc.close()
+            doc.close()
+        except Exception as e:
+            logger.error(f"❌ Failed to save PDF: {e}")
+            doc.close()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save annotated PDF: {str(e)}"
+            )
 
         # 7. Schedule cleanup of temporary file after response is sent
         background_tasks.add_task(os.unlink, tmp_path)
@@ -190,6 +232,8 @@ async def get_annotated_pdf(
         filename = f"{document['title']}_annotated.pdf"
         # Sanitize filename (remove special characters)
         filename = "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
+
+        logger.info(f"📤 Returning annotated PDF: {filename}")
 
         return FileResponse(
             tmp_path,
