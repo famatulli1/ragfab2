@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 import fitz  # PyMuPDF
 
-from ..db import db_pool
+from .. import database
 from .auth import get_current_user
 
 router = APIRouter()
@@ -50,7 +50,7 @@ async def get_annotated_pdf(
     """
     try:
         # 1. Retrieve document from database
-        async with db_pool.acquire() as conn:
+        async with database.db_pool.acquire() as conn:
             document = await conn.fetchrow(
                 "SELECT * FROM documents WHERE id = $1",
                 UUID(document_id)
@@ -228,7 +228,7 @@ async def get_document_chunks_bbox(
         List of chunks with bbox metadata
     """
     try:
-        async with db_pool.acquire() as conn:
+        async with database.db_pool.acquire() as conn:
             chunks = await conn.fetch(
                 """
                 SELECT
