@@ -16,7 +16,12 @@
       "Bash(echo \"=== $file ===\")",
       "Bash(done)",
       "Bash(docker compose:*)",
-      "mcp__fetch__imageFetch"
+      "mcp__fetch__imageFetch",
+      "WebSearch",
+      "WebFetch(domain:docling-project.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:medium.com)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

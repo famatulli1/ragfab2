@@ -229,25 +229,34 @@ class DoclingHybridChunker:
                         page_number = chunk.meta.page_number
                     elif hasattr(chunk.meta, 'page'):
                         page_number = chunk.meta.page
-                elif hasattr(chunk, 'prov') and len(chunk.prov) > 0:
-                    # Docling chunks have provenance information
-                    prov = chunk.prov[0]
-                    page_number = prov.page_no if hasattr(prov, 'page_no') else 1
 
-                    # 🆕 Extract bounding box if available (for PDF highlighting)
-                    # Docling format: bottom-left origin (l, t, r, b)
-                    if hasattr(prov, 'bbox') and prov.bbox:
-                        try:
-                            bbox_data = {
-                                "l": float(prov.bbox.l),
-                                "t": float(prov.bbox.t),
-                                "r": float(prov.bbox.r),
-                                "b": float(prov.bbox.b)
-                            }
-                            logger.debug(f"Extracted bbox for chunk {i}: page={page_number}, bbox={bbox_data}")
-                        except (AttributeError, TypeError) as e:
-                            logger.warning(f"Failed to extract bbox for chunk {i}: {e}")
-                            bbox_data = None
+                    # 🆕 Extract bounding box from doc_items provenance (correct Docling structure)
+                    # Structure: chunk.meta.doc_items[0].prov[0].bbox
+                    if hasattr(chunk.meta, 'doc_items') and chunk.meta.doc_items:
+                        doc_items = chunk.meta.doc_items
+                        if len(doc_items) > 0:
+                            first_item = doc_items[0]
+                            if hasattr(first_item, 'prov') and first_item.prov:
+                                prov = first_item.prov[0]
+
+                                # Extract page number from provenance if not already set
+                                if hasattr(prov, 'page_no'):
+                                    page_number = prov.page_no
+
+                                # Extract bounding box for PDF highlighting
+                                # Docling format: bottom-left origin (l, t, r, b)
+                                if hasattr(prov, 'bbox') and prov.bbox:
+                                    try:
+                                        bbox_data = {
+                                            "l": float(prov.bbox.l),
+                                            "t": float(prov.bbox.t),
+                                            "r": float(prov.bbox.r),
+                                            "b": float(prov.bbox.b)
+                                        }
+                                        logger.debug(f"✅ Extracted bbox for chunk {i}: page={page_number}, bbox={bbox_data}")
+                                    except (AttributeError, TypeError) as e:
+                                        logger.warning(f"⚠️ Failed to extract bbox for chunk {i}: {e}")
+                                        bbox_data = None
 
                 # 🆕 Extract section hierarchy and heading context
                 section_hierarchy = []
