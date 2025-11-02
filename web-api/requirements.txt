@@ -16,6 +16,7 @@ reportlab==4.2.5
 markdown==3.7
 rich==13.9.4
 tqdm==4.67.1
+pymupdf==1.24.14  # PyMuPDF for PDF annotation (PDF highlighting feature)
 
 # Heavy ingestion packages (docling, transformers, tiktoken) NOT needed
 # Backend only does runtime operations: API, database queries, vector search
