@@ -137,22 +137,30 @@ async def get_annotated_pdf(
                 logger.info(f"✅ Found PDF at: {pdf_path}")
                 break
 
-        # If not found by direct paths, search recursively in jobs subdirectories
+        # If not found by direct paths, search recursively in ALL uploads subdirectories
         if not pdf_path:
-            logger.info(f"🔍 PDF not found in direct paths, searching recursively in {uploads_dir}/jobs/")
-            jobs_dir = os.path.join(uploads_dir, "jobs")
+            logger.info(f"🔍 PDF not found in direct paths, searching recursively in {uploads_dir}/")
 
-            if os.path.exists(jobs_dir):
-                # Extract filename from source (in case it contains subdirectories)
-                filename = os.path.basename(document['source'])
-                logger.info(f"   Looking for filename: {filename}")
+            # Extract filename from source (in case it contains subdirectories)
+            filename = os.path.basename(document['source'])
+            logger.info(f"   Looking for filename: {filename}")
 
-                # Walk through all subdirectories
-                for root, dirs, files in os.walk(jobs_dir):
-                    if filename in files:
-                        pdf_path = os.path.join(root, filename)
-                        logger.info(f"✅ Found PDF via recursive search at: {pdf_path}")
-                        break
+            # Walk through ALL subdirectories (not just /jobs/)
+            found_files = []
+            for root, dirs, files in os.walk(uploads_dir):
+                if filename in files:
+                    found_path = os.path.join(root, filename)
+                    found_files.append(found_path)
+                    logger.info(f"   🔎 Found potential match: {found_path}")
+
+            if found_files:
+                # Use the first match (most recent if sorted by path)
+                pdf_path = found_files[0]
+                logger.info(f"✅ Using PDF from: {pdf_path}")
+                if len(found_files) > 1:
+                    logger.warning(f"⚠️ Multiple matches found ({len(found_files)}), using first: {pdf_path}")
+            else:
+                logger.warning(f"❌ No file matching '{filename}' found in recursive search")
 
         if not pdf_path:
             logger.error(f"❌ PDF source file not found for document {document_id}")
