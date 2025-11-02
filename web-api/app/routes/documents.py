@@ -126,11 +126,11 @@ async def get_annotated_pdf(
 
         # Try multiple path strategies
         potential_paths = [
-            os.path.join(uploads_dir, document['source']),  # Direct source path
-            os.path.join(uploads_dir, "jobs", document['source']),  # Jobs subdirectory
+            os.path.join(uploads_dir, document['source']),  # Direct source path (if source contains full path)
+            os.path.join(uploads_dir, "jobs", document['source']),  # Jobs subdirectory (old format)
         ]
 
-        logger.info(f"🔍 Searching for PDF in: {potential_paths}")
+        logger.info(f"🔍 Searching for PDF: {document['source']}")
 
         pdf_path = None
         for path in potential_paths:
@@ -138,12 +138,28 @@ async def get_annotated_pdf(
                 pdf_path = path
                 logger.info(f"✅ Found PDF at: {pdf_path}")
                 break
-            else:
-                logger.debug(f"❌ Not found at: {path}")
+
+        # If not found by direct paths, search recursively in jobs subdirectories
+        if not pdf_path:
+            logger.info(f"🔍 PDF not found in direct paths, searching recursively in {uploads_dir}/jobs/")
+            jobs_dir = os.path.join(uploads_dir, "jobs")
+
+            if os.path.exists(jobs_dir):
+                # Extract filename from source (in case it contains subdirectories)
+                filename = os.path.basename(document['source'])
+                logger.info(f"   Looking for filename: {filename}")
+
+                # Walk through all subdirectories
+                for root, dirs, files in os.walk(jobs_dir):
+                    if filename in files:
+                        pdf_path = os.path.join(root, filename)
+                        logger.info(f"✅ Found PDF via recursive search at: {pdf_path}")
+                        break
 
         if not pdf_path:
             logger.error(f"❌ PDF source file not found for document {document_id}")
             logger.error(f"   Searched in: {potential_paths}")
+            logger.error(f"   Also searched recursively in: {uploads_dir}/jobs/")
             logger.error(f"   Document source: {document['source']}")
             raise HTTPException(
                 status_code=404,
