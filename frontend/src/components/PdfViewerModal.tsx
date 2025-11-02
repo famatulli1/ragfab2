@@ -25,6 +25,9 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [chunkBbox, setChunkBbox] = useState<any>(null);
+  const [targetPageNumber, setTargetPageNumber] = useState<number>(1);
+  const [pageHeight, setPageHeight] = useState<number>(0);
 
   // Ref for container to calculate responsive scale
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -43,7 +46,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   }, []);
 
   useEffect(() => {
-    const loadPdf = async () => {
+    const loadPdfWithMetadata = async () => {
       try {
         setLoading(true);
         setError(null);
@@ -54,7 +57,30 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           throw new Error('Non authentifié. Veuillez vous reconnecter.');
         }
 
-        // Fetch le PDF avec authentification
+        // Étape 1: Fetch metadata du chunk (page_number, bbox)
+        console.log('📍 Fetching chunk metadata...');
+        const metadataResponse = await fetch(
+          `/api/documents/${documentId}/chunks/${chunkId}/metadata`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (metadataResponse.ok) {
+          const metadata = await metadataResponse.json();
+          console.log('✅ Chunk metadata:', metadata);
+
+          // Stocker le numéro de page cible et le bbox
+          setTargetPageNumber(metadata.page_number || 1);
+          setChunkBbox(metadata.bbox);
+        } else {
+          console.warn('⚠️ Could not fetch chunk metadata, using default page 1');
+        }
+
+        // Étape 2: Fetch le PDF avec authentification
+        console.log('📄 Fetching annotated PDF...');
         const response = await fetch(
           `/api/documents/${documentId}/annotated-pdf?chunk_ids=${chunkId}`,
           {
@@ -99,7 +125,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       }
     };
 
-    loadPdf();
+    loadPdfWithMetadata();
 
     // Cleanup: révoquer le blob URL quand le composant est démonté
     return () => {
@@ -122,7 +148,9 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
-    setPageNumber(1);
+    // Navigate directly to the chunk's page
+    setPageNumber(Math.min(targetPageNumber, numPages));
+    console.log(`📍 Navigated to page ${targetPageNumber} (total: ${numPages})`);
   };
 
   const onDocumentLoadError = (error: Error) => {
@@ -159,7 +187,7 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[60] p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -289,18 +317,41 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   </div>
                 }
               >
-                <Page
-                  pageNumber={pageNumber}
-                  scale={scale}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  loading={
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
-                    </div>
-                  }
-                  className="shadow-lg"
-                />
+                {/* Wrapper pour positionner l'overlay */}
+                <div className="relative inline-block">
+                  <Page
+                    pageNumber={pageNumber}
+                    scale={scale}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    loading={
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+                      </div>
+                    }
+                    className="shadow-lg"
+                    onLoadSuccess={(page) => {
+                      // Store page height for bbox conversion
+                      setPageHeight(page.height);
+                    }}
+                  />
+
+                  {/* Overlay de highlighting (si bbox disponible sur cette page) */}
+                  {chunkBbox && targetPageNumber === pageNumber && (
+                    <div
+                      className="absolute pointer-events-none border-2 border-yellow-400 bg-yellow-300 bg-opacity-30"
+                      style={{
+                        // Docling bbox: origin bottom-left (l, t, r, b)
+                        // Convert to top-left origin for CSS
+                        left: `${chunkBbox.l * scale}px`,
+                        top: `${(pageHeight - chunkBbox.t) * scale}px`,
+                        width: `${(chunkBbox.r - chunkBbox.l) * scale}px`,
+                        height: `${(chunkBbox.t - chunkBbox.b) * scale}px`,
+                      }}
+                      title="Chunk source surligné"
+                    />
+                  )}
+                </div>
               </Document>
 
               {/* Page Navigation */}

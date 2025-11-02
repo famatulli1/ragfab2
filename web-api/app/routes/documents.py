@@ -388,3 +388,87 @@ async def get_document_chunks_bbox(
     except Exception as e:
         logger.error(f"Error fetching chunks bbox: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/documents/{document_id}/chunks/{chunk_id}/metadata")
+async def get_chunk_metadata(
+    document_id: str,
+    chunk_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrieve metadata for a specific chunk, including page number and bbox.
+
+    Used by frontend to navigate directly to the chunk's page in PDF viewer.
+
+    Args:
+        document_id: UUID of the document
+        chunk_id: UUID of the chunk
+        current_user: Authenticated user
+
+    Returns:
+        JSON with chunk metadata: {page_number, bbox, chunk_index, total_pages}
+    """
+    try:
+        async with database.db_pool.acquire() as conn:
+            # Get chunk metadata
+            chunk = await conn.fetchrow(
+                """
+                SELECT
+                    c.id,
+                    c.chunk_index,
+                    c.bbox,
+                    (c.metadata->>'page_number')::integer as page_number,
+                    c.document_id
+                FROM chunks c
+                WHERE c.id = $1::uuid
+                AND c.document_id = $2::uuid
+                """,
+                UUID(chunk_id),
+                UUID(document_id)
+            )
+
+            if not chunk:
+                logger.error(f"❌ Chunk {chunk_id} not found in document {document_id}")
+                raise HTTPException(status_code=404, detail="Chunk not found")
+
+            # Get document metadata (title, total pages)
+            document = await conn.fetchrow(
+                "SELECT title FROM documents WHERE id = $1",
+                UUID(document_id)
+            )
+
+            # Get total pages from document chunks
+            total_pages_result = await conn.fetchrow(
+                """
+                SELECT MAX((metadata->>'page_number')::integer) as max_page
+                FROM chunks
+                WHERE document_id = $1
+                """,
+                UUID(document_id)
+            )
+
+            total_pages = total_pages_result['max_page'] if total_pages_result and total_pages_result['max_page'] else 1
+
+            # Parse bbox if present
+            bbox_data = None
+            if chunk['bbox']:
+                bbox_data = json.loads(chunk['bbox']) if isinstance(chunk['bbox'], str) else chunk['bbox']
+
+            logger.info(f"📍 Chunk metadata: page={chunk['page_number']}, total_pages={total_pages}, has_bbox={bbox_data is not None}")
+
+            return {
+                "document_id": document_id,
+                "document_title": document['title'],
+                "chunk_id": chunk_id,
+                "chunk_index": chunk['chunk_index'],
+                "page_number": chunk['page_number'] or 1,  # Default to 1 if null
+                "total_pages": total_pages,
+                "bbox": bbox_data
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching chunk metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
