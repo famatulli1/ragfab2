@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, FileText } from 'lucide-react';
 import api from '../api/client';
+import PdfViewerModal from './PdfViewerModal';
 
 interface DocumentViewModalProps {
   documentId: string;
@@ -12,6 +13,7 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
   const [document, setDocument] = useState<any>(null);
   const [chunks, setChunks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showPdfModal, setShowPdfModal] = useState(false);
   const chunkRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   useEffect(() => {
@@ -68,17 +70,15 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Bouton pour ouvrir le PDF annoté */}
-            <a
-              href={`/api/documents/${documentId}/annotated-pdf?chunk_ids=${chunkId}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* Bouton pour ouvrir le PDF annoté dans une modale */}
+            <button
+              onClick={() => setShowPdfModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               title="Ouvrir le PDF original avec le chunk surligné"
             >
               <FileText size={18} />
               <span className="hidden sm:inline">Voir dans PDF</span>
-            </a>
+            </button>
 
             <button
               onClick={onClose}
@@ -131,6 +131,16 @@ const DocumentViewModal: React.FC<DocumentViewModalProps> = ({ documentId, chunk
           </button>
         </div>
       </div>
+
+      {/* Modale PDF (au-dessus de la modale document) */}
+      {showPdfModal && (
+        <PdfViewerModal
+          documentId={documentId}
+          chunkId={chunkId}
+          documentTitle={document.title}
+          onClose={() => setShowPdfModal(false)}
+        />
+      )}
     </div>
   );
 };
