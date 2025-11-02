@@ -113,12 +113,10 @@ async def get_annotated_pdf(
 
             logger.info(f"📊 Retrieved {len(chunks)} chunks with bbox data")
 
-        if not chunks:
-            logger.warning(f"⚠️ No chunks with bounding boxes found for document {document_id}")
-            # Still return the original PDF without annotation
-            # (fallback for documents without bbox data)
+        # 3. Locate the original PDF file (même si pas de bbox, on retourne le PDF original)
+        logger.info(f"🔍 Will return {'annotated' if chunks else 'original'} PDF")
 
-        # 3. Locate the original PDF file
+        # Locate PDF file
         # Assuming PDFs are stored in /app/uploads directory
         # Format: /app/uploads/jobs/{job_id}/{filename}.pdf
         # For backward compatibility, also check direct path in document.source
@@ -265,6 +263,66 @@ async def get_annotated_pdf(
     except Exception as e:
         logger.error(f"Error generating annotated PDF: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to generate annotated PDF: {str(e)}")
+
+
+@router.get("/api/documents/{document_id}/debug")
+async def debug_document_files(
+    document_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Debug endpoint to check if PDF file exists and where.
+    """
+    try:
+        async with database.db_pool.acquire() as conn:
+            document = await conn.fetchrow(
+                "SELECT * FROM documents WHERE id = $1",
+                UUID(document_id)
+            )
+
+            if not document:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+        uploads_dir = os.getenv("UPLOADS_DIR", "/app/uploads")
+
+        # Check all potential paths
+        checks = {
+            "document_source": document['source'],
+            "uploads_dir": uploads_dir,
+            "direct_path": os.path.join(uploads_dir, document['source']),
+            "jobs_path": os.path.join(uploads_dir, "jobs", document['source']),
+        }
+
+        # Check if paths exist
+        results = {
+            "direct_path_exists": os.path.exists(checks["direct_path"]),
+            "jobs_path_exists": os.path.exists(checks["jobs_path"]),
+        }
+
+        # List all files in uploads dir
+        all_files = []
+        if os.path.exists(uploads_dir):
+            for root, dirs, files in os.walk(uploads_dir):
+                for file in files:
+                    if file.endswith('.pdf'):
+                        full_path = os.path.join(root, file)
+                        all_files.append({
+                            "filename": file,
+                            "path": full_path,
+                            "matches": file == os.path.basename(document['source'])
+                        })
+
+        return {
+            "document_id": document_id,
+            "document_title": document['title'],
+            **checks,
+            **results,
+            "all_pdf_files": all_files[:20]  # Limit to 20 files
+        }
+
+    except Exception as e:
+        logger.error(f"Debug error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/documents/{document_id}/chunks-bbox")

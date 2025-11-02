@@ -144,19 +144,36 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
           {error && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 max-w-md">
-                <div className="text-red-600 dark:text-red-400 text-4xl mb-4">⚠️</div>
-                <h3 className="text-lg font-semibold text-red-800 dark:text-red-300 mb-2">
-                  Erreur de chargement
+              <div className="text-center bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-8 max-w-2xl">
+                <div className="text-yellow-600 dark:text-yellow-400 text-4xl mb-4">📄</div>
+                <h3 className="text-lg font-semibold text-yellow-800 dark:text-yellow-300 mb-2">
+                  PDF original non disponible
                 </h3>
-                <p className="text-red-600 dark:text-red-400">{error}</p>
-                {error.includes('authentifié') && (
+                <p className="text-yellow-600 dark:text-yellow-400 mb-4">
+                  Le fichier PDF source n'est pas disponible sur le serveur.
+                  Cela peut arriver pour des documents anciens ingérés avant la mise à jour.
+                </p>
+
+                {error.includes('404') ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 mt-4">
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">💡 Solutions :</h4>
+                    <ul className="text-left text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                      <li>• <strong>Option 1</strong> : Demandez à un administrateur de réuploader le document via l'interface admin</li>
+                      <li>• <strong>Option 2</strong> : Le contenu textuel est toujours disponible dans la vue document (fermer cette modale)</li>
+                      <li>• <strong>Pour info</strong> : Les nouveaux documents uploadés auront le PDF disponible automatiquement</li>
+                    </ul>
+                  </div>
+                ) : error.includes('authentifié') ? (
                   <button
                     onClick={() => window.location.href = '/login'}
-                    className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
                   >
                     Se reconnecter
                   </button>
+                ) : (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                    Détails : {error}
+                  </p>
                 )}
               </div>
             </div>
