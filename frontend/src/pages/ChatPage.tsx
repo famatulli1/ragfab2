@@ -569,7 +569,7 @@ export default function ChatPage() {
                               <div
                                 onClick={() => setSelectedDocument({
                                   documentId: source.document_id,
-                                  chunkIds: message.sources
+                                  chunkIds: (message.sources || [])
                                     .filter((s: any) => s.document_id === source.document_id)
                                     .map((s: any) => s.chunk_id),
                                   initialChunkId: source.chunk_id
