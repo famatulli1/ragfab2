@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ragfab-thumbs-down-worker:
     build:
-      context: .
+      context: ../..
       dockerfile: web-api/Dockerfile
     container_name: ragfab-thumbs-down-worker
     command: python -m app.thumbs_down_worker
