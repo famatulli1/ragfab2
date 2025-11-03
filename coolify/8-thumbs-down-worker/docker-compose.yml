@@ -11,16 +11,14 @@ services:
       # Database connection
       DATABASE_URL: ${DATABASE_URL:-postgresql://raguser:ragpass@ragfab-postgres.internal:5432/ragdb}
 
-      # Generic LLM Configuration
-      LLM_API_URL: ${LLM_API_URL:-https://api.mistral.ai}
+      # Generic LLM Configuration (Chocolatine par défaut)
+      LLM_API_URL: ${LLM_API_URL:-https://apigpt.mynumih.fr}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-mistral-small-latest}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
       LLM_USE_TOOLS: ${LLM_USE_TOOLS:-false}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120.0}
 
       # Legacy variables for backward compatibility
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
-      MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
       CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
       CHOCOLATINE_API_KEY: ${CHOCOLATINE_API_KEY:-}
       CHOCOLATINE_MODEL_NAME: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
@@ -28,7 +26,7 @@ services:
       # Thumbs Down Configuration
       THUMBS_DOWN_AUTO_ANALYSIS: ${THUMBS_DOWN_AUTO_ANALYSIS:-true}
       THUMBS_DOWN_CONFIDENCE_THRESHOLD: ${THUMBS_DOWN_CONFIDENCE_THRESHOLD:-0.7}
-      THUMBS_DOWN_LLM_PROVIDER: ${THUMBS_DOWN_LLM_PROVIDER:-mistral}
+      THUMBS_DOWN_LLM_PROVIDER: ${THUMBS_DOWN_LLM_PROVIDER:-chocolatine}
       THUMBS_DOWN_AUTO_NOTIFICATIONS: ${THUMBS_DOWN_AUTO_NOTIFICATIONS:-true}
 
       # Logs

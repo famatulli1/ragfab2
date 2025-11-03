@@ -27,7 +27,7 @@ THUMBS_DOWN_AUTO_ANALYSIS=true
 THUMBS_DOWN_CONFIDENCE_THRESHOLD=0.7
 
 # Provider LLM pour analyse (mistral ou chocolatine)
-THUMBS_DOWN_LLM_PROVIDER=mistral
+THUMBS_DOWN_LLM_PROVIDER=chocolatine
 
 # Activer les notifications utilisateurs automatiques (true/false)
 THUMBS_DOWN_AUTO_NOTIFICATIONS=true
@@ -54,7 +54,7 @@ Le frontend est déjà à jour avec le code thumbs down et communique uniquement
 3. **Ajouter les 4 variables** listées ci-dessus :
    - `THUMBS_DOWN_AUTO_ANALYSIS=true`
    - `THUMBS_DOWN_CONFIDENCE_THRESHOLD=0.7`
-   - `THUMBS_DOWN_LLM_PROVIDER=mistral`
+   - `THUMBS_DOWN_LLM_PROVIDER=chocolatine`
    - `THUMBS_DOWN_AUTO_NOTIFICATIONS=true`
 4. **Sauvegarder**
 
@@ -96,14 +96,14 @@ Copier toutes les variables de `/coolify/8-thumbs-down-worker/.env.example` et l
 **Variables OBLIGATOIRES** :
 ```bash
 DATABASE_URL=postgresql://raguser:ragpass@ragfab-postgres.internal:5432/ragdb
-LLM_API_URL=https://api.mistral.ai
-LLM_API_KEY=votre-clé-mistral-ici
-LLM_MODEL_NAME=mistral-small-latest
+LLM_API_URL=https://apigpt.mynumih.fr
+LLM_API_KEY=votre-clé-chocolatine-ici
+LLM_MODEL_NAME=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
 LLM_USE_TOOLS=false
 LLM_TIMEOUT=120.0
 THUMBS_DOWN_AUTO_ANALYSIS=true
 THUMBS_DOWN_CONFIDENCE_THRESHOLD=0.7
-THUMBS_DOWN_LLM_PROVIDER=mistral
+THUMBS_DOWN_LLM_PROVIDER=chocolatine
 THUMBS_DOWN_AUTO_NOTIFICATIONS=true
 LOG_LEVEL=INFO
 ```

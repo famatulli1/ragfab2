@@ -32,7 +32,7 @@ Si les migrations ne sont pas appliquées, voir : `/database/migrations/`
 Ce worker nécessite un accès à une API LLM (Mistral ou Chocolatine) pour classifier les thumbs down.
 
 **Configurations supportées** :
-- Mistral API (recommandé - meilleure classification JSON)
+- Chocolatine API (provider par défaut)
 - Chocolatine API (alternatif)
 - Tout autre LLM compatible OpenAI
 
@@ -66,25 +66,25 @@ Copier les variables depuis `.env.example` et les configurer dans Coolify.
 # Database
 DATABASE_URL=postgresql://raguser:ragpass@ragfab-postgres.internal:5432/ragdb
 
-# LLM API (Mistral recommandé)
-LLM_API_URL=https://api.mistral.ai
-LLM_API_KEY=your-mistral-api-key-here
-LLM_MODEL_NAME=mistral-small-latest
+# LLM API (Chocolatine par défaut)
+LLM_API_URL=https://apigpt.mynumih.fr
+LLM_API_KEY=votre-chocolatine-api-key-ici
+LLM_MODEL_NAME=jpacifico/Chocolatine-2-14B-Instruct-v2.0.3
 LLM_USE_TOOLS=false
 LLM_TIMEOUT=120.0
 
 # Thumbs Down Configuration
 THUMBS_DOWN_AUTO_ANALYSIS=true
 THUMBS_DOWN_CONFIDENCE_THRESHOLD=0.7
-THUMBS_DOWN_LLM_PROVIDER=mistral
+THUMBS_DOWN_LLM_PROVIDER=chocolatine
 THUMBS_DOWN_AUTO_NOTIFICATIONS=true
 ```
 
 #### Variables optionnelles (legacy)
 
 ```bash
-# Mistral (ancien format)
-MISTRAL_API_KEY=your-mistral-api-key-here
+# Mistral (legacy, non utilisé)
+MISTRAL_API_KEY=votre-chocolatine-api-key-ici
 
 # Chocolatine (provider alternatif)
 CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
@@ -153,12 +153,13 @@ THUMBS_DOWN_CONFIDENCE_THRESHOLD=0.6
 THUMBS_DOWN_AUTO_NOTIFICATIONS=false
 ```
 
-### Utiliser Chocolatine au lieu de Mistral
+### Utiliser Mistral au lieu de Chocolatine (optionnel)
 
 ```bash
-THUMBS_DOWN_LLM_PROVIDER=chocolatine
-CHOCOLATINE_API_URL=https://apigpt.mynumih.fr
-CHOCOLATINE_API_KEY=your-chocolatine-key
+THUMBS_DOWN_LLM_PROVIDER=mistral
+LLM_API_URL=https://api.mistral.ai
+LLM_API_KEY=your-mistral-api-key
+LLM_MODEL_NAME=mistral-small-latest
 ```
 
 ## 🐛 Troubleshooting
