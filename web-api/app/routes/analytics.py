@@ -1033,6 +1033,42 @@ async def validate_thumbs_down(
         return {"success": True, "validation": dict(result)}
 
 
+@router.get("/thumbs-down/validation/{validation_id}")
+async def get_thumbs_down_validation(
+    validation_id: UUID,
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Récupère une validation thumbs down par son ID avec tous les détails
+    """
+    async with database.db_pool.acquire() as conn:
+        validation = await conn.fetchrow("""
+            SELECT
+                v.*,
+                u.username,
+                u.email as user_email,
+                u.first_name,
+                u.last_name,
+                m.content as message_content
+            FROM thumbs_down_validations v
+            JOIN users u ON v.user_id = u.id
+            LEFT JOIN messages m ON v.message_id = m.id
+            WHERE v.id = $1
+        """, validation_id)
+
+        if not validation:
+            raise HTTPException(status_code=404, detail="Validation not found")
+
+        result = dict(validation)
+
+        # Parse sources_used JSON si présent
+        if result.get('sources_used'):
+            import json
+            result['sources_used'] = json.loads(result['sources_used'])
+
+        return result
+
+
 @router.get("/thumbs-down/users-to-contact")
 async def get_users_to_contact(
     current_user: dict = Depends(get_current_admin_user)

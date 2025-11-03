@@ -528,6 +528,18 @@ class APIClient {
   }
 
   /**
+   * Get a single thumbs down validation by ID with full details
+   * @param validationId - UUID of the validation
+   * @returns Complete validation object with user info and message content
+   */
+  async getThumbsDownValidationById(validationId: string): Promise<ThumbsDownValidation> {
+    const { data } = await this.client.get<ThumbsDownValidation>(
+      `/api/analytics/thumbs-down/validation/${validationId}`
+    );
+    return data;
+  }
+
+  /**
    * Get list of users needing accompaniment (bad_question classifications)
    * These users have submitted questions with poor formulation
    */

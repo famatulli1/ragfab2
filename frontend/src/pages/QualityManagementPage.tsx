@@ -1071,6 +1071,7 @@ const QualityManagementPage = () => {
                         <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Email</th>
                         <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">Mauvaises questions</th>
                         <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Dernière question</th>
+                        <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1092,6 +1093,24 @@ const QualityManagementPage = () => {
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                             {new Date(user.last_bad_question_date).toLocaleDateString('fr-FR')}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  // Récupérer la première validation de cet utilisateur via API
+                                  const firstValidationId = user.validation_ids[0];
+                                  const validation = await api.getThumbsDownValidationById(firstValidationId);
+                                  setSelectedValidation(validation);
+                                  setShowValidationModal(true);
+                                } catch (error) {
+                                  console.error('Error fetching validation:', error);
+                                }
+                              }}
+                              className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs"
+                            >
+                              Voir détails
+                            </button>
                           </td>
                         </tr>
                       ))}
