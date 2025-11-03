@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import type {
   ThumbsDownStats,
+  ThumbsDownValidation,
   ValidationUpdate,
   PendingValidationsResponse,
   AllValidationsResponse,
