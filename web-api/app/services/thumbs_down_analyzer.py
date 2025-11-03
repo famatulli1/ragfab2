@@ -307,6 +307,41 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
                 "missing_info": null
             }
 
+    def _determine_admin_action(self, classification: str, confidence: float) -> str:
+        """
+        Détermine automatiquement l'action admin basée sur la classification et la confiance
+
+        Logique :
+        - bad_question avec confiance >= seuil → contact_user (accompagner l'utilisateur)
+        - missing_sources avec confiance >= seuil → mark_for_reingestion (réingérer document)
+        - bad_answer → pending (nécessite révision manuelle par admin)
+        - out_of_scope → ignore (thumbs down légitime, aucune action)
+        - Toute classification avec confiance < seuil → pending (révision manuelle)
+
+        Args:
+            classification: Type de problème détecté (bad_question, missing_sources, etc.)
+            confidence: Score de confiance de l'IA (0.0-1.0)
+
+        Returns:
+            Action admin recommandée ('contact_user', 'mark_for_reingestion', 'ignore', 'pending')
+        """
+        # Si confiance faible, toujours requiert révision manuelle
+        if confidence < self.confidence_threshold:
+            return 'pending'
+
+        # Logique basée sur classification avec haute confiance
+        if classification == 'bad_question':
+            return 'contact_user'  # Utilisateur a mal formulé sa question
+        elif classification == 'missing_sources':
+            return 'mark_for_reingestion'  # Document manque d'informations
+        elif classification == 'out_of_scope':
+            return 'ignore'  # Question hors périmètre, thumbs down légitime
+        elif classification == 'bad_answer':
+            return 'pending'  # Réponse incorrecte, nécessite investigation humaine
+        else:
+            # Classification inconnue ou unrealistic_expectations
+            return 'pending'
+
     async def _save_validation(
         self,
         rating_id: UUID,
@@ -319,6 +354,11 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
         needs_review: bool
     ) -> UUID:
         """Enregistre l'analyse dans thumbs_down_validations"""
+
+        # Déterminer automatiquement l'action admin basée sur classification et confiance
+        admin_action = self._determine_admin_action(classification, confidence)
+
+        logger.info(f"💡 Auto-action déterminée: {admin_action} (classification={classification}, confidence={confidence:.2f})")
 
         async with self.db.acquire() as conn:
             row = await conn.fetchrow("""
@@ -335,8 +375,9 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
                     ai_reasoning,
                     suggested_reformulation,
                     missing_info_details,
-                    needs_admin_review
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    needs_admin_review,
+                    admin_action
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 ON CONFLICT (message_id) DO UPDATE
                 SET ai_classification = $8,
                     ai_confidence = $9,
@@ -344,6 +385,7 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
                     suggested_reformulation = $11,
                     missing_info_details = $12,
                     needs_admin_review = $13,
+                    admin_action = $14,
                     created_at = CURRENT_TIMESTAMP
                 RETURNING id
             """,
@@ -359,7 +401,8 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
                 reasoning,
                 suggested_reformulation,
                 missing_info_details,
-                needs_review
+                needs_review,
+                admin_action
             )
 
             return row['id']
