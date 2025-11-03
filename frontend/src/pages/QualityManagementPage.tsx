@@ -267,7 +267,7 @@ const QualityManagementPage = () => {
     }
   };
 
-  const handleValidationComplete = (validationId: string) => {
+  const handleValidationComplete = (_validationId: string) => {
     // Refresh all data after validation
     fetchPendingValidations();
     fetchUsersToContact();

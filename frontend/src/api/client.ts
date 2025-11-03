@@ -18,10 +18,7 @@ import type {
   UserListResponse,
 } from '../types';
 import type {
-  ThumbsDownValidation,
   ThumbsDownStats,
-  UserToContact,
-  ReingestionCandidate,
   ValidationUpdate,
   PendingValidationsResponse,
   AllValidationsResponse,

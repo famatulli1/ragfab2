@@ -10,7 +10,7 @@ import {
   ArrowLeft,
   ThumbsUp,
   ThumbsDown,
-  User,
+  User as UserIcon,
   RefreshCw,
   CheckCircle
 } from 'lucide-react';
