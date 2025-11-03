@@ -78,16 +78,12 @@ Le frontend est déjà à jour avec le code thumbs down et communique uniquement
 2. **Cliquer sur "Add Resource"** → "Docker Compose"
 3. **Nommer le service** : `ragfab-thumbs-down-worker`
 
-#### Configuration Build
+#### Configuration
 
 - **Repository** : Votre dépôt Git RAGFab
 - **Branch** : `main`
-- **Build Context** : `.` (racine du projet)
-- **Dockerfile Path** : `web-api/Dockerfile`
-
-#### Docker Compose
-
-Coller le contenu de `/coolify/8-thumbs-down-worker/docker-compose.yml`
+- **Docker Compose Location** : `coolify/8-thumbs-down-worker/docker-compose.yml`
+- **Build Pack** : Docker Compose
 
 #### Variables d'environnement
 

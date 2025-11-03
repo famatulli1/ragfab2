@@ -47,14 +47,11 @@ Dans Coolify :
 
 ### 2. Configuration du service
 
-**Build Context** :
-- Repository : Votre dépôt Git RAGFab
-- Branch : `main`
-- Dockerfile Path : `web-api/Dockerfile`
-- Build Context : `web-api`
-
-**Docker Compose** :
-- Coller le contenu de `docker-compose.yml` de ce dossier
+Dans Coolify :
+- **Repository** : Votre dépôt Git RAGFab
+- **Branch** : `main`
+- **Docker Compose Location** : `coolify/8-thumbs-down-worker/docker-compose.yml`
+- **Build Pack** : Docker Compose
 
 ### 3. Variables d'environnement
 
