@@ -558,7 +558,7 @@ export default function AnalyticsPage() {
                           Nécessitent aide pour formuler leurs questions
                         </p>
                         <button
-                          onClick={() => navigate('/quality-management')}
+                          onClick={() => navigate('/admin/quality-management')}
                           className="mt-2 text-xs text-yellow-700 dark:text-yellow-400 hover:underline"
                         >
                           → Voir dans Quality Management
@@ -582,7 +582,7 @@ export default function AnalyticsPage() {
                           Sources manquantes ou incorrectes détectées
                         </p>
                         <button
-                          onClick={() => navigate('/quality-management')}
+                          onClick={() => navigate('/admin/quality-management')}
                           className="mt-2 text-xs text-orange-700 dark:text-orange-400 hover:underline"
                         >
                           → Voir dans Quality Management
@@ -591,7 +591,7 @@ export default function AnalyticsPage() {
 
                       {/* Bouton d'action principal */}
                       <button
-                        onClick={() => navigate('/quality-management')}
+                        onClick={() => navigate('/admin/quality-management')}
                         className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                       >
                         <ThumbsDown className="w-4 h-4" />
