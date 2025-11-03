@@ -22,7 +22,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:medium.com)",
       "Bash(npm install:*)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(cat:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

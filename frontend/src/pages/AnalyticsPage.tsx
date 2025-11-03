@@ -8,7 +8,11 @@ import {
   FileText,
   MessageSquare,
   ArrowLeft,
-  ThumbsUp
+  ThumbsUp,
+  ThumbsDown,
+  User,
+  RefreshCw,
+  CheckCircle
 } from 'lucide-react';
 import { useTheme } from '../App';
 import UserMenu from '../components/UserMenu';
@@ -75,6 +79,7 @@ export default function AnalyticsPage() {
   const [worstChunks, setWorstChunks] = useState<ChunkData[]>([]);
   const [worstDocuments, setWorstDocuments] = useState<DocumentData[]>([]);
   const [rerankingComparison, setRerankingComparison] = useState<any>(null);
+  const [thumbsDownStats, setThumbsDownStats] = useState<any>(null);
 
   useEffect(() => {
     loadCurrentUser();
@@ -98,17 +103,19 @@ export default function AnalyticsPage() {
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const [summaryData, chunksData, documentsData, rerankingData] = await Promise.all([
+      const [summaryData, chunksData, documentsData, rerankingData, thumbsDownData] = await Promise.all([
         api.getAnalyticsSummary(period),
         api.getWorstChunks(10, 3),
         api.getWorstDocuments(5, 5),
-        api.getRatingsByReranking(period)
+        api.getRatingsByReranking(period),
+        api.getThumbsDownStats(period)
       ]);
 
       setSummary(summaryData);
       setWorstChunks(chunksData);
       setWorstDocuments(documentsData);
       setRerankingComparison(rerankingData);
+      setThumbsDownStats(thumbsDownData);
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
@@ -463,6 +470,135 @@ export default function AnalyticsPage() {
                   <p className="text-sm text-blue-800 dark:text-blue-300">
                     💡 <strong>Recommandation</strong> : Réingérer ces documents avec optimisations (parent-child chunks, contextual retrieval, hybrid search)
                   </p>
+                </div>
+              </div>
+            )}
+
+            {/* Section 6 : Thumbs Down Validation */}
+            {thumbsDownStats && thumbsDownStats.summary && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Widget 1: Résumé Thumbs Down */}
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <ThumbsDown className="w-5 h-5 text-red-500" />
+                    Validation Thumbs Down
+                  </h2>
+
+                  <div className={`rounded-lg p-6 shadow ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-900/20">
+                        <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                          {thumbsDownStats.summary.total_thumbs_down}
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">Total thumbs down</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20">
+                        <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                          {thumbsDownStats.summary.pending_review}
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">En attente</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">❓ Questions mal formulées</span>
+                        <span className="font-semibold">{thumbsDownStats.summary.bad_questions}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">❌ Réponses incorrectes</span>
+                        <span className="font-semibold">{thumbsDownStats.summary.bad_answers}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">📚 Sources manquantes</span>
+                        <span className="font-semibold">{thumbsDownStats.summary.missing_sources}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">🎯 Attentes hors scope</span>
+                        <span className="font-semibold">{thumbsDownStats.summary.unrealistic_expectations}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">Confiance IA moyenne</span>
+                        <span className="font-semibold">{(thumbsDownStats.summary.avg_confidence * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm mt-2">
+                        <span className="text-gray-600 dark:text-gray-400">Overrides admin</span>
+                        <span className="font-semibold">{thumbsDownStats.summary.admin_overrides}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Widget 2: Actions Requises */}
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-blue-500" />
+                    Actions Requises
+                  </h2>
+
+                  <div className={`rounded-lg p-6 shadow ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+                    <div className="space-y-4">
+                      {/* Utilisateurs à accompagner */}
+                      <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <User className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                            <span className="font-semibold text-yellow-900 dark:text-yellow-200">
+                              Utilisateurs à accompagner
+                            </span>
+                          </div>
+                          <span className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                            {thumbsDownStats.summary.users_to_contact}
+                          </span>
+                        </div>
+                        <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                          Nécessitent aide pour formuler leurs questions
+                        </p>
+                        <button
+                          onClick={() => navigate('/quality-management')}
+                          className="mt-2 text-xs text-yellow-700 dark:text-yellow-400 hover:underline"
+                        >
+                          → Voir dans Quality Management
+                        </button>
+                      </div>
+
+                      {/* Documents à réingérer */}
+                      <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <RefreshCw className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                            <span className="font-semibold text-orange-900 dark:text-orange-200">
+                              Documents à réingérer
+                            </span>
+                          </div>
+                          <span className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                            {thumbsDownStats.summary.documents_to_reingest}
+                          </span>
+                        </div>
+                        <p className="text-xs text-orange-800 dark:text-orange-300">
+                          Sources manquantes ou incorrectes détectées
+                        </p>
+                        <button
+                          onClick={() => navigate('/quality-management')}
+                          className="mt-2 text-xs text-orange-700 dark:text-orange-400 hover:underline"
+                        >
+                          → Voir dans Quality Management
+                        </button>
+                      </div>
+
+                      {/* Bouton d'action principal */}
+                      <button
+                        onClick={() => navigate('/quality-management')}
+                        className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <ThumbsDown className="w-4 h-4" />
+                        Accéder à la validation
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

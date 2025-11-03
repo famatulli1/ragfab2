@@ -852,13 +852,13 @@ async def rate_message(
         # Insérer ou mettre à jour la notation
         rating = await conn.fetchrow(
             """
-            INSERT INTO message_ratings (message_id, rating, feedback)
-            VALUES ($1, $2, $3)
+            INSERT INTO message_ratings (message_id, rating, feedback, user_id)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (message_id) DO UPDATE
-            SET rating = $2, feedback = $3, created_at = CURRENT_TIMESTAMP
+            SET rating = $2, feedback = $3, user_id = $4, created_at = CURRENT_TIMESTAMP
             RETURNING *
             """,
-            message_id, request.rating, request.feedback
+            message_id, request.rating, request.feedback, current_user['id']
         )
 
     return Rating(**dict(rating))

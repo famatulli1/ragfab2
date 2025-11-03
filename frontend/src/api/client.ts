@@ -17,6 +17,18 @@ import type {
   UserResponse,
   UserListResponse,
 } from '../types';
+import type {
+  ThumbsDownValidation,
+  ThumbsDownStats,
+  UserToContact,
+  ReingestionCandidate,
+  ValidationUpdate,
+  PendingValidationsResponse,
+  AllValidationsResponse,
+  UsersToContactResponse,
+  ReingestionCandidatesResponse,
+  ThumbsDownFilters,
+} from '../types/thumbsDown';
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';
 
@@ -457,6 +469,116 @@ class APIClient {
 
   async getReingestionCount(): Promise<{ count: number }> {
     const { data } = await this.client.get('/api/analytics/quality/reingestion-count');
+    return data;
+  }
+
+  // ============================================================================
+  // THUMBS DOWN VALIDATION SYSTEM
+  // ============================================================================
+
+  /**
+   * Get thumbs down validations pending admin review
+   * These are validations where AI confidence < threshold or admin hasn't validated yet
+   */
+  async getPendingThumbsDownValidations(): Promise<PendingValidationsResponse> {
+    const { data } = await this.client.get<PendingValidationsResponse>(
+      '/api/analytics/thumbs-down/pending-review'
+    );
+    return data;
+  }
+
+  /**
+   * Get all thumbs down validations with optional filters
+   * @param filters - Optional filters for classification, admin_action, validation status, etc.
+   */
+  async getAllThumbsDownValidations(filters?: ThumbsDownFilters): Promise<AllValidationsResponse> {
+    const params: any = {};
+
+    if (filters) {
+      if (filters.classification) params.classification = filters.classification;
+      if (filters.needs_review !== undefined) params.needs_review = filters.needs_review;
+      if (filters.admin_action) params.admin_action = filters.admin_action;
+      if (filters.validated !== undefined) params.validated = filters.validated;
+      if (filters.limit) params.limit = filters.limit;
+      if (filters.offset) params.offset = filters.offset;
+    }
+
+    const { data } = await this.client.get<AllValidationsResponse>(
+      '/api/analytics/thumbs-down/all',
+      { params }
+    );
+    return data;
+  }
+
+  /**
+   * Validate a thumbs down (admin review)
+   * @param validationId - UUID of the validation record
+   * @param update - Admin override, notes, and action
+   */
+  async validateThumbsDown(
+    validationId: string,
+    update: ValidationUpdate
+  ): Promise<{
+    validation_id: string;
+    final_classification: string;
+    actions_taken: string[]
+  }> {
+    const { data } = await this.client.post(
+      `/api/analytics/thumbs-down/${validationId}/validate`,
+      update
+    );
+    return data;
+  }
+
+  /**
+   * Get list of users needing accompaniment (bad_question classifications)
+   * These users have submitted questions with poor formulation
+   */
+  async getUsersToContact(): Promise<UsersToContactResponse> {
+    const { data } = await this.client.get<UsersToContactResponse>(
+      '/api/analytics/thumbs-down/users-to-contact'
+    );
+    return data;
+  }
+
+  /**
+   * Get documents recommended for reingestion (missing_sources classifications)
+   * These documents have generated thumbs down due to missing or poor sources
+   */
+  async getReingestionCandidates(): Promise<ReingestionCandidatesResponse> {
+    const { data } = await this.client.get<ReingestionCandidatesResponse>(
+      '/api/analytics/thumbs-down/reingestion-candidates'
+    );
+    return data;
+  }
+
+  /**
+   * Get thumbs down statistics and temporal distribution
+   * @param days - Number of days to include (default: 30)
+   */
+  async getThumbsDownStats(days = 30): Promise<ThumbsDownStats> {
+    const { data } = await this.client.get<ThumbsDownStats>(
+      '/api/analytics/thumbs-down/stats',
+      { params: { days } }
+    );
+    return data;
+  }
+
+  /**
+   * Manually trigger AI analysis for a specific thumbs down rating
+   * Useful for re-analyzing or forcing analysis for old ratings
+   * @param ratingId - UUID of the message_rating record
+   */
+  async triggerThumbsDownAnalysis(ratingId: string): Promise<{
+    validation_id: string;
+    classification: string;
+    confidence: number;
+    needs_review: boolean;
+  }> {
+    const { data } = await this.client.post(
+      '/api/analytics/thumbs-down/analyze',
+      { rating_id: ratingId }
+    );
     return data;
   }
 }

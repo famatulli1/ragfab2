@@ -814,3 +814,349 @@ async def get_reingestion_count(
         """)
 
         return {"count": count or 0}
+
+
+# ============================================================================
+# Thumbs Down Validation Routes
+# ============================================================================
+
+@router.get("/thumbs-down/pending-review")
+async def get_pending_thumbs_down_validations(
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Liste des thumbs down nécessitant révision admin (confidence < 0.7 ou unrealistic_expectations)
+    """
+    async with database.db_pool.acquire() as conn:
+        validations = await conn.fetch("""
+            SELECT
+                v.id,
+                v.message_id,
+                v.user_id,
+                v.user_question,
+                v.assistant_response,
+                v.sources_used,
+                v.user_feedback,
+                v.ai_classification,
+                v.ai_confidence,
+                v.ai_reasoning,
+                v.suggested_reformulation,
+                v.missing_info_details,
+                v.needs_admin_review,
+                v.created_at,
+                u.username,
+                u.email as user_email,
+                u.first_name,
+                u.last_name
+            FROM thumbs_down_validations v
+            JOIN users u ON v.user_id = u.id
+            WHERE v.needs_admin_review = true
+              AND v.validated_at IS NULL
+            ORDER BY v.created_at DESC
+        """)
+
+        return {
+            "pending_validations": [dict(row) for row in validations],
+            "count": len(validations)
+        }
+
+
+@router.get("/thumbs-down/all")
+async def get_all_thumbs_down_validations(
+    classification: Optional[str] = None,
+    needs_review: Optional[bool] = None,
+    admin_action: Optional[str] = None,
+    validated: Optional[bool] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Liste complète des thumbs down avec filtres avancés
+
+    Filtres :
+    - classification: bad_question | bad_answer | missing_sources | unrealistic_expectations
+    - needs_review: true/false
+    - admin_action: contact_user | mark_for_reingestion | ignore | pending
+    - validated: true/false (si admin a validé)
+    - limit/offset: pagination
+    """
+    async with database.db_pool.acquire() as conn:
+        # Construction dynamique de la requête avec filtres
+        conditions = []
+        params = []
+        param_count = 0
+
+        if classification:
+            param_count += 1
+            conditions.append(f"(v.admin_override = ${param_count} OR (v.admin_override IS NULL AND v.ai_classification = ${param_count}))")
+            params.append(classification)
+
+        if needs_review is not None:
+            param_count += 1
+            conditions.append(f"v.needs_admin_review = ${param_count}")
+            params.append(needs_review)
+
+        if admin_action:
+            param_count += 1
+            conditions.append(f"v.admin_action = ${param_count}")
+            params.append(admin_action)
+
+        if validated is not None:
+            if validated:
+                conditions.append("v.validated_at IS NOT NULL")
+            else:
+                conditions.append("v.validated_at IS NULL")
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        # Ajouter limit et offset
+        param_count += 1
+        limit_param = f"${param_count}"
+        params.append(limit)
+        param_count += 1
+        offset_param = f"${param_count}"
+        params.append(offset)
+
+        query = f"""
+            SELECT
+                v.id,
+                v.message_id,
+                v.user_id,
+                v.user_question,
+                v.assistant_response,
+                v.sources_used,
+                v.user_feedback,
+                v.ai_classification,
+                v.ai_confidence,
+                v.ai_reasoning,
+                v.suggested_reformulation,
+                v.missing_info_details,
+                v.needs_admin_review,
+                v.admin_override,
+                COALESCE(v.admin_override, v.ai_classification) as final_classification,
+                v.admin_notes,
+                v.admin_action,
+                v.validated_by,
+                v.validated_at,
+                v.created_at,
+                u.username,
+                u.email as user_email,
+                u.first_name,
+                u.last_name,
+                validator.username as validated_by_username
+            FROM thumbs_down_validations v
+            JOIN users u ON v.user_id = u.id
+            LEFT JOIN users validator ON v.validated_by = validator.id
+            {where_clause}
+            ORDER BY v.created_at DESC
+            LIMIT {limit_param} OFFSET {offset_param}
+        """
+
+        validations = await conn.fetch(query, *params)
+
+        # Count total pour pagination
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM thumbs_down_validations v
+            {where_clause}
+        """
+        total_count = await conn.fetchval(count_query, *params[:-2])  # Exclure limit/offset
+
+        return {
+            "validations": [dict(row) for row in validations],
+            "total_count": total_count,
+            "page_size": limit,
+            "offset": offset
+        }
+
+
+@router.post("/thumbs-down/{validation_id}/validate")
+async def validate_thumbs_down(
+    validation_id: UUID,
+    admin_override: Optional[str] = None,
+    admin_notes: Optional[str] = None,
+    admin_action: str = "pending",
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Admin valide/modifie la classification d'un thumbs down
+
+    Body params:
+    - admin_override: bad_question | bad_answer | missing_sources | unrealistic_expectations (optionnel)
+    - admin_notes: Notes de l'admin (optionnel)
+    - admin_action: contact_user | mark_for_reingestion | ignore | pending
+    """
+    async with database.db_pool.acquire() as conn:
+        # Mettre à jour la validation
+        result = await conn.fetchrow("""
+            UPDATE thumbs_down_validations
+            SET admin_override = $1,
+                admin_notes = $2,
+                admin_action = $3,
+                validated_by = $4,
+                validated_at = CURRENT_TIMESTAMP
+            WHERE id = $5
+            RETURNING *
+        """, admin_override, admin_notes, admin_action, current_user['id'], validation_id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Validation not found")
+
+        # Déclencher actions automatiques selon admin_action
+        from ..services.user_accompaniment import UserAccompanimentService
+        accompaniment = UserAccompanimentService(database.db_pool)
+
+        if admin_action == "contact_user":
+            # Créer notification pour l'utilisateur
+            await accompaniment.create_question_improvement_notification(validation_id)
+            logger.info(f"✅ Notification created for validation {validation_id}")
+
+        elif admin_action == "mark_for_reingestion":
+            # Marquer documents pour réingestion
+            await conn.execute("""
+                UPDATE document_quality_scores dqs
+                SET needs_reingestion = true
+                FROM (
+                    SELECT DISTINCT c.document_id
+                    FROM thumbs_down_validations v
+                    CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
+                    JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
+                    WHERE v.id = $1
+                ) docs
+                WHERE dqs.document_id = docs.document_id
+            """, validation_id)
+            logger.info(f"✅ Documents marked for reingestion from validation {validation_id}")
+
+        return {"success": True, "validation": dict(result)}
+
+
+@router.get("/thumbs-down/users-to-contact")
+async def get_users_to_contact(
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Liste des utilisateurs à accompagner (bad_question avec admin_action=contact_user)
+    """
+    async with database.db_pool.acquire() as conn:
+        users = await conn.fetch("""
+            SELECT
+                u.id as user_id,
+                u.username,
+                u.email,
+                u.first_name,
+                u.last_name,
+                COUNT(v.id) as bad_questions_count,
+                ARRAY_AGG(v.user_question ORDER BY v.created_at DESC) as recent_questions,
+                MAX(v.created_at) as last_bad_question_date,
+                ARRAY_AGG(v.id ORDER BY v.created_at DESC) as validation_ids
+            FROM thumbs_down_validations v
+            JOIN users u ON v.user_id = u.id
+            WHERE (v.admin_override = 'bad_question' OR
+                   (v.admin_override IS NULL AND v.ai_classification = 'bad_question'))
+              AND v.admin_action = 'contact_user'
+            GROUP BY u.id, u.username, u.email, u.first_name, u.last_name
+            ORDER BY bad_questions_count DESC, last_bad_question_date DESC
+        """)
+
+        return {
+            "users_to_contact": [dict(row) for row in users],
+            "total_users": len(users)
+        }
+
+
+@router.get("/thumbs-down/reingestion-candidates")
+async def get_reingestion_candidates(
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Documents à réingérer basés sur validations missing_sources
+    """
+    async with database.db_pool.acquire() as conn:
+        documents = await conn.fetch("""
+            SELECT
+                d.id as document_id,
+                d.title as document_title,
+                d.source,
+                COUNT(DISTINCT v.id) as occurrences_count,
+                MAX(v.created_at) as last_occurrence,
+                ARRAY_AGG(DISTINCT c.id) as chunk_ids,
+                ARRAY_AGG(DISTINCT v.user_question) as user_questions
+            FROM thumbs_down_validations v
+            CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
+            JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
+            JOIN documents d ON c.document_id = d.id
+            WHERE (v.admin_override = 'missing_sources' OR
+                   (v.admin_override IS NULL AND v.ai_classification = 'missing_sources'))
+              AND v.admin_action = 'mark_for_reingestion'
+            GROUP BY d.id, d.title, d.source
+            ORDER BY occurrences_count DESC, last_occurrence DESC
+        """)
+
+        return {
+            "documents": [dict(row) for row in documents],
+            "total_documents": len(documents)
+        }
+
+
+@router.get("/thumbs-down/stats")
+async def get_thumbs_down_stats(
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Statistiques globales pour dashboard thumbs down
+    """
+    async with database.db_pool.acquire() as conn:
+        stats = await conn.fetchrow("""
+            SELECT
+                COUNT(*) as total_thumbs_down,
+                COUNT(*) FILTER (WHERE needs_admin_review = true AND validated_at IS NULL) as pending_review,
+                COUNT(*) FILTER (WHERE ai_classification = 'bad_question' OR admin_override = 'bad_question') as bad_questions,
+                COUNT(*) FILTER (WHERE ai_classification = 'bad_answer' OR admin_override = 'bad_answer') as bad_answers,
+                COUNT(*) FILTER (WHERE ai_classification = 'missing_sources' OR admin_override = 'missing_sources') as missing_sources,
+                COUNT(*) FILTER (WHERE ai_classification = 'unrealistic_expectations' OR admin_override = 'unrealistic_expectations') as unrealistic_expectations,
+                AVG(ai_confidence) as avg_confidence,
+                COUNT(*) FILTER (WHERE admin_override IS NOT NULL) as admin_overrides,
+                COUNT(*) FILTER (WHERE admin_action = 'contact_user') as users_to_contact,
+                COUNT(*) FILTER (WHERE admin_action = 'mark_for_reingestion') as documents_to_reingest
+            FROM thumbs_down_validations
+        """)
+
+        # Distribution temporelle (7 derniers jours)
+        temporal_distribution = await conn.fetch("""
+            SELECT
+                DATE(created_at) as date,
+                COUNT(*) as count,
+                AVG(ai_confidence) as avg_confidence
+            FROM thumbs_down_validations
+            WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+            GROUP BY DATE(created_at)
+            ORDER BY date DESC
+        """)
+
+        return {
+            "summary": dict(stats) if stats else {},
+            "temporal_distribution": [dict(row) for row in temporal_distribution]
+        }
+
+
+@router.post("/thumbs-down/analyze")
+async def trigger_thumbs_down_analysis(
+    rating_id: UUID,
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Déclenche manuellement une analyse IA d'un thumbs down (re-analyse)
+    """
+    from ..services.thumbs_down_analyzer import ThumbsDownAnalyzer
+
+    analyzer = ThumbsDownAnalyzer(database.db_pool)
+
+    try:
+        result = await analyzer.analyze_thumbs_down(rating_id)
+        return {"success": True, "result": result}
+    except Exception as e:
+        logger.error(f"Error analyzing thumbs down {rating_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

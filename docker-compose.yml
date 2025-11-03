@@ -214,6 +214,47 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  # Thumbs Down Validation Worker
+  thumbs-down-worker:
+    build:
+      context: ./web-api
+      dockerfile: Dockerfile
+    container_name: ragfab-thumbs-down-worker
+    command: python -m app.thumbs_down_worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass123}@postgres:5432/${POSTGRES_DB:-ragdb}
+      # Generic LLM Configuration
+      LLM_API_URL: ${LLM_API_URL:-https://api.mistral.ai}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-mistral-small-latest}
+      LLM_USE_TOOLS: ${LLM_USE_TOOLS:-false}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120.0}
+      # Legacy variables for backward compatibility
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      MISTRAL_MODEL_NAME: ${MISTRAL_MODEL_NAME:-mistral-small-latest}
+      CHOCOLATINE_API_URL: ${CHOCOLATINE_API_URL:-https://apigpt.mynumih.fr}
+      CHOCOLATINE_API_KEY: ${CHOCOLATINE_API_KEY:-}
+      CHOCOLATINE_MODEL_NAME: ${CHOCOLATINE_MODEL_NAME:-jpacifico/Chocolatine-2-14B-Instruct-v2.0.3}
+      # Thumbs Down Configuration
+      THUMBS_DOWN_AUTO_ANALYSIS: ${THUMBS_DOWN_AUTO_ANALYSIS:-true}
+      THUMBS_DOWN_CONFIDENCE_THRESHOLD: ${THUMBS_DOWN_CONFIDENCE_THRESHOLD:-0.7}
+      THUMBS_DOWN_LLM_PROVIDER: ${THUMBS_DOWN_LLM_PROVIDER:-mistral}
+      THUMBS_DOWN_AUTO_NOTIFICATIONS: ${THUMBS_DOWN_AUTO_NOTIFICATIONS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ragfab-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
   # API Backend FastAPI
   ragfab-api:
     build:

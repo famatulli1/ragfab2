@@ -14,8 +14,18 @@ import {
   RefreshCw,
   Shield,
   Ban,
-  ArrowLeft
+  ArrowLeft,
+  ThumbsDown,
+  User,
+  MessageSquare
 } from 'lucide-react';
+import { ThumbsDownValidationModal } from '../components/ThumbsDownValidationModal';
+import type {
+  ThumbsDownValidation,
+  PendingValidationsResponse,
+  UsersToContactResponse,
+  ReingestionCandidatesResponse
+} from '../types/thumbsDown';
 
 interface BlacklistedChunk {
   chunk_id: string;
@@ -81,7 +91,7 @@ interface AuditLogEntry {
 
 const QualityManagementPage = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'blacklisted' | 'reingestion' | 'trigger' | 'history'>('blacklisted');
+  const [activeTab, setActiveTab] = useState<'blacklisted' | 'reingestion' | 'trigger' | 'history' | 'thumbs-down'>('blacklisted');
 
   // Tab 1: Blacklisted Chunks
   const [blacklistedChunks, setBlacklistedChunks] = useState<BlacklistedChunk[]>([]);
@@ -105,6 +115,16 @@ const QualityManagementPage = () => {
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
+  // Tab 5: Thumbs Down Validation
+  const [pendingValidations, setPendingValidations] = useState<ThumbsDownValidation[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [usersToContact, setUsersToContact] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [reingestionCandidatesFromThumbs, setReingestionCandidatesFromThumbs] = useState<any[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [selectedValidation, setSelectedValidation] = useState<ThumbsDownValidation | null>(null);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+
   // Reingestion Modal
   const [showReingestionModal, setShowReingestionModal] = useState(false);
   const [selectedDocForReingest, setSelectedDocForReingest] = useState<ReingestionDoc | null>(null);
@@ -127,6 +147,10 @@ const QualityManagementPage = () => {
     } else if (activeTab === 'history') {
       fetchAnalysisHistory();
       fetchAuditLog();
+    } else if (activeTab === 'thumbs-down') {
+      fetchPendingValidations();
+      fetchUsersToContact();
+      fetchReingestionCandidates();
     }
   }, [activeTab]);
 
@@ -204,6 +228,50 @@ const QualityManagementPage = () => {
     } finally {
       setLoadingAudit(false);
     }
+  };
+
+  // Thumbs Down fetch functions
+  const fetchPendingValidations = async () => {
+    setLoadingPending(true);
+    try {
+      const data: PendingValidationsResponse = await api.getPendingThumbsDownValidations();
+      setPendingValidations(data.pending_validations);
+    } catch (error) {
+      console.error('Error fetching pending validations:', error);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  const fetchUsersToContact = async () => {
+    setLoadingUsers(true);
+    try {
+      const data: UsersToContactResponse = await api.getUsersToContact();
+      setUsersToContact(data.users_to_contact);
+    } catch (error) {
+      console.error('Error fetching users to contact:', error);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const fetchReingestionCandidates = async () => {
+    setLoadingCandidates(true);
+    try {
+      const data: ReingestionCandidatesResponse = await api.getReingestionCandidates();
+      setReingestionCandidatesFromThumbs(data.documents);
+    } catch (error) {
+      console.error('Error fetching reingestion candidates:', error);
+    } finally {
+      setLoadingCandidates(false);
+    }
+  };
+
+  const handleValidationComplete = (validationId: string) => {
+    // Refresh all data after validation
+    fetchPendingValidations();
+    fetchUsersToContact();
+    fetchReingestionCandidates();
   };
 
   const handleUnblacklist = async (chunkId: string, reason: string) => {
@@ -400,6 +468,20 @@ const QualityManagementPage = () => {
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4" />
                 Historique
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('thumbs-down')}
+              className={`px-4 py-3 border-b-2 font-medium text-sm ${
+                activeTab === 'thumbs-down'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <ThumbsDown className="w-4 h-4" />
+                Validation Thumbs Down
               </div>
             </button>
           </div>
@@ -877,7 +959,219 @@ const QualityManagementPage = () => {
             </div>
           </div>
         )}
+
+        {/* Tab 5: Thumbs Down Validation */}
+        {activeTab === 'thumbs-down' && (
+          <div className="space-y-6">
+            {/* Section 1: Validations en attente */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <ThumbsDown className="w-5 h-5 text-red-600" />
+                Validations en attente ({pendingValidations.length})
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Ces thumbs down nécessitent une révision admin (confiance IA &lt; 0.7)
+              </p>
+
+              {loadingPending ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : pendingValidations.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucune validation en attente</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingValidations.map((validation) => (
+                    <div
+                      key={validation.id}
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                            <span className="font-medium text-gray-900 dark:text-white">
+                              {validation.username}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(validation.created_at).toLocaleDateString('fr-FR')}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              validation.ai_classification === 'bad_question'
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                : validation.ai_classification === 'bad_answer'
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                : validation.ai_classification === 'missing_sources'
+                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                                : 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                            }`}>
+                              {validation.ai_classification}
+                            </span>
+                            <span className="text-xs text-gray-600 dark:text-gray-400">
+                              Confiance: {(validation.ai_confidence * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mb-3">
+                        <MessageSquare className="w-4 h-4 inline text-gray-600 dark:text-gray-400 mr-2" />
+                        <span className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                          {validation.user_question}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => {
+                            setSelectedValidation(validation);
+                            setShowValidationModal(true);
+                          }}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                        >
+                          Valider
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Utilisateurs à accompagner */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <User className="w-5 h-5 text-yellow-600" />
+                Utilisateurs à accompagner ({usersToContact.length})
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Utilisateurs avec questions mal formulées nécessitant un accompagnement pédagogique
+              </p>
+
+              {loadingUsers ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : usersToContact.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucun utilisateur à accompagner</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Utilisateur</th>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Email</th>
+                        <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">Mauvaises questions</th>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Dernière question</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {usersToContact.map((user: any) => (
+                        <tr key={user.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-900 dark:text-white">{user.username}</div>
+                            {user.first_name && user.last_name && (
+                              <div className="text-xs text-gray-500">
+                                {user.first_name} {user.last_name}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{user.email}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded text-xs font-medium">
+                              {user.bad_questions_count}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                            {new Date(user.last_bad_question_date).toLocaleDateString('fr-FR')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Documents à réingérer (from thumbs down) */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5 text-orange-600" />
+                Documents à réingérer ({reingestionCandidatesFromThumbs.length})
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Documents avec sources manquantes identifiés par validation thumbs down
+              </p>
+
+              {loadingCandidates ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : reingestionCandidatesFromThumbs.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucun document à réingérer</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Document</th>
+                        <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-300">Occurrences</th>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Dernière occurrence</th>
+                        <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-300">Chunks concernés</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {reingestionCandidatesFromThumbs.map((doc: any) => (
+                        <tr key={doc.document_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-900 dark:text-white">{doc.document_title}</div>
+                            <div className="text-xs text-gray-500">{doc.source}</div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-2 py-1 bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 rounded text-xs font-medium">
+                              {doc.occurrences_count}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                            {new Date(doc.last_occurrence).toLocaleDateString('fr-FR')}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                            {doc.chunk_ids.length} chunks
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Thumbs Down Validation Modal */}
+      {showValidationModal && selectedValidation && (
+        <ThumbsDownValidationModal
+          validation={selectedValidation}
+          isOpen={showValidationModal}
+          onClose={() => {
+            setShowValidationModal(false);
+            setSelectedValidation(null);
+          }}
+          onValidated={handleValidationComplete}
+        />
+      )}
 
       {/* Reingestion Modal */}
       {showReingestionModal && selectedDocForReingest && (

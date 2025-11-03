@@ -217,6 +217,7 @@ class RatingCreate(BaseModel):
 class Rating(BaseModel):
     id: UUID
     message_id: UUID
+    user_id: UUID  # User who submitted the rating (direct traceability)
     rating: int
     feedback: Optional[str] = None
     created_at: datetime
