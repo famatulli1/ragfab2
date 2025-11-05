@@ -556,7 +556,8 @@ Maximum 50 caractères."""
         title = result.data.strip()
 
         # Nettoyer et limiter
-        title = title.replace('"', '').replace("'", '').replace('\n', ' ').strip()
+        # Supprimer uniquement les guillemets/apostrophes en début/fin (pas à l'intérieur)
+        title = title.strip('"\'').replace('\n', ' ').strip()
         if len(title) > 50:
             title = title[:47] + "..."
 
