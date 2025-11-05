@@ -42,33 +42,24 @@ export default function LoginPage() {
       } animate-fadeIn`}>
         {/* Logo et branding */}
         <div className="text-center">
-          {/* Logo Numih principal */}
-          <div className="flex justify-center mb-6">
-            <img
-              src="/logo-numih.png"
-              alt="Numih France - Logo principal"
-              className="h-28 w-28 object-contain transition-transform duration-300 hover:scale-105"
-            />
-          </div>
-
-          {/* Titre RAGBot */}
-          <h1 className={`text-4xl font-bold mb-2 ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          {/* Titre RAGBot en bleu Numih */}
+          <h1 className={`text-4xl font-bold mb-4 ${
+            theme === 'dark' ? 'text-white' : 'text-[#003D7A]'
           } tracking-tight`}>
             RAGBot
           </h1>
 
-          {/* "by" + Logo Numih miniature */}
-          <div className="flex flex-col items-center gap-2 mb-6">
-            <p className={`text-sm italic ${
-              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          {/* "by" + Logo Numih sur la même ligne */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            <p className={`text-sm italic font-medium ${
+              theme === 'dark' ? 'text-white' : 'text-[#003D7A]'
             }`}>
               by
             </p>
             <img
               src="/logo-numih.png"
               alt="Numih France"
-              className="h-10 object-contain"
+              className="h-8 object-contain"
             />
           </div>
 
