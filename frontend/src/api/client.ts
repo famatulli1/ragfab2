@@ -591,6 +591,29 @@ class APIClient {
     );
     return data;
   }
+
+  /**
+   * Cancel a thumbs down rating (soft delete)
+   * Used when admin determines the bad result was due to poorly formulated user question
+   * @param validationId - UUID of the validation record
+   * @param reason - Admin's reason for cancellation (required for audit trail)
+   */
+  async cancelThumbsDown(
+    validationId: string,
+    reason: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    validation_id: string;
+    rating_id: string;
+    cancelled_by: string;
+  }> {
+    const { data } = await this.client.post(
+      `/api/analytics/thumbs-down/${validationId}/cancel`,
+      { cancellation_reason: reason }
+    );
+    return data;
+  }
 }
 
 export const api = new APIClient();

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ThumbsDown, MessageSquare, FileText, AlertCircle, CheckCircle, User } from 'lucide-react';
+import { X, ThumbsDown, MessageSquare, FileText, AlertCircle, CheckCircle, User, XCircle, Ban } from 'lucide-react';
 import type {
   ThumbsDownValidation,
   ThumbsDownClassification,
@@ -13,6 +13,7 @@ interface ThumbsDownValidationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onValidated: (validationId: string) => void;
+  onCancelled?: (validationId: string) => void;
 }
 
 const CLASSIFICATION_LABELS: Record<ThumbsDownClassification, { label: string; color: string; icon: string }> = {
@@ -61,7 +62,8 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
   validation,
   isOpen,
   onClose,
-  onValidated
+  onValidated,
+  onCancelled
 }) => {
   const [adminOverride, setAdminOverride] = useState<ThumbsDownClassification | null>(
     validation.admin_override
@@ -70,6 +72,11 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
   const [adminAction, setAdminAction] = useState<AdminAction>(validation.admin_action);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Cancel states
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
 
   if (!isOpen) return null;
 
@@ -99,8 +106,38 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
   };
 
   const handleClose = () => {
-    if (!isSubmitting) {
+    if (!isSubmitting && !isCancelling) {
       onClose();
+    }
+  };
+
+  const handleCancelRating = () => {
+    setShowCancelConfirmation(true);
+    setCancellationReason('');
+    setError(null);
+  };
+
+  const confirmCancelRating = async () => {
+    if (!cancellationReason.trim()) {
+      setError('Veuillez indiquer la raison de l\'annulation');
+      return;
+    }
+
+    setIsCancelling(true);
+    setError(null);
+
+    try {
+      await api.cancelThumbsDown(validation.id, cancellationReason.trim());
+      setShowCancelConfirmation(false);
+      if (onCancelled) {
+        onCancelled(validation.id);
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Cancel error:', err);
+      setError(err.response?.data?.detail || 'Erreur lors de l\'annulation');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -114,12 +151,33 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
               <ThumbsDown className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Validation Thumbs Down
-              </h2>
+              <div className="flex items-center space-x-3">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Validation Thumbs Down
+                </h2>
+                {validation.is_cancelled && (
+                  <span className="px-3 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-full flex items-center space-x-1">
+                    <Ban className="w-4 h-4" />
+                    <span>Annulé</span>
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-500">
                 Créé le {new Date(validation.created_at).toLocaleString('fr-FR')}
               </p>
+              {validation.is_cancelled && validation.cancelled_at && (
+                <p className="text-sm text-gray-600 mt-1">
+                  <span className="font-medium">Annulé le</span> {new Date(validation.cancelled_at).toLocaleString('fr-FR')}
+                  {validation.cancelled_by_username && (
+                    <span> par <span className="font-medium">{validation.cancelled_by_username}</span></span>
+                  )}
+                </p>
+              )}
+              {validation.is_cancelled && validation.cancellation_reason && (
+                <p className="text-sm text-gray-600 italic mt-1">
+                  Raison: "{validation.cancellation_reason}"
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -356,33 +414,140 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end space-x-3">
-          <button
-            onClick={handleClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={handleValidate}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-          >
-            {isSubmitting ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                <span>Validation...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                <span>Valider</span>
-              </>
+        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-between">
+          {/* Left side: Cancel rating button */}
+          <div>
+            {!validation.is_cancelled && (
+              <button
+                onClick={handleCancelRating}
+                disabled={isSubmitting || isCancelling}
+                className="px-4 py-2 text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>Annuler le thumbs down</span>
+              </button>
             )}
-          </button>
+          </div>
+
+          {/* Right side: Close and Validate buttons */}
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleClose}
+              disabled={isSubmitting || isCancelling}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Fermer
+            </button>
+            {!validation.is_cancelled && (
+              <button
+                onClick={handleValidate}
+                disabled={isSubmitting || isCancelling}
+                className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Validation...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Valider</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Cancellation */}
+      {showCancelConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4">
+            {/* Confirmation Header */}
+            <div className="border-b border-gray-200 px-6 py-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Confirmer l'annulation
+                </h3>
+              </div>
+            </div>
+
+            {/* Confirmation Body */}
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-700">
+                Vous êtes sur le point d'annuler ce thumbs down. Cette action indique que le mauvais résultat était dû à une question mal formulée par l'utilisateur.
+              </p>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Raison de l'annulation <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  disabled={isCancelling}
+                  rows={4}
+                  placeholder="Ex: L'utilisateur a posé une question hors du périmètre du système, le thumbs down n'est pas justifié..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Cette raison sera enregistrée dans l'historique d'audit.
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-600">{error}</p>
+                </div>
+              )}
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-xs text-yellow-800">
+                  <span className="font-semibold">Important:</span> Ce thumbs down sera exclu de toutes les statistiques et rapports.
+                </p>
+              </div>
+            </div>
+
+            {/* Confirmation Footer */}
+            <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex items-center justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowCancelConfirmation(false);
+                  setCancellationReason('');
+                  setError(null);
+                }}
+                disabled={isCancelling}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Retour
+              </button>
+              <button
+                onClick={confirmCancelRating}
+                disabled={isCancelling || !cancellationReason.trim()}
+                className="px-4 py-2 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {isCancelling ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Annulation...</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    <span>Confirmer l'annulation</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

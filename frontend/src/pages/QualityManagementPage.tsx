@@ -274,6 +274,13 @@ const QualityManagementPage = () => {
     fetchReingestionCandidates();
   };
 
+  const handleCancellation = (_validationId: string) => {
+    // Refresh all data after cancellation (same as validation)
+    fetchPendingValidations();
+    fetchUsersToContact();
+    fetchReingestionCandidates();
+  };
+
   const handleUnblacklist = async (chunkId: string, reason: string) => {
     try {
       await api.unblacklistChunk(chunkId, reason);
@@ -1189,6 +1196,7 @@ const QualityManagementPage = () => {
             setSelectedValidation(null);
           }}
           onValidated={handleValidationComplete}
+          onCancelled={handleCancellation}
         />
       )}
 

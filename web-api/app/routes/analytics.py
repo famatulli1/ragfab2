@@ -32,14 +32,14 @@ async def get_ratings_summary(
         # KPIs globaux
         global_stats = await conn.fetchrow("""
             SELECT
-                COUNT(*) FILTER (WHERE mr.rating = 1) as thumbs_up,
-                COUNT(*) FILTER (WHERE mr.rating = -1) as thumbs_down,
-                COUNT(*) as total_ratings,
+                COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false) as thumbs_up,
+                COUNT(*) FILTER (WHERE mr.rating = -1 AND mr.is_cancelled = false) as thumbs_down,
+                COUNT(*) FILTER (WHERE mr.is_cancelled = false) as total_ratings,
                 ROUND(
-                    COUNT(*) FILTER (WHERE mr.rating = 1)::numeric /
-                    NULLIF(COUNT(*), 0)::numeric * 100, 1
+                    COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false)::numeric /
+                    NULLIF(COUNT(*) FILTER (WHERE mr.is_cancelled = false), 0)::numeric * 100, 1
                 ) as satisfaction_rate,
-                COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '') as feedback_count
+                COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '' AND mr.is_cancelled = false) as feedback_count
             FROM message_ratings mr
             JOIN messages m ON mr.message_id = m.id
             WHERE m.role = 'assistant'
@@ -50,17 +50,18 @@ async def get_ratings_summary(
         reranking_stats = await conn.fetch("""
             SELECT
                 c.reranking_enabled,
-                COUNT(*) FILTER (WHERE mr.rating = 1) as thumbs_up,
-                COUNT(*) FILTER (WHERE mr.rating = -1) as thumbs_down,
-                COUNT(*) as total_ratings,
+                COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false) as thumbs_up,
+                COUNT(*) FILTER (WHERE mr.rating = -1 AND mr.is_cancelled = false) as thumbs_down,
+                COUNT(*) FILTER (WHERE mr.is_cancelled = false) as total_ratings,
                 ROUND(
-                    COUNT(*) FILTER (WHERE mr.rating = 1)::numeric /
-                    NULLIF(COUNT(*), 0)::numeric * 100, 1
+                    COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false)::numeric /
+                    NULLIF(COUNT(*) FILTER (WHERE mr.is_cancelled = false), 0)::numeric * 100, 1
                 ) as satisfaction_rate
             FROM conversations c
             JOIN messages m ON c.id = m.conversation_id AND m.role = 'assistant'
             JOIN message_ratings mr ON m.id = mr.message_id
             WHERE mr.created_at >= NOW() - INTERVAL '%s days'
+              AND mr.is_cancelled = false
             GROUP BY c.reranking_enabled
         """ % days)
 
@@ -70,11 +71,13 @@ async def get_ratings_summary(
                 SELECT
                     m.id,
                     mr.rating,
+                    mr.is_cancelled,
                     ROW_NUMBER() OVER (PARTITION BY m.conversation_id ORDER BY m.created_at) as position
                 FROM messages m
                 JOIN message_ratings mr ON m.id = mr.message_id
                 WHERE m.role = 'assistant'
                   AND mr.created_at >= NOW() - INTERVAL '%s days'
+                  AND mr.is_cancelled = false
             )
             SELECT
                 CASE
@@ -98,12 +101,12 @@ async def get_ratings_summary(
         temporal_stats = await conn.fetch("""
             SELECT
                 DATE(mr.created_at) as date,
-                COUNT(*) FILTER (WHERE mr.rating = 1) as thumbs_up,
-                COUNT(*) FILTER (WHERE mr.rating = -1) as thumbs_down,
-                COUNT(*) as total_ratings,
+                COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false) as thumbs_up,
+                COUNT(*) FILTER (WHERE mr.rating = -1 AND mr.is_cancelled = false) as thumbs_down,
+                COUNT(*) FILTER (WHERE mr.is_cancelled = false) as total_ratings,
                 ROUND(
-                    COUNT(*) FILTER (WHERE mr.rating = 1)::numeric /
-                    NULLIF(COUNT(*), 0)::numeric * 100, 1
+                    COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false)::numeric /
+                    NULLIF(COUNT(*) FILTER (WHERE mr.is_cancelled = false), 0)::numeric * 100, 1
                 ) as satisfaction_rate
             FROM message_ratings mr
             JOIN messages m ON mr.message_id = m.id
@@ -146,6 +149,7 @@ async def get_worst_chunks(
                 FROM messages m
                 JOIN message_ratings mr ON m.id = mr.message_id
                 WHERE m.role = 'assistant' AND m.sources IS NOT NULL
+                  AND mr.is_cancelled = false
             ),
             chunk_scores AS (
                 SELECT
@@ -204,6 +208,7 @@ async def get_worst_documents(
                 FROM messages m
                 JOIN message_ratings mr ON m.id = mr.message_id
                 WHERE m.role = 'assistant' AND m.sources IS NOT NULL
+                  AND mr.is_cancelled = false
             ),
             chunk_scores AS (
                 SELECT
@@ -272,22 +277,23 @@ async def get_ratings_by_reranking(
                 c.reranking_enabled,
                 COUNT(DISTINCT c.id) as conversation_count,
                 COUNT(DISTINCT m.id) as message_count,
-                COUNT(*) FILTER (WHERE mr.rating = 1) as thumbs_up,
-                COUNT(*) FILTER (WHERE mr.rating = -1) as thumbs_down,
-                COUNT(*) as total_ratings,
+                COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false) as thumbs_up,
+                COUNT(*) FILTER (WHERE mr.rating = -1 AND mr.is_cancelled = false) as thumbs_down,
+                COUNT(*) FILTER (WHERE mr.is_cancelled = false) as total_ratings,
                 ROUND(
-                    COUNT(*) FILTER (WHERE mr.rating = 1)::numeric /
-                    NULLIF(COUNT(*), 0)::numeric * 100, 1
+                    COUNT(*) FILTER (WHERE mr.rating = 1 AND mr.is_cancelled = false)::numeric /
+                    NULLIF(COUNT(*) FILTER (WHERE mr.is_cancelled = false), 0)::numeric * 100, 1
                 ) as satisfaction_rate,
-                COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '') as feedback_count,
+                COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '' AND mr.is_cancelled = false) as feedback_count,
                 ROUND(
-                    COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '')::numeric /
-                    NULLIF(COUNT(*), 0)::numeric * 100, 1
+                    COUNT(DISTINCT mr.feedback) FILTER (WHERE mr.feedback IS NOT NULL AND mr.feedback != '' AND mr.is_cancelled = false)::numeric /
+                    NULLIF(COUNT(*) FILTER (WHERE mr.is_cancelled = false), 0)::numeric * 100, 1
                 ) as feedback_ratio
             FROM conversations c
             JOIN messages m ON c.id = m.conversation_id AND m.role = 'assistant'
             JOIN message_ratings mr ON m.id = mr.message_id
             WHERE mr.created_at >= NOW() - INTERVAL '%s days'
+              AND mr.is_cancelled = false
             GROUP BY c.reranking_enabled
             ORDER BY c.reranking_enabled DESC
         """ % days)
@@ -358,6 +364,7 @@ async def get_ratings_with_feedback(
                 WHERE m.role = 'assistant'
                   AND mr.feedback IS NOT NULL
                   AND mr.feedback != ''
+                  AND mr.is_cancelled = false
         """
 
         params = []
@@ -850,8 +857,10 @@ async def get_pending_thumbs_down_validations(
                 u.last_name
             FROM thumbs_down_validations v
             JOIN users u ON v.user_id = u.id
+            JOIN message_ratings mr ON v.rating_id = mr.id
             WHERE v.needs_admin_review = true
               AND v.validated_at IS NULL
+              AND mr.is_cancelled = false
             ORDER BY v.created_at DESC
         """)
 
@@ -908,6 +917,9 @@ async def get_all_thumbs_down_validations(
             else:
                 conditions.append("v.validated_at IS NULL")
 
+        # Toujours exclure les ratings annulés
+        conditions.append("mr.is_cancelled = false")
+
         where_clause = ""
         if conditions:
             where_clause = "WHERE " + " AND ".join(conditions)
@@ -949,6 +961,7 @@ async def get_all_thumbs_down_validations(
                 validator.username as validated_by_username
             FROM thumbs_down_validations v
             JOIN users u ON v.user_id = u.id
+            JOIN message_ratings mr ON v.rating_id = mr.id
             LEFT JOIN users validator ON v.validated_by = validator.id
             {where_clause}
             ORDER BY v.created_at DESC
@@ -961,6 +974,7 @@ async def get_all_thumbs_down_validations(
         count_query = f"""
             SELECT COUNT(*)
             FROM thumbs_down_validations v
+            JOIN message_ratings mr ON v.rating_id = mr.id
             {where_clause}
         """
         total_count = await conn.fetchval(count_query, *params[:-2])  # Exclure limit/offset
@@ -1083,6 +1097,89 @@ async def get_thumbs_down_validation(
         return result
 
 
+@router.post("/thumbs-down/{validation_id}/cancel")
+async def cancel_thumbs_down(
+    validation_id: UUID,
+    request: Dict[str, str],
+    current_user: dict = Depends(get_current_admin_user)
+) -> Dict[str, Any]:
+    """
+    Annuler un thumbs down (décision admin)
+
+    Marque le rating comme annulé (soft delete) avec traçabilité complète.
+    Le rating et la validation restent en base mais sont exclus des statistiques.
+
+    Body params:
+    - cancellation_reason: Raison de l'annulation (obligatoire, ex: "Question mal formulée par utilisateur")
+
+    Returns:
+    - success: Boolean
+    - message: Confirmation message
+    - validation_id: UUID de la validation
+    - rating_id: UUID du rating annulé
+    - cancelled_by: Username de l'admin
+    """
+    cancellation_reason = request.get("cancellation_reason", "").strip()
+
+    if not cancellation_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="cancellation_reason is required"
+        )
+
+    async with database.db_pool.acquire() as conn:
+        # Vérifier que la validation existe et récupérer le rating_id
+        validation = await conn.fetchrow("""
+            SELECT v.id, v.rating_id, v.message_id, v.user_question, v.user_id
+            FROM thumbs_down_validations v
+            WHERE v.id = $1
+        """, validation_id)
+
+        if not validation:
+            raise HTTPException(status_code=404, detail="Validation not found")
+
+        # Vérifier que le rating existe et n'est pas déjà annulé
+        rating = await conn.fetchrow("""
+            SELECT id, is_cancelled, rating
+            FROM message_ratings
+            WHERE id = $1
+        """, validation['rating_id'])
+
+        if not rating:
+            raise HTTPException(status_code=404, detail="Rating not found")
+
+        if rating['is_cancelled']:
+            raise HTTPException(
+                status_code=400,
+                detail="This thumbs down is already cancelled"
+            )
+
+        # Marquer le rating comme annulé avec métadonnées audit
+        await conn.execute("""
+            UPDATE message_ratings
+            SET is_cancelled = true,
+                cancelled_by = $1,
+                cancelled_at = CURRENT_TIMESTAMP,
+                cancellation_reason = $2
+            WHERE id = $3
+        """, current_user['id'], cancellation_reason, validation['rating_id'])
+
+        logger.info(
+            f"🚫 Thumbs down cancelled by admin {current_user['username']}: "
+            f"rating_id={validation['rating_id']}, validation_id={validation_id}, "
+            f"user_id={validation['user_id']}, "
+            f"reason='{cancellation_reason}'"
+        )
+
+        return {
+            "success": True,
+            "message": "Thumbs down annulé avec succès",
+            "validation_id": str(validation_id),
+            "rating_id": str(validation['rating_id']),
+            "cancelled_by": current_user['username']
+        }
+
+
 @router.get("/thumbs-down/users-to-contact")
 async def get_users_to_contact(
     current_user: dict = Depends(get_current_admin_user)
@@ -1104,9 +1201,11 @@ async def get_users_to_contact(
                 ARRAY_AGG(v.id ORDER BY v.created_at DESC) as validation_ids
             FROM thumbs_down_validations v
             JOIN users u ON v.user_id = u.id
+            JOIN message_ratings mr ON v.rating_id = mr.id
             WHERE (v.admin_override = 'bad_question' OR
                    (v.admin_override IS NULL AND v.ai_classification = 'bad_question'))
               AND v.admin_action = 'contact_user'
+              AND mr.is_cancelled = false
             GROUP BY u.id, u.username, u.email, u.first_name, u.last_name
             ORDER BY bad_questions_count DESC, last_bad_question_date DESC
         """)
@@ -1135,12 +1234,14 @@ async def get_reingestion_candidates(
                 ARRAY_AGG(DISTINCT c.id) as chunk_ids,
                 ARRAY_AGG(DISTINCT v.user_question) as user_questions
             FROM thumbs_down_validations v
+            JOIN message_ratings mr ON v.rating_id = mr.id
             CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
             JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
             JOIN documents d ON c.document_id = d.id
             WHERE (v.admin_override = 'missing_sources' OR
                    (v.admin_override IS NULL AND v.ai_classification = 'missing_sources'))
               AND v.admin_action = 'mark_for_reingestion'
+              AND mr.is_cancelled = false
             GROUP BY d.id, d.title, d.source
             ORDER BY occurrences_count DESC, last_occurrence DESC
         """)
@@ -1162,27 +1263,31 @@ async def get_thumbs_down_stats(
         stats = await conn.fetchrow("""
             SELECT
                 COUNT(*) as total_thumbs_down,
-                COUNT(*) FILTER (WHERE needs_admin_review = true AND validated_at IS NULL) as pending_review,
-                COUNT(*) FILTER (WHERE ai_classification = 'bad_question' OR admin_override = 'bad_question') as bad_questions,
-                COUNT(*) FILTER (WHERE ai_classification = 'bad_answer' OR admin_override = 'bad_answer') as bad_answers,
-                COUNT(*) FILTER (WHERE ai_classification = 'missing_sources' OR admin_override = 'missing_sources') as missing_sources,
-                COUNT(*) FILTER (WHERE ai_classification = 'unrealistic_expectations' OR admin_override = 'unrealistic_expectations') as unrealistic_expectations,
-                AVG(ai_confidence) as avg_confidence,
-                COUNT(*) FILTER (WHERE admin_override IS NOT NULL) as admin_overrides,
-                COUNT(*) FILTER (WHERE admin_action = 'contact_user') as users_to_contact,
-                COUNT(*) FILTER (WHERE admin_action = 'mark_for_reingestion') as documents_to_reingest
-            FROM thumbs_down_validations
+                COUNT(*) FILTER (WHERE v.needs_admin_review = true AND v.validated_at IS NULL) as pending_review,
+                COUNT(*) FILTER (WHERE v.ai_classification = 'bad_question' OR v.admin_override = 'bad_question') as bad_questions,
+                COUNT(*) FILTER (WHERE v.ai_classification = 'bad_answer' OR v.admin_override = 'bad_answer') as bad_answers,
+                COUNT(*) FILTER (WHERE v.ai_classification = 'missing_sources' OR v.admin_override = 'missing_sources') as missing_sources,
+                COUNT(*) FILTER (WHERE v.ai_classification = 'unrealistic_expectations' OR v.admin_override = 'unrealistic_expectations') as unrealistic_expectations,
+                AVG(v.ai_confidence) as avg_confidence,
+                COUNT(*) FILTER (WHERE v.admin_override IS NOT NULL) as admin_overrides,
+                COUNT(*) FILTER (WHERE v.admin_action = 'contact_user') as users_to_contact,
+                COUNT(*) FILTER (WHERE v.admin_action = 'mark_for_reingestion') as documents_to_reingest
+            FROM thumbs_down_validations v
+            JOIN message_ratings mr ON v.rating_id = mr.id
+            WHERE mr.is_cancelled = false
         """)
 
         # Distribution temporelle (7 derniers jours)
         temporal_distribution = await conn.fetch("""
             SELECT
-                DATE(created_at) as date,
+                DATE(v.created_at) as date,
                 COUNT(*) as count,
-                AVG(ai_confidence) as avg_confidence
-            FROM thumbs_down_validations
-            WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-            GROUP BY DATE(created_at)
+                AVG(v.ai_confidence) as avg_confidence
+            FROM thumbs_down_validations v
+            JOIN message_ratings mr ON v.rating_id = mr.id
+            WHERE v.created_at >= CURRENT_DATE - INTERVAL '7 days'
+              AND mr.is_cancelled = false
+            GROUP BY DATE(v.created_at)
             ORDER BY date DESC
         """)
 

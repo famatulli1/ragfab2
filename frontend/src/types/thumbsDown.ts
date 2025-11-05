@@ -41,6 +41,13 @@ export interface ThumbsDownValidation {
   validated_by: string | null;
   validated_at: string | null;
 
+  // Cancellation info (soft delete)
+  is_cancelled?: boolean;
+  cancelled_by?: string;
+  cancelled_by_username?: string;
+  cancelled_at?: string;
+  cancellation_reason?: string;
+
   // Métadonnées
   created_at: string;
 
