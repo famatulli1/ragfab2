@@ -529,42 +529,40 @@ async def generate_conversation_title(user_message: str) -> str:
         Un titre court (max 50 caractères) ou fallback sur les premiers mots
     """
     try:
+        from pydantic_ai import Agent
         from .utils.generic_llm_provider import get_generic_llm_model
-        from pydantic_ai.messages import ModelRequest, UserPromptPart
 
         # Prompt optimisé pour génération rapide
-        prompt = f"""Génère un titre court et descriptif (maximum 50 caractères) pour une conversation basée sur cette question.
+        system_prompt = """Tu es un assistant qui génère des titres courts et descriptifs pour des conversations.
 Le titre doit être en français, sans guillemets, et capturer l'essence de la question.
-
-Question : {user_message}
-
-Titre :"""
+Maximum 50 caractères."""
 
         logger.info("🎯 Génération du titre de conversation avec LLM")
         model = get_generic_llm_model()
 
-        # Appel simple sans agent (plus rapide) avec timeout court
-        response, _ = await asyncio.wait_for(
-            model.request([ModelRequest(parts=[UserPromptPart(content=prompt)])]),
+        # Créer un agent simple sans tools
+        agent = Agent(
+            model=model,
+            system_prompt=system_prompt,
+        )
+
+        # Appel avec timeout court
+        result = await asyncio.wait_for(
+            agent.run(user_message),
             timeout=10.0
         )
 
-        # Extraire le texte de la réponse
-        title = ""
-        for part in response.parts:
-            if hasattr(part, 'content'):
-                title += part.content
-
-        title = title.strip()
+        # Extraire le titre de la réponse
+        title = result.data.strip()
 
         # Nettoyer et limiter
         title = title.replace('"', '').replace("'", '').replace('\n', ' ').strip()
         if len(title) > 50:
             title = title[:47] + "..."
 
-        result = title if title else user_message[:50]
-        logger.info(f"✅ Titre généré : {result}")
-        return result
+        final_title = title if title else user_message[:50]
+        logger.info(f"✅ Titre généré : {final_title}")
+        return final_title
 
     except asyncio.TimeoutError:
         logger.warning("⏱️ Timeout génération titre, fallback sur message")
