@@ -204,7 +204,7 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
             )}
 
             {/* Sources Used */}
-            {validation.sources_used && validation.sources_used.length > 0 && (
+            {Array.isArray(validation.sources_used) && validation.sources_used.length > 0 && (
               <div className="border border-gray-200 rounded-lg p-4">
                 <h3 className="font-semibold text-gray-900 mb-2">
                   Sources utilisées ({validation.sources_used.length})

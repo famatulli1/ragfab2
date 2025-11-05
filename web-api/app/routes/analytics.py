@@ -1061,10 +1061,24 @@ async def get_thumbs_down_validation(
 
         result = dict(validation)
 
-        # Parse sources_used JSON si présent
+        # Normaliser sources_used: toujours un array ou null
         if result.get('sources_used'):
-            import json
-            result['sources_used'] = json.loads(result['sources_used'])
+            sources = result['sources_used']
+            if isinstance(sources, str):
+                # String JSON → parsé en Python
+                import json
+                try:
+                    sources = json.loads(sources)
+                except (json.JSONDecodeError, TypeError):
+                    sources = []  # Fallback sur erreur
+
+            # Assurer que c'est une liste
+            if isinstance(sources, list):
+                result['sources_used'] = sources
+            else:
+                result['sources_used'] = []  # Fallback pour dict ou autre type
+        else:
+            result['sources_used'] = None  # Explicite
 
         return result
 
