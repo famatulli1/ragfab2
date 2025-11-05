@@ -51,7 +51,7 @@ export default function LoginPage() {
 
           {/* "by" + Logo Numih sur la même ligne */}
           <div className="flex items-center justify-center gap-2 mb-6">
-            <p className={`text-sm italic font-medium ${
+            <p className={`text-lg italic font-medium ${
               theme === 'dark' ? 'text-white' : 'text-[#003D7A]'
             }`}>
               by
@@ -59,7 +59,7 @@ export default function LoginPage() {
             <img
               src="/logo-numih.png"
               alt="Numih France"
-              className="h-8 object-contain"
+              className="h-6 object-contain"
             />
           </div>
 
