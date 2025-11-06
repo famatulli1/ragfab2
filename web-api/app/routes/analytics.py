@@ -660,7 +660,7 @@ async def unblacklist_chunk(
             INSERT INTO quality_audit_log
             (id, chunk_id, action, reason, decided_by, created_at)
             VALUES ($1, $2, 'unblacklist', $3, $4, NOW())
-        """, str(uuid4()), str(chunk_id), reason, current_user['id'])
+        """, str(uuid4()), str(chunk_id), reason, str(current_user['id']))
 
         logger.info(f"🔓 Chunk {chunk_id} unblacklisted by admin {current_user['username']}")
 
@@ -711,7 +711,7 @@ async def whitelist_chunk(
             INSERT INTO quality_audit_log
             (id, chunk_id, action, reason, decided_by, created_at)
             VALUES ($1, $2, 'whitelist', $3, $4, NOW())
-        """, str(uuid4()), str(chunk_id), reason, current_user['id'])
+        """, str(uuid4()), str(chunk_id), reason, str(current_user['id']))
 
         logger.info(f"⭐ Chunk {chunk_id} whitelisted by admin {current_user['username']}")
 
@@ -761,7 +761,7 @@ async def ignore_reingestion_recommendation(
             INSERT INTO quality_audit_log
             (id, document_id, action, reason, decided_by, created_at)
             VALUES ($1, $2, 'ignore_recommendation', $3, $4, NOW())
-        """, str(uuid4()), str(document_id), reason, current_user['id'])
+        """, str(uuid4()), str(document_id), reason, str(current_user['id']))
 
         logger.info(f"❌ Reingestion recommendation ignored for document {document_id} by admin {current_user['username']}")
 
