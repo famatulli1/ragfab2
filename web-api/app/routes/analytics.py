@@ -624,7 +624,7 @@ async def get_quality_audit_log(
 @router.post("/quality/chunk/{chunk_id}/unblacklist")
 async def unblacklist_chunk(
     chunk_id: UUID,
-    reason: str = Body(...),
+    reason: str = Body(..., embed=True),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
@@ -674,7 +674,7 @@ async def unblacklist_chunk(
 @router.post("/quality/chunk/{chunk_id}/whitelist")
 async def whitelist_chunk(
     chunk_id: UUID,
-    reason: str = Body(...),
+    reason: str = Body(..., embed=True),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
@@ -725,7 +725,7 @@ async def whitelist_chunk(
 @router.post("/quality/document/{document_id}/ignore-recommendation")
 async def ignore_reingestion_recommendation(
     document_id: UUID,
-    reason: str = Body(...),
+    reason: str = Body(..., embed=True),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
