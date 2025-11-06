@@ -405,4 +405,54 @@ Réponds UNIQUEMENT avec le JSON, sans texte additionnel avant ou après."""
                 admin_action
             )
 
-            return row['id']
+            validation_id = row['id']
+
+            # Si action automatique = mark_for_reingestion, synchroniser immédiatement
+            if admin_action == 'mark_for_reingestion':
+                logger.info(f"🔄 Auto-syncing validation {validation_id} to document_quality_scores")
+
+                try:
+                    # Sync vers document_quality_scores
+                    result = await conn.execute("""
+                        INSERT INTO document_quality_scores (
+                            document_id,
+                            needs_reingestion,
+                            reingestion_reason,
+                            updated_at
+                        )
+                        SELECT DISTINCT
+                            c.document_id,
+                            true AS needs_reingestion,
+                            $2 AS reingestion_reason,
+                            NOW() AS updated_at
+                        FROM thumbs_down_validations v
+                        CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
+                        JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
+                        WHERE v.id = $1
+                            AND v.sources_used IS NOT NULL
+                            AND jsonb_typeof(v.sources_used) = 'array'
+
+                        ON CONFLICT (document_id) DO UPDATE
+                        SET
+                            needs_reingestion = true,
+                            updated_at = NOW(),
+                            reingestion_reason = COALESCE(
+                                document_quality_scores.reingestion_reason || ' | ',
+                                ''
+                            ) || EXCLUDED.reingestion_reason
+                    """, validation_id, f"AI auto-classification: {classification} (confidence={confidence:.2f})")
+
+                    # Extraire nombre de documents synchronisés
+                    status = result.split()
+                    count = int(status[-1]) if status else 0
+
+                    if count > 0:
+                        logger.info(f"✅ Auto-synced {count} document(s) from validation {validation_id}")
+                    else:
+                        logger.warning(f"⚠️ No documents found to sync from validation {validation_id}")
+
+                except Exception as sync_error:
+                    # Ne pas bloquer si sync échoue (graceful degradation)
+                    logger.error(f"❌ Error auto-syncing validation {validation_id}: {sync_error}")
+
+            return validation_id

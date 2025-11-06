@@ -1,7 +1,7 @@
 """
 Routes pour l'analytics et l'amélioration continue du RAG via ratings utilisateurs
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import uuid4, UUID
@@ -12,6 +12,76 @@ from .. import database
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+async def sync_validation_sources_to_quality_scores(
+    conn,
+    validation_id: UUID,
+    needs_reingestion: bool = True,
+    reason: str = "Validation marked for reingestion"
+):
+    """
+    Synchronise les sources d'une validation vers document_quality_scores.
+
+    Cette fonction extrait tous les chunk_ids depuis sources_used (JSONB)
+    et marque leurs documents respectifs pour réingestion.
+
+    Args:
+        conn: Database connection
+        validation_id: UUID de la validation thumbs_down
+        needs_reingestion: Marquer documents pour réingestion (défaut: True)
+        reason: Raison pour l'audit log
+
+    Returns:
+        int: Nombre de documents marqués
+    """
+    try:
+        # Extraire les chunk_ids depuis sources_used et marquer documents
+        result = await conn.execute("""
+            INSERT INTO document_quality_scores (
+                document_id,
+                needs_reingestion,
+                reingestion_reason,
+                updated_at
+            )
+            SELECT DISTINCT
+                c.document_id,
+                $2 AS needs_reingestion,
+                $3 AS reingestion_reason,
+                NOW() AS updated_at
+            FROM thumbs_down_validations v
+            CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
+            JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
+            WHERE v.id = $1
+                AND v.sources_used IS NOT NULL
+                AND jsonb_typeof(v.sources_used) = 'array'
+
+            ON CONFLICT (document_id) DO UPDATE
+            SET
+                needs_reingestion = EXCLUDED.needs_reingestion,
+                updated_at = NOW(),
+                reingestion_reason = COALESCE(
+                    document_quality_scores.reingestion_reason || ' | ',
+                    ''
+                ) || EXCLUDED.reingestion_reason
+        """, validation_id, needs_reingestion, reason)
+
+        # Extraire le nombre de documents modifiés depuis le result status
+        # Format: "INSERT 0 X" or "UPDATE X"
+        status = result.split()
+        count = int(status[-1]) if status else 0
+
+        logger.info(f"✅ {count} document(s) marked for reingestion from validation {validation_id}")
+        return count
+
+    except Exception as e:
+        logger.error(f"❌ Error syncing validation {validation_id} to quality scores: {e}")
+        # Ne pas lever l'exception, juste logger (graceful degradation)
+        return 0
 
 
 @router.get("/ratings/summary")
@@ -554,7 +624,7 @@ async def get_quality_audit_log(
 @router.post("/quality/chunk/{chunk_id}/unblacklist")
 async def unblacklist_chunk(
     chunk_id: UUID,
-    reason: str,
+    reason: str = Body(...),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
@@ -604,7 +674,7 @@ async def unblacklist_chunk(
 @router.post("/quality/chunk/{chunk_id}/whitelist")
 async def whitelist_chunk(
     chunk_id: UUID,
-    reason: str,
+    reason: str = Body(...),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
@@ -655,7 +725,7 @@ async def whitelist_chunk(
 @router.post("/quality/document/{document_id}/ignore-recommendation")
 async def ignore_reingestion_recommendation(
     document_id: UUID,
-    reason: str,
+    reason: str = Body(...),
     current_user: dict = Depends(get_current_admin_user)
 ) -> Dict[str, Any]:
     """
@@ -1029,20 +1099,21 @@ async def validate_thumbs_down(
             logger.info(f"✅ Notification created for validation {validation_id}")
 
         elif admin_action == "mark_for_reingestion":
-            # Marquer documents pour réingestion
-            await conn.execute("""
-                UPDATE document_quality_scores dqs
-                SET needs_reingestion = true
-                FROM (
-                    SELECT DISTINCT c.document_id
-                    FROM thumbs_down_validations v
-                    CROSS JOIN LATERAL jsonb_array_elements(v.sources_used) as source
-                    JOIN chunks c ON c.id = (source->>'chunk_id')::UUID
-                    WHERE v.id = $1
-                ) docs
-                WHERE dqs.document_id = docs.document_id
-            """, validation_id)
-            logger.info(f"✅ Documents marked for reingestion from validation {validation_id}")
+            # Synchroniser vers document_quality_scores
+            classification = admin_override or result['ai_classification']
+            reason = f"Admin validated as {classification} - marked for reingestion"
+
+            count = await sync_validation_sources_to_quality_scores(
+                conn,
+                validation_id,
+                needs_reingestion=True,
+                reason=reason
+            )
+
+            if count == 0:
+                logger.warning(f"⚠️ No documents found to mark for reingestion from validation {validation_id}")
+            else:
+                logger.info(f"✅ {count} document(s) marked for reingestion from validation {validation_id}")
 
         return {"success": True, "validation": dict(result)}
 
