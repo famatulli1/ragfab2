@@ -200,3 +200,47 @@ export interface PasswordChange {
   new_password: string;
   confirm_password: string;
 }
+
+// Universe Types
+export interface ProductUniverse {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  color: string;
+  detection_keywords: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductUniverseCreate {
+  name: string;
+  slug?: string;
+  description?: string;
+  color?: string;
+  detection_keywords?: string[];
+  is_active?: boolean;
+}
+
+export interface ProductUniverseUpdate {
+  name?: string;
+  description?: string;
+  color?: string;
+  detection_keywords?: string[];
+  is_active?: boolean;
+}
+
+export interface UserUniverseAccess {
+  user_id: string;
+  universe_id: string;
+  universe_name: string;
+  universe_color: string;
+  is_default: boolean;
+  granted_at: string;
+  granted_by?: string;
+}
+
+export interface UserWithUniverses extends User {
+  universes: UserUniverseAccess[];
+}

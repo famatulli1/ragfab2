@@ -219,7 +219,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
 
   const addKeyword = () => {
     if (keywordInput.trim() && !formData.detection_keywords?.includes(keywordInput.trim())) {
-      setFormData(prev => ({
+      setFormData((prev: ProductUniverseCreate) => ({
         ...prev,
         detection_keywords: [...(prev.detection_keywords || []), keywordInput.trim()]
       }));
@@ -228,9 +228,9 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
   };
 
   const removeKeyword = (keyword: string) => {
-    setFormData(prev => ({
+    setFormData((prev: ProductUniverseCreate) => ({
       ...prev,
-      detection_keywords: (prev.detection_keywords || []).filter(k => k !== keyword)
+      detection_keywords: (prev.detection_keywords || []).filter((k: string) => k !== keyword)
     }));
   };
 
@@ -321,7 +321,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
                 type="text"
                 value={formData.name}
                 onChange={(e) => {
-                  setFormData(prev => ({
+                  setFormData((prev: ProductUniverseCreate) => ({
                     ...prev,
                     name: e.target.value,
                     slug: !editingUniverse ? generateSlug(e.target.value) : prev.slug
@@ -338,7 +338,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
               <input
                 type="text"
                 value={formData.slug}
-                onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
+                onChange={(e) => setFormData((prev: ProductUniverseCreate) => ({ ...prev, slug: e.target.value }))}
                 disabled={!!editingUniverse}
                 className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${editingUniverse ? 'bg-gray-100' : ''}`}
                 placeholder="Ex: medimail"
@@ -354,7 +354,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <textarea
               value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+              onChange={(e) => setFormData((prev: ProductUniverseCreate) => ({ ...prev, description: e.target.value }))}
               rows={2}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="Description de l'univers produit..."
@@ -369,7 +369,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
                 {colorPresets.map(color => (
                   <button
                     key={color}
-                    onClick={() => setFormData(prev => ({ ...prev, color }))}
+                    onClick={() => setFormData((prev: ProductUniverseCreate) => ({ ...prev, color }))}
                     className={`w-8 h-8 rounded-full border-2 transition-all ${formData.color === color ? 'border-gray-800 scale-110' : 'border-transparent hover:scale-105'}`}
                     style={{ backgroundColor: color }}
                   />
@@ -378,7 +378,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
               <input
                 type="color"
                 value={formData.color}
-                onChange={(e) => setFormData(prev => ({ ...prev, color: e.target.value }))}
+                onChange={(e) => setFormData((prev: ProductUniverseCreate) => ({ ...prev, color: e.target.value }))}
                 className="w-10 h-10 rounded cursor-pointer"
               />
               <span className="text-sm text-gray-500 font-mono">{formData.color}</span>
@@ -405,7 +405,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {(formData.detection_keywords || []).map(keyword => (
+              {(formData.detection_keywords || []).map((keyword: string) => (
                 <span
                   key={keyword}
                   className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm"
@@ -425,7 +425,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
               type="checkbox"
               id="is_active"
               checked={formData.is_active}
-              onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+              onChange={(e) => setFormData((prev: ProductUniverseCreate) => ({ ...prev, is_active: e.target.checked }))}
               className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
             />
             <label htmlFor="is_active" className="text-sm text-gray-700">Univers actif</label>
@@ -580,7 +580,7 @@ export const UniverseManagement: React.FC<UniverseManagementProps> = ({ onUniver
             {universe.detection_keywords && universe.detection_keywords.length > 0 && (
               <div className="border-t border-gray-100 px-4 py-2 bg-gray-50">
                 <div className="flex flex-wrap gap-1">
-                  {universe.detection_keywords.map(keyword => (
+                  {universe.detection_keywords.map((keyword: string) => (
                     <span
                       key={keyword}
                       className="px-2 py-0.5 text-xs rounded-full"
