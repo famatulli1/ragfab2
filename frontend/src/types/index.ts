@@ -272,3 +272,37 @@ export interface UserUniverseAccess {
 export interface UserWithUniverses extends User {
   universes: UserUniverseAccess[];
 }
+
+// ============================================================================
+// Question Quality Types
+// ============================================================================
+
+export type QuestionClassification =
+  | 'clear'
+  | 'too_vague'
+  | 'wrong_vocabulary'
+  | 'missing_context'
+  | 'out_of_scope';
+
+export type SuggestionType = 'reformulation' | 'clarification' | 'domain_term';
+
+export interface QuestionSuggestion {
+  text: string;
+  type: SuggestionType;
+  reason?: string;
+}
+
+export interface QualityAnalysis {
+  classification: QuestionClassification;
+  confidence: number;
+  heuristic_score: number;
+  suggestions: QuestionSuggestion[];
+  detected_terms: string[];
+  suggested_terms: string[];
+  reasoning?: string;
+  analyzed_by: 'heuristics' | 'llm' | 'heuristics_fallback' | 'disabled';
+}
+
+export interface ChatResponseWithQuality extends ChatResponse {
+  quality_analysis?: QualityAnalysis;
+}

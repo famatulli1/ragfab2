@@ -3,7 +3,7 @@ import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, Rota
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { Conversation, Message, Provider, User } from '../types';
+import type { Conversation, Message, Provider, User, QualityAnalysis } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -13,6 +13,7 @@ import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserMenu from '../components/UserMenu';
 import ResponseTemplates from '../components/ResponseTemplates';
 import UniverseSelector from '../components/UniverseSelector';
+import QuestionSuggestions from '../components/QuestionSuggestions';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -35,6 +36,10 @@ export default function ChatPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [formattedResponses, setFormattedResponses] = useState<Map<string, any>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Quality analysis state (map message_id -> QualityAnalysis)
+  const [qualityAnalyses, setQualityAnalyses] = useState<Map<string, QualityAnalysis>>(new Map());
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Universe selection state
   const [selectedUniverseIds, setSelectedUniverseIds] = useState<string[]>([]);
@@ -189,6 +194,17 @@ export default function ChatPage() {
       });
 
       setMessages([...messages, response.user_message, response.assistant_message]);
+
+      // Capturer l'analyse de qualité si présente (phases soft/interactive)
+      const qualityAnalysis = (response as any).quality_analysis;
+      if (qualityAnalysis && qualityAnalysis.classification !== 'clear') {
+        setQualityAnalyses(prev => {
+          const newMap = new Map(prev);
+          newMap.set(response.assistant_message.id, qualityAnalysis);
+          return newMap;
+        });
+        console.log('📊 Quality analysis received:', qualityAnalysis.classification);
+      }
 
       // Mettre à jour la conversation dans la liste
       setConversations(convs =>
@@ -721,6 +737,30 @@ export default function ChatPage() {
                         </button>
                       </div>
                     )}
+
+                    {/* Suggestions de reformulation (si analyse de qualité disponible) */}
+                    {message.role === 'assistant' && qualityAnalyses.has(message.id) && (
+                      <QuestionSuggestions
+                        qualityAnalysis={qualityAnalyses.get(message.id)!}
+                        onSuggestionClick={(suggestion) => {
+                          setInputMessage(suggestion);
+                          inputRef.current?.focus();
+                          // Optionnellement, supprimer l'analyse après utilisation
+                          setQualityAnalyses(prev => {
+                            const newMap = new Map(prev);
+                            newMap.delete(message.id);
+                            return newMap;
+                          });
+                        }}
+                        onDismiss={() => {
+                          setQualityAnalyses(prev => {
+                            const newMap = new Map(prev);
+                            newMap.delete(message.id);
+                            return newMap;
+                          });
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -748,6 +788,7 @@ export default function ChatPage() {
         <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800">
           <div className="max-w-3xl mx-auto flex gap-2">
             <input
+              ref={inputRef}
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}

@@ -414,3 +414,31 @@ class UserWithUniverses(User):
     """User avec ses univers autorisés"""
     allowed_universes: List[UserUniverseAccessSimple] = []
     default_universe_id: Optional[UUID] = None
+
+
+# ============================================================================
+# Question Quality Models
+# ============================================================================
+
+class QuestionSuggestion(BaseModel):
+    """Une suggestion de reformulation de question."""
+    text: str = Field(..., description="Texte de la question reformulée")
+    type: str = Field(..., description="Type: reformulation, clarification, domain_term")
+    reason: Optional[str] = Field(None, description="Raison de la suggestion")
+
+
+class QualityAnalysis(BaseModel):
+    """Résultat de l'analyse de qualité d'une question."""
+    classification: str = Field(..., description="Classification: clear, too_vague, wrong_vocabulary, missing_context, out_of_scope")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Score de confiance (0.0-1.0)")
+    heuristic_score: float = Field(..., ge=0.0, le=1.0, description="Score des heuristiques")
+    suggestions: List[QuestionSuggestion] = Field(default_factory=list, description="Suggestions de reformulation")
+    detected_terms: List[str] = Field(default_factory=list, description="Termes métier détectés")
+    suggested_terms: List[str] = Field(default_factory=list, description="Termes métier suggérés")
+    reasoning: Optional[str] = Field(None, description="Explication courte")
+    analyzed_by: str = Field(default="heuristics", description="Méthode d'analyse: heuristics, llm, heuristics_fallback")
+
+
+class ChatResponseWithQuality(ChatResponse):
+    """ChatResponse étendu avec analyse de qualité (pour phase soft/interactive)."""
+    quality_analysis: Optional[QualityAnalysis] = Field(None, description="Analyse de qualité si question problématique")

@@ -43,6 +43,13 @@ from .routes import templates
 from .routes import analytics
 from .routes import documents
 from .routes import universes
+from .question_quality import (
+    analyze_question_quality,
+    QuestionClassification,
+    QUESTION_QUALITY_ENABLED,
+    QUESTION_QUALITY_PHASE,
+    store_quality_feedback
+)
 
 # Configuration logging
 logging.basicConfig(
@@ -755,6 +762,43 @@ async def send_message(
             chat_request.conversation_id, user_message["id"]
         )
 
+    # ============================================================================
+    # 🔍 ANALYSE QUALITÉ DE LA QUESTION (Question Quality Review System)
+    # ============================================================================
+    quality_analysis_result = None
+    if QUESTION_QUALITY_ENABLED:
+        try:
+            # Construire le contexte conversationnel pour l'analyse
+            conversation_context_for_quality = None
+            if len(history) >= 2:
+                # Construire un contexte simplifié pour l'analyse
+                last_user_msg = next((m for m in reversed(history) if m.get("role") == "user"), None)
+                conversation_context_for_quality = {
+                    "current_topic": "conversation en cours",
+                    "last_exchange": {"user_asked": last_user_msg.get("content", "")[:100] if last_user_msg else ""}
+                }
+
+            quality_analysis_result = await analyze_question_quality(
+                question=chat_request.message,
+                conversation_context=conversation_context_for_quality
+            )
+
+            logger.info(
+                f"📊 Quality Analysis: classification={quality_analysis_result.classification.value}, "
+                f"score={quality_analysis_result.heuristic_score:.3f}, "
+                f"phase={QUESTION_QUALITY_PHASE}, "
+                f"suggestions={len(quality_analysis_result.suggestions)}"
+            )
+
+            # En mode shadow, on log uniquement (pas de blocage)
+            # En mode soft/interactive, on pourrait bloquer ici si nécessaire
+            if QUESTION_QUALITY_PHASE == "shadow":
+                logger.debug(f"🔇 Shadow mode: logging quality only, no user intervention")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Erreur analyse qualité (non-bloquant): {e}")
+            # L'erreur ne doit pas bloquer le flux principal
+
     # Exécuter le RAG agent
     try:
         assistant_response = await execute_rag_agent(
@@ -835,6 +879,33 @@ async def send_message(
     # Ajouter suggestion topic shift si détectée (optionnel, le frontend peut l'ignorer)
     if topic_shift_suggestion:
         response_data["topic_shift_suggestion"] = topic_shift_suggestion
+
+    # ============================================================================
+    # 📊 AJOUTER ANALYSE QUALITÉ À LA RÉPONSE (pour phases soft/interactive)
+    # ============================================================================
+    if quality_analysis_result and quality_analysis_result.classification != QuestionClassification.CLEAR:
+        # Inclure l'analyse si question problématique (phases soft/interactive uniquement)
+        if QUESTION_QUALITY_PHASE in ("soft", "interactive"):
+            response_data["quality_analysis"] = quality_analysis_result.to_dict()
+            logger.info(f"📤 Quality analysis included in response: {quality_analysis_result.classification.value}")
+
+        # Stocker le feedback pour apprentissage (toutes phases)
+        try:
+            # Calculer métriques de recherche
+            sources = assistant_response.get("sources", [])
+            results_count = len(sources) if sources else 0
+            max_similarity = max([s.get("similarity", 0) for s in sources], default=0) if sources else 0
+
+            await store_quality_feedback(
+                question=chat_request.message,
+                analysis_result=quality_analysis_result,
+                search_results_count=results_count,
+                max_similarity=max_similarity,
+                message_id=str(assistant_message["id"]),
+                db_pool=database.db_pool
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Erreur stockage feedback qualité: {e}")
 
     return ChatResponse(**response_data)
 
