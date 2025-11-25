@@ -157,13 +157,17 @@ class APIClient {
     file: File,
     ocrEngine: 'rapidocr' | 'easyocr' | 'tesseract' = 'rapidocr',
     vlmEngine: 'paddleocr-vl' | 'internvl' | 'none' = 'paddleocr-vl',
-    chunkerType: 'hybrid' | 'parent_child' = 'hybrid'
-  ): Promise<{ job_id: string; filename: string; status: string; message: string }> {
+    chunkerType: 'hybrid' | 'parent_child' = 'hybrid',
+    universeId?: string
+  ): Promise<{ job_id: string; filename: string; status: string; universe_id?: string; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('ocr_engine', ocrEngine);
     formData.append('vlm_engine', vlmEngine);
     formData.append('chunker_type', chunkerType);
+    if (universeId) {
+      formData.append('universe_id', universeId);
+    }
 
     const { data } = await this.client.post('/api/admin/documents/upload', formData, {
       headers: {

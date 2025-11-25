@@ -8,7 +8,7 @@ import UserManagement from '../components/UserManagement';
 import UserMenu from '../components/UserMenu';
 import ReingestionBadge from '../components/ReingestionBadge';
 import UniverseManagement from '../components/UniverseManagement';
-import type { DocumentStats, Chunk, IngestionJob, User } from '../types';
+import type { DocumentStats, Chunk, IngestionJob, User, ProductUniverse } from '../types';
 
 type TabType = 'documents' | 'users' | 'universes';
 
@@ -29,11 +29,23 @@ export default function AdminPage() {
   const [selectedOcrEngine, setSelectedOcrEngine] = useState<OcrEngine>('rapidocr');
   const [selectedVlmEngine, setSelectedVlmEngine] = useState<VlmEngine>('internvl');
   const [selectedChunkerType, setSelectedChunkerType] = useState<ChunkerType>('hybrid');
+  const [universes, setUniverses] = useState<ProductUniverse[]>([]);
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string>('');
 
   useEffect(() => {
     loadCurrentUser();
     loadDocuments();
+    loadUniverses();
   }, []);
+
+  const loadUniverses = async () => {
+    try {
+      const response = await api.getUniverses(false);  // Only active universes
+      setUniverses(response.universes);
+    } catch (error) {
+      console.error('Error loading universes:', error);
+    }
+  };
 
   const loadCurrentUser = async () => {
     try {
@@ -84,7 +96,13 @@ export default function AdminPage() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     for (const file of acceptedFiles) {
       try {
-        const result = await api.uploadDocument(file, selectedOcrEngine, selectedVlmEngine, selectedChunkerType);
+        const result = await api.uploadDocument(
+          file,
+          selectedOcrEngine,
+          selectedVlmEngine,
+          selectedChunkerType,
+          selectedUniverseId || undefined  // Pass universe_id if selected
+        );
         const job: IngestionJob = {
           id: result.job_id,
           filename: result.filename,
@@ -99,7 +117,7 @@ export default function AdminPage() {
         alert(`Erreur lors de l'upload de ${file.name}`);
       }
     }
-  }, [selectedOcrEngine, selectedVlmEngine, selectedChunkerType]);
+  }, [selectedOcrEngine, selectedVlmEngine, selectedChunkerType, selectedUniverseId]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -237,7 +255,7 @@ export default function AdminPage() {
                 <h3 className="text-sm font-medium mb-3 text-gray-900 dark:text-white">
                   Configuration de l'ingestion
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* OCR Engine Dropdown */}
                   <div>
                     <label htmlFor="ocr-engine" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -294,6 +312,29 @@ export default function AdminPage() {
                     </select>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       Hybrid pour docs structurés, Parent-Child pour transcriptions
+                    </p>
+                  </div>
+
+                  {/* Universe Selector */}
+                  <div>
+                    <label htmlFor="universe" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Univers cible
+                    </label>
+                    <select
+                      id="universe"
+                      value={selectedUniverseId}
+                      onChange={(e) => setSelectedUniverseId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Aucun (assignation manuelle)</option>
+                      {universes.map((universe) => (
+                        <option key={universe.id} value={universe.id}>
+                          {universe.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Gamme de produits pour ce document
                     </p>
                   </div>
                 </div>

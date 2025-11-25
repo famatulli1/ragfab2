@@ -56,6 +56,7 @@ async def upload_document(
     ocr_engine: str = Form("rapidocr"),  # Nouveau: moteur OCR pour Docling
     vlm_engine: str = Form("paddleocr-vl"),  # Moteur VLM pour extraction images
     chunker_type: str = Form("hybrid"),  # Nouveau: stratégie de chunking
+    universe_id: str = Form(None),  # Univers cible pour le document
     current_user: dict = Depends(get_current_admin_user)
 ):
     """
@@ -70,12 +71,13 @@ async def upload_document(
     - ocr_engine: Moteur OCR pour parsing Docling ('rapidocr', 'easyocr', 'tesseract')
     - vlm_engine: Moteur VLM pour extraction d'images ('paddleocr-vl', 'internvl', 'none')
     - chunker_type: Stratégie de découpage ('hybrid', 'parent_child')
+    - universe_id: UUID de l'univers cible (optionnel)
 
     **Rate limit**: 10 uploads par heure
     """
     logger.info(
         f"📤 Upload document: {file.filename} by user {current_user.get('username')} "
-        f"with OCR: {ocr_engine}, VLM: {vlm_engine}, Chunker: {chunker_type}"
+        f"with OCR: {ocr_engine}, VLM: {vlm_engine}, Chunker: {chunker_type}, Universe: {universe_id}"
     )
 
     # Validate OCR engine parameter
@@ -137,13 +139,13 @@ async def upload_document(
 
         logger.info(f"✅ File saved: {file_path} ({total_size} bytes)")
 
-        # Create ingestion job in database with OCR, VLM engine, and chunker type choices
+        # Create ingestion job in database with OCR, VLM engine, chunker type, and universe choices
         async with database.db_pool.acquire() as conn:
             job = await conn.fetchrow("""
-                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type)
-                VALUES ($1::uuid, $2, $3, 'pending', 0, $4, $5, $6)
-                RETURNING id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type, created_at
-            """, str(job_id), file.filename, total_size, ocr_engine, vlm_engine, chunker_type)
+                INSERT INTO ingestion_jobs (id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type, universe_id)
+                VALUES ($1::uuid, $2, $3, 'pending', 0, $4, $5, $6, $7::uuid)
+                RETURNING id, filename, file_size, status, progress, ocr_engine, vlm_engine, chunker_type, universe_id, created_at
+            """, str(job_id), file.filename, total_size, ocr_engine, vlm_engine, chunker_type, universe_id)
 
         logger.info(f"📝 Ingestion job created: {job_id}")
 
@@ -151,6 +153,7 @@ async def upload_document(
             "job_id": str(job["id"]),
             "filename": job["filename"],
             "status": job["status"],
+            "universe_id": str(job["universe_id"]) if job["universe_id"] else None,
             "message": "Document uploadé avec succès. Le traitement va démarrer automatiquement."
         }
 

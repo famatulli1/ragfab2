@@ -588,7 +588,8 @@ class DocumentIngestionPipeline:
         content: str,
         chunks: List[DocumentChunk],
         metadata: Dict[str, Any],
-        images: List[ImageMetadata] = None
+        images: List[ImageMetadata] = None,
+        universe_id: str = None
     ) -> str:
         """Save document, chunks, and images to PostgreSQL."""
         async with db_pool.acquire() as conn:
@@ -596,14 +597,15 @@ class DocumentIngestionPipeline:
                 # Insert document
                 document_result = await conn.fetchrow(
                     """
-                    INSERT INTO documents (title, source, content, metadata)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO documents (title, source, content, metadata, universe_id)
+                    VALUES ($1, $2, $3, $4, $5::uuid)
                     RETURNING id::text
                     """,
                     title,
                     source,
                     content,
-                    json.dumps(metadata)
+                    json.dumps(metadata),
+                    universe_id
                 )
 
                 document_id = document_result["id"]

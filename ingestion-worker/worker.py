@@ -118,7 +118,7 @@ class IngestionWorker:
         """
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT id, filename, file_size, created_at, ocr_engine, vlm_engine, chunker_type
+                SELECT id, filename, file_size, created_at, ocr_engine, vlm_engine, chunker_type, universe_id
                 FROM ingestion_jobs
                 WHERE status = 'pending'
                 ORDER BY created_at ASC
@@ -225,10 +225,11 @@ class IngestionWorker:
         ocr_engine = job.get("ocr_engine", "rapidocr")  # Default to RapidOCR
         vlm_engine = job.get("vlm_engine", "paddleocr-vl")  # Default to PaddleOCR-VL
         chunker_type = job.get("chunker_type", "hybrid")  # Default to Hybrid
+        universe_id = str(job["universe_id"]) if job.get("universe_id") else None  # Target universe
 
         logger.info(
             f"📄 Processing job {job_id}: {filename} "
-            f"with OCR engine: {ocr_engine}, VLM engine: {vlm_engine}, Chunker: {chunker_type}"
+            f"with OCR engine: {ocr_engine}, VLM engine: {vlm_engine}, Chunker: {chunker_type}, Universe: {universe_id}"
         )
 
         # Claim the job
@@ -350,7 +351,8 @@ class IngestionWorker:
                 document_content,
                 embedded_chunks,
                 document_metadata,
-                images
+                images,
+                universe_id=universe_id
             )
 
             logger.info(f"Saved document with ID: {document_id}")
