@@ -3,6 +3,7 @@ import { UserPlus, Edit2, Trash2, Key, Shield, UserX, Check, X, AlertCircle, Glo
 import { useTheme } from '../App';
 import api from '../api/client';
 import type { UserListResponse, UserUpdate, ProductUniverse } from '../types';
+import UniverseAccessPopover from './UniverseAccessPopover';
 
 // Type pour stocker les accès univers par utilisateur
 type UserUniverseMap = Record<string, string[]>; // userId -> universeIds[]
@@ -362,39 +363,15 @@ export default function UserManagement() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      {universes.map((universe) => {
-                        const hasAccess = (userUniverseAccess[user.id] || []).includes(universe.id);
-                        const isLoading = loadingUniverses[`${user.id}-${universe.id}`];
-
-                        return (
-                          <button
-                            key={universe.id}
-                            onClick={() => toggleUniverseAccess(user.id, universe.id, hasAccess)}
-                            disabled={isLoading}
-                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full transition-all ${
-                              isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'
-                            } ${
-                              hasAccess
-                                ? ''
-                                : 'opacity-40 hover:opacity-70'
-                            }`}
-                            style={{
-                              backgroundColor: hasAccess ? `${universe.color}30` : `${universe.color}10`,
-                              color: universe.color,
-                              boxShadow: hasAccess ? `0 0 0 2px ${universe.color}` : 'none'
-                            }}
-                            title={hasAccess ? `Retirer l'accès à ${universe.name}` : `Donner accès à ${universe.name}`}
-                          >
-                            {hasAccess && <Check className="h-3 w-3" />}
-                            {universe.name}
-                          </button>
-                        );
-                      })}
-                      {universes.length === 0 && (
-                        <span className="text-xs text-gray-400">Aucun univers</span>
-                      )}
-                    </div>
+                    <UniverseAccessPopover
+                      userId={user.id}
+                      universes={universes}
+                      userAccessIds={userUniverseAccess[user.id] || []}
+                      loadingUniverses={loadingUniverses}
+                      onToggleAccess={toggleUniverseAccess}
+                      theme={theme}
+                      maxVisible={2}
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <div className="flex justify-end gap-2">

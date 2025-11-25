@@ -60,6 +60,22 @@
     }
   }
 
+  /* Popover fade-in animation */
+  @keyframes fadeSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeSlideIn {
+    animation: fadeSlideIn 150ms ease-out;
+  }
+
   /* Code block styling */
   pre {
     @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto;
