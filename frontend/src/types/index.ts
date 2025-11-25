@@ -284,12 +284,13 @@ export type QuestionClassification =
   | 'missing_context'
   | 'out_of_scope';
 
-export type SuggestionType = 'reformulation' | 'clarification' | 'domain_term';
+export type SuggestionType = 'reformulation' | 'clarification' | 'domain_term' | 'vocabulary';
 
 export interface QuestionSuggestion {
   text: string;
   type: SuggestionType;
   reason?: string;
+  source_document?: string;  // Document d'où le terme a été extrait
 }
 
 export interface QualityAnalysis {
@@ -300,7 +301,7 @@ export interface QualityAnalysis {
   detected_terms: string[];
   suggested_terms: string[];
   reasoning?: string;
-  analyzed_by: 'heuristics' | 'llm' | 'heuristics_fallback' | 'disabled';
+  analyzed_by: 'heuristics' | 'llm' | 'heuristics_fallback' | 'disabled' | 'probe_search' | 'llm_with_context';
 }
 
 export interface ChatResponseWithQuality extends ChatResponse {

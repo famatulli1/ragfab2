@@ -48,7 +48,12 @@ from .question_quality import (
     QuestionClassification,
     QUESTION_QUALITY_ENABLED,
     QUESTION_QUALITY_PHASE,
-    store_quality_feedback
+    store_quality_feedback,
+    HEURISTIC_THRESHOLD
+)
+from .search_informed_reformulation import (
+    analyze_and_suggest_reformulation,
+    REFORMULATION_ENABLED
 )
 
 # Configuration logging
@@ -778,20 +783,56 @@ async def send_message(
                     "last_exchange": {"user_asked": last_user_msg.get("content", "")[:100] if last_user_msg else ""}
                 }
 
+            # Phase 1: Analyse structurelle (heuristiques rapides)
             quality_analysis_result = await analyze_question_quality(
                 question=chat_request.message,
                 conversation_context=conversation_context_for_quality
             )
 
             logger.info(
-                f"📊 Quality Analysis: classification={quality_analysis_result.classification.value}, "
+                f"📊 Quality Analysis Phase 1: classification={quality_analysis_result.classification.value}, "
                 f"score={quality_analysis_result.heuristic_score:.3f}, "
-                f"phase={QUESTION_QUALITY_PHASE}, "
-                f"suggestions={len(quality_analysis_result.suggestions)}"
+                f"phase={QUESTION_QUALITY_PHASE}"
+            )
+
+            # Phase 2: Search-Informed Reformulation (si score < seuil)
+            # Extrait vocabulaire dynamiquement des documents trouvés
+            if REFORMULATION_ENABLED and quality_analysis_result.heuristic_score < HEURISTIC_THRESHOLD:
+                try:
+                    reformulation_result = await analyze_and_suggest_reformulation(
+                        question=chat_request.message,
+                        db_pool=database.db_pool,
+                        universe_ids=universe_ids,
+                        conversation_context=conversation_context_for_quality
+                    )
+
+                    # Enrichir le résultat avec les suggestions dynamiques
+                    if reformulation_result.suggestions:
+                        from .question_quality import QuestionSuggestion
+                        quality_analysis_result.suggestions = [
+                            QuestionSuggestion(
+                                text=s.text,
+                                type=s.type,
+                                reason=s.reason if s.source_document is None else f"{s.reason} (source: {s.source_document})"
+                            ) for s in reformulation_result.suggestions
+                        ]
+                        quality_analysis_result.suggested_terms = reformulation_result.extracted_terms
+                        quality_analysis_result.analyzed_by = reformulation_result.analyzed_by
+
+                        logger.info(
+                            f"📊 Quality Analysis Phase 2: {len(reformulation_result.suggestions)} suggestions "
+                            f"générées via {reformulation_result.analyzed_by}, "
+                            f"termes extraits: {reformulation_result.extracted_terms[:3]}"
+                        )
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Erreur reformulation search-informed (non-bloquant): {e}")
+
+            logger.info(
+                f"📊 Quality Analysis Final: suggestions={len(quality_analysis_result.suggestions)}"
             )
 
             # En mode shadow, on log uniquement (pas de blocage)
-            # En mode soft/interactive, on pourrait bloquer ici si nécessaire
             if QUESTION_QUALITY_PHASE == "shadow":
                 logger.debug(f"🔇 Shadow mode: logging quality only, no user intervention")
 

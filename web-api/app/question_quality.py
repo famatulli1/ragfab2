@@ -112,39 +112,16 @@ RED_FLAG_PATTERNS = [
     (r"^.{1,10}\?*$", "ultra_short", 0.3),
 ]
 
-# Green flags: indicateurs de bonne question
+# Green flags: indicateurs de bonne question (STRUCTURELS uniquement)
+# Note: Les termes métier sont maintenant extraits dynamiquement via search_informed_reformulation.py
 GREEN_FLAG_PATTERNS = [
-    # Termes métier Sillage
-    (r"\b(sillage|sipsdm|bis_lme)\b", "sillage_term", 0.2),
-    # Termes techniques DB
-    (r"\b(bdd|base\s+de\s+donn[ée]es?|table|schema)\b", "db_term", 0.15),
-    # Termes médicaux/hospitaliers
-    (r"\b(patient|dossier|maternit[ée]|obst[ée]trique)\b", "medical_term", 0.15),
-    # Lien mère-enfant spécifique
-    (r"\b(lien\s+m[eè]re|m[eè]re[-\s]enfant|ipp|iep)\b", "lien_mere_enfant", 0.25),
-    # Procédures
-    (r"\b(proc[ée]dure|protocole|[ée]tape|processus)\b", "procedure_term", 0.1),
-    # Questions structurées
+    # Questions structurées (forme grammaticale correcte)
     (r"^(comment|quelle?\s+est|o[uù]\s+(est|se\s+trouve|trouver))\s+.{15,}", "structured_question", 0.15),
-    # Références numériques (IDs, numéros)
+    # Références numériques (IDs, numéros) - générique
     (r"\b(n[°o]?\s*\d+|ref\.?\s*\d+|id\s*[:=]?\s*\d+)\b", "has_reference", 0.1),
+    # Termes techniques génériques (procédures, étapes)
+    (r"\b(proc[ée]dure|protocole|[ée]tape|processus)\b", "procedure_term", 0.1),
 ]
-
-# Vocabulaire utilisateur → vocabulaire métier
-VOCABULARY_CORRECTIONS = {
-    # Expressions courantes → termes techniques
-    "rattacher la maman": "créer le lien mère-enfant",
-    "rattacher maman": "créer lien mère-enfant",
-    "rattacher le bébé": "créer le lien mère-enfant",
-    "lier maman bébé": "créer lien mère-enfant",
-    "lier la mère": "créer le lien mère-enfant",
-    "maman et bébé": "lien mère-enfant",
-    # Termes génériques → spécifiques
-    "base de données": "BDD Sillage",
-    "le logiciel": "Sillage",
-    "l'application": "Sillage",
-    "le système": "Sillage",
-}
 
 # Stopwords français pour le scoring
 FRENCH_STOPWORDS = {
@@ -227,37 +204,29 @@ def compute_structure_score(question: str) -> float:
 
 def compute_vocabulary_score(question: str) -> Tuple[float, List[str], List[str]]:
     """
-    Score basé sur le vocabulaire métier détecté.
+    Score basé sur la structure de la question (pas de vocabulaire domaine hardcodé).
+
+    Note: L'extraction de vocabulaire métier est maintenant déléguée à
+    search_informed_reformulation.py qui extrait dynamiquement depuis les résultats.
+
     Retourne (score, termes_detectes, termes_suggeres)
     """
     question_lower = question.lower()
     detected_terms = []
-    suggested_terms = []
+    suggested_terms = []  # Rempli dynamiquement par search_informed_reformulation
 
-    # Vérifier green flags (vocabulaire métier)
-    domain_score = 0.0
+    # Vérifier green flags (patterns structurels uniquement)
+    structure_score = 0.0
     for pattern, term_type, bonus in GREEN_FLAG_PATTERNS:
         if re.search(pattern, question_lower, re.IGNORECASE):
             match = re.search(pattern, question_lower, re.IGNORECASE)
             if match:
                 detected_terms.append(match.group())
-            domain_score += bonus
+            structure_score += bonus
 
-    # Vérifier si vocabulaire utilisateur peut être amélioré
-    for user_term, domain_term in VOCABULARY_CORRECTIONS.items():
-        if user_term in question_lower:
-            suggested_terms.append(domain_term)
-
-    # Score de base si pas de termes métier
-    if not detected_terms and not suggested_terms:
-        # Question générique
-        base_score = 0.4
-    elif suggested_terms and not detected_terms:
-        # Utilise vocabulaire utilisateur, pas métier
-        base_score = 0.5
-    else:
-        # Utilise vocabulaire métier
-        base_score = 0.7 + min(0.3, domain_score)
+    # Score de base: neutre, sera enrichi par probe search
+    # Une question générique obtient 0.5, les patterns structurels ajoutent des bonus
+    base_score = 0.5 + min(0.3, structure_score)
 
     return (min(1.0, base_score), detected_terms, suggested_terms)
 
@@ -367,38 +336,30 @@ def quick_quality_check(question: str) -> Tuple[float, Dict]:
 # Analyse LLM (Slow Path)
 # ============================================================================
 
-LLM_ANALYSIS_PROMPT = """Tu es un assistant de contrôle qualité pour un système RAG médical/hospitalier.
+LLM_ANALYSIS_PROMPT = """Tu es un assistant de contrôle qualité pour un système RAG documentaire.
 
 QUESTION UTILISATEUR: "{question}"
 
 {context_section}
 
-DOMAINE DE LA BASE DOCUMENTAIRE:
-- Documentation technique Sillage (logiciel hospitalier)
-- Procédures médicales et hospitalières
-- Guides utilisateur et fiches solutions
-
-VOCABULAIRE MÉTIER IMPORTANT:
-- "lien mère-enfant" (pas "rattacher maman/bébé")
-- "BDD Sillage" / "table BIS_LME" / "schéma SIPSDM"
-- "IPP" (Identifiant Patient Permanent)
-- "IEP" (Identifiant Épisode Patient)
-- "dossier patient" (pas "fiche patient")
+ÉVALUE LA QUALITÉ STRUCTURELLE de la question:
+- Longueur et précision
+- Clarté grammaticale
+- Présence de contexte suffisant
 
 CLASSIFIE LA QUESTION parmi:
-- clear: Question bien formulée, vocabulaire approprié, prête pour la recherche
-- too_vague: Question trop générale, manque de précision (ex: "comment faire ?")
-- wrong_vocabulary: Termes incorrects/familiers au lieu du vocabulaire métier (ex: "rattacher maman" → "créer lien mère-enfant")
+- clear: Question bien formulée, suffisamment précise pour une recherche documentaire
+- too_vague: Question trop générale, manque de précision (ex: "comment faire ?", "c'est quoi le truc")
 - missing_context: Utilise des références floues sans contexte ("celui-là", "ça", "cette chose")
-- out_of_scope: Question clairement hors périmètre documentaire (météo, recettes, etc.)
+- out_of_scope: Question clairement hors périmètre (météo, recettes, blagues, etc.)
+
+Note: Ne pas classifier "wrong_vocabulary" - le vocabulaire métier sera extrait dynamiquement des documents.
 
 RÉPONDS UNIQUEMENT EN JSON (pas de texte avant/après):
 {{
-  "classification": "clear|too_vague|wrong_vocabulary|missing_context|out_of_scope",
+  "classification": "clear|too_vague|missing_context|out_of_scope",
   "confidence": 0.0-1.0,
-  "reasoning": "Explication en 1 phrase",
-  "suggestions": ["Reformulation 1", "Reformulation 2"],
-  "domain_terms_suggested": ["terme_correct1", "terme_correct2"]
+  "reasoning": "Explication en 1 phrase"
 }}"""
 
 
@@ -408,15 +369,18 @@ async def analyze_with_llm(
     heuristic_info: Optional[Dict] = None
 ) -> QualityAnalysisResult:
     """
-    Analyse approfondie via LLM pour les questions ambiguës.
+    Analyse structurelle via LLM pour les questions ambiguës.
+
+    Note: Ce module analyse uniquement la STRUCTURE de la question.
+    Les suggestions de vocabulaire sont générées par search_informed_reformulation.py
 
     Args:
         question: Question utilisateur
         context: Contexte conversationnel (optionnel)
-        heuristic_info: Info des heuristiques (pour suggestions)
+        heuristic_info: Info des heuristiques
 
     Returns:
-        QualityAnalysisResult avec classification et suggestions
+        QualityAnalysisResult avec classification (sans suggestions domaine)
     """
     try:
         from app.utils.generic_llm_provider import get_generic_llm_model
@@ -447,7 +411,7 @@ async def analyze_with_llm(
                     "model": model.model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
-                    "max_tokens": 300
+                    "max_tokens": 200  # Réponse simplifiée
                 }
             )
             response.raise_for_status()
@@ -455,8 +419,7 @@ async def analyze_with_llm(
 
             content = result["choices"][0]["message"]["content"].strip()
 
-            # Parser le JSON
-            # Nettoyer le contenu (enlever markdown si présent)
+            # Parser le JSON (nettoyer markdown si présent)
             if content.startswith("```"):
                 content = re.sub(r'^```json?\s*', '', content)
                 content = re.sub(r'\s*```$', '', content)
@@ -466,34 +429,19 @@ async def analyze_with_llm(
             classification = QuestionClassification(analysis.get("classification", "too_vague"))
             confidence = float(analysis.get("confidence", 0.5))
             reasoning = analysis.get("reasoning", "")
-            suggestions_raw = analysis.get("suggestions", [])
-            suggested_terms = analysis.get("domain_terms_suggested", [])
-
-            # Convertir suggestions en objets
-            suggestions = []
-            for i, sugg_text in enumerate(suggestions_raw[:3]):  # Max 3 suggestions
-                suggestions.append(QuestionSuggestion(
-                    text=sugg_text,
-                    type="reformulation",
-                    reason=reasoning if i == 0 else None
-                ))
-
-            # Utiliser les termes suggérés par heuristiques si LLM n'en fournit pas
-            if not suggested_terms and heuristic_info:
-                suggested_terms = heuristic_info.get("suggested_terms", [])
 
             logger.info(
-                f"🤖 Analyse LLM: classification={classification.value}, "
-                f"confidence={confidence:.2f}, suggestions={len(suggestions)}"
+                f"🤖 Analyse LLM structurelle: classification={classification.value}, "
+                f"confidence={confidence:.2f}"
             )
 
             return QualityAnalysisResult(
                 classification=classification,
                 confidence=confidence,
                 heuristic_score=heuristic_info.get("scores", {}).get("final", 0.5) if heuristic_info else 0.5,
-                suggestions=suggestions,
+                suggestions=[],  # Suggestions générées par search_informed_reformulation
                 detected_terms=heuristic_info.get("detected_terms", []) if heuristic_info else [],
-                suggested_terms=suggested_terms,
+                suggested_terms=[],  # Termes extraits par search_informed_reformulation
                 reasoning=reasoning,
                 analyzed_by="llm"
             )
@@ -509,44 +457,44 @@ async def analyze_with_llm(
         return _fallback_result(question, heuristic_info, str(e))
 
 
+def _generate_heuristic_suggestions(question: str, suggested_terms: List[str]) -> List[QuestionSuggestion]:
+    """
+    Génère des suggestions structurelles simples (sans vocabulaire domaine).
+
+    Note: Les suggestions avec vocabulaire métier sont générées par
+    search_informed_reformulation.py qui extrait dynamiquement depuis les documents.
+    """
+    # Ce module ne génère plus de suggestions domaine-spécifiques
+    # Les suggestions seront ajoutées par search_informed_reformulation.py
+    return []
+
+
 def _fallback_result(
     question: str,
     heuristic_info: Optional[Dict],
     error_reason: str
 ) -> QualityAnalysisResult:
-    """Génère un résultat de fallback basé sur les heuristiques."""
+    """
+    Génère un résultat de fallback basé sur les heuristiques structurelles.
+
+    Note: Les suggestions de vocabulaire seront ajoutées par
+    search_informed_reformulation.py si nécessaire.
+    """
     heuristic_score = heuristic_info.get("scores", {}).get("final", 0.5) if heuristic_info else 0.5
-    suggested_terms = heuristic_info.get("suggested_terms", []) if heuristic_info else []
 
-    # Générer une suggestion basique si vocabulaire incorrect
-    suggestions = []
-    if suggested_terms:
-        # Remplacer dans la question
-        improved_question = question
-        for user_term, domain_term in VOCABULARY_CORRECTIONS.items():
-            if user_term in question.lower():
-                improved_question = re.sub(
-                    re.escape(user_term),
-                    domain_term,
-                    improved_question,
-                    flags=re.IGNORECASE
-                )
-        if improved_question != question:
-            suggestions.append(QuestionSuggestion(
-                text=improved_question,
-                type="domain_term",
-                reason="Vocabulaire métier suggéré"
-            ))
-
-    classification = QuestionClassification.CLEAR if heuristic_score >= HEURISTIC_THRESHOLD else QuestionClassification.TOO_VAGUE
+    # Déterminer classification basée uniquement sur le score structurel
+    if heuristic_score >= HEURISTIC_THRESHOLD:
+        classification = QuestionClassification.CLEAR
+    else:
+        classification = QuestionClassification.TOO_VAGUE
 
     return QualityAnalysisResult(
         classification=classification,
         confidence=heuristic_score,
         heuristic_score=heuristic_score,
-        suggestions=suggestions,
+        suggestions=[],  # Ajoutées par search_informed_reformulation
         detected_terms=heuristic_info.get("detected_terms", []) if heuristic_info else [],
-        suggested_terms=suggested_terms,
+        suggested_terms=[],  # Extraits par search_informed_reformulation
         reasoning=f"Fallback heuristique ({error_reason})",
         analyzed_by="heuristics_fallback"
     )

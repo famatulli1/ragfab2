@@ -46,6 +46,8 @@ export default function QuestionSuggestions({
     switch (type) {
       case 'domain_term':
         return <span className="text-amber-600">📚</span>;
+      case 'vocabulary':
+        return <span className="text-amber-600">🔍</span>;
       case 'clarification':
         return <span className="text-amber-600">❓</span>;
       default:
@@ -100,6 +102,11 @@ export default function QuestionSuggestions({
               {suggestion.reason && (
                 <p className="text-xs text-gray-500 mt-1">
                   {suggestion.reason}
+                </p>
+              )}
+              {suggestion.source_document && (
+                <p className="text-xs text-amber-600 mt-1 italic">
+                  Source: {suggestion.source_document}
                 </p>
               )}
             </div>
