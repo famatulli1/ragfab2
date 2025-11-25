@@ -20,7 +20,6 @@ import type {
   ProductUniverseCreate,
   ProductUniverseUpdate,
   UserUniverseAccess,
-  UserWithUniverses,
 } from '../types';
 import type {
   ThumbsDownStats,
