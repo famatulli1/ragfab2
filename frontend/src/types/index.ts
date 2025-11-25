@@ -34,6 +34,9 @@ export interface Document {
 export interface DocumentStats extends Document {
   total_content_length?: number;
   avg_chunk_tokens?: number;
+  universe_id?: string;
+  universe_name?: string;
+  universe_color?: string;
 }
 
 export interface Chunk {

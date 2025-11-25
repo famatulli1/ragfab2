@@ -406,7 +406,37 @@ export default function AdminPage() {
                         {doc.chunk_count} chunks • {new Date(doc.created_at).toLocaleDateString('fr-FR')}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      {/* Universe Selector */}
+                      <select
+                        value={doc.universe_id || ''}
+                        onChange={async (e) => {
+                          const newUniverseId = e.target.value;
+                          try {
+                            if (newUniverseId) {
+                              await api.assignDocumentToUniverse(newUniverseId, doc.id);
+                            } else {
+                              await api.unassignDocumentFromUniverse(doc.id);
+                            }
+                            loadDocuments();
+                          } catch (error) {
+                            console.error('Error updating document universe:', error);
+                            alert('Erreur lors de la mise à jour de l\'univers');
+                          }
+                        }}
+                        className="px-2 py-1 text-sm bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-gray-700 dark:text-gray-200"
+                        style={doc.universe_color ? {
+                          borderLeftWidth: '4px',
+                          borderLeftColor: doc.universe_color
+                        } : {}}
+                      >
+                        <option value="">Sans univers</option>
+                        {universes.map((universe) => (
+                          <option key={universe.id} value={universe.id}>
+                            {universe.name}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         onClick={() => viewChunks(doc)}
                         className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"

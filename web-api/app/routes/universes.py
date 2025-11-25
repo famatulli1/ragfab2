@@ -251,7 +251,18 @@ async def get_user_universe_access(
         # Recuperer les acces via la vue
         rows = await conn.fetch(
             """
-            SELECT * FROM user_universes_view
+            SELECT
+                access_id as id,
+                user_id,
+                universe_id,
+                universe_name,
+                universe_slug,
+                universe_color,
+                is_default,
+                granted_at,
+                granted_by,
+                granted_by_username
+            FROM user_universes_view
             WHERE user_id = $1
             ORDER BY is_default DESC, universe_name
             """,
@@ -325,7 +336,18 @@ async def grant_universe_access(
         # Recuperer l'acces cree via la vue
         row = await conn.fetchrow(
             """
-            SELECT * FROM user_universes_view
+            SELECT
+                access_id as id,
+                user_id,
+                universe_id,
+                universe_name,
+                universe_slug,
+                universe_color,
+                is_default,
+                granted_at,
+                granted_by,
+                granted_by_username
+            FROM user_universes_view
             WHERE user_id = $1 AND universe_id = $2
             """,
             user_id,

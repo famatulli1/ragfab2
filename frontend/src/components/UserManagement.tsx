@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, Edit2, Trash2, Key, Shield, UserX, Check, X, AlertCircle } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, Key, Shield, UserX, Check, X, AlertCircle, Globe } from 'lucide-react';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { UserListResponse, UserUpdate } from '../types';
+import type { UserListResponse, UserUpdate, ProductUniverse } from '../types';
+
+// Type pour stocker les accès univers par utilisateur
+type UserUniverseMap = Record<string, string[]>; // userId -> universeIds[]
 
 export default function UserManagement() {
   const { theme } = useTheme();
   const [users, setUsers] = useState<UserListResponse[]>([]);
+  const [universes, setUniverses] = useState<ProductUniverse[]>([]);
+  const [userUniverseAccess, setUserUniverseAccess] = useState<UserUniverseMap>({});
+  const [loadingUniverses, setLoadingUniverses] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -35,18 +41,65 @@ export default function UserManagement() {
 
   useEffect(() => {
     loadUsers();
+    loadUniverses();
   }, [filterActive, filterAdmin]);
+
+  const loadUniverses = async () => {
+    try {
+      const response = await api.getUniverses(true);
+      setUniverses(response.universes.filter((u: ProductUniverse) => u.is_active));
+    } catch (err) {
+      console.error('Error loading universes:', err);
+    }
+  };
 
   const loadUsers = async () => {
     try {
       setLoading(true);
       const data = await api.listUsers(100, 0, filterActive, filterAdmin);
       setUsers(data);
+
+      // Load universe access for all users
+      const accessMap: UserUniverseMap = {};
+      for (const user of data) {
+        try {
+          const accessResponse = await api.getUserUniverseAccess(user.id);
+          accessMap[user.id] = accessResponse.accesses.map((a: { universe_id: string }) => a.universe_id);
+        } catch (err) {
+          accessMap[user.id] = [];
+        }
+      }
+      setUserUniverseAccess(accessMap);
+
       setError('');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erreur lors du chargement des utilisateurs');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleUniverseAccess = async (userId: string, universeId: string, hasAccess: boolean) => {
+    setLoadingUniverses(prev => ({ ...prev, [`${userId}-${universeId}`]: true }));
+
+    try {
+      if (hasAccess) {
+        await api.revokeUniverseAccess(userId, universeId);
+        setUserUniverseAccess(prev => ({
+          ...prev,
+          [userId]: (prev[userId] || []).filter(id => id !== universeId)
+        }));
+      } else {
+        await api.grantUniverseAccess(userId, universeId, false);
+        setUserUniverseAccess(prev => ({
+          ...prev,
+          [userId]: [...(prev[userId] || []), universeId]
+        }));
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erreur lors de la modification des accès');
+    } finally {
+      setLoadingUniverses(prev => ({ ...prev, [`${userId}-${universeId}`]: false }));
     }
   };
 
@@ -238,6 +291,12 @@ export default function UserManagement() {
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                   Dernière connexion
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                  <div className="flex items-center gap-1">
+                    <Globe className="h-4 w-4" />
+                    Univers
+                  </div>
+                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider">
                   Actions
                 </th>
@@ -301,6 +360,41 @@ export default function UserManagement() {
                           })
                         : 'Jamais'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      {universes.map((universe) => {
+                        const hasAccess = (userUniverseAccess[user.id] || []).includes(universe.id);
+                        const isLoading = loadingUniverses[`${user.id}-${universe.id}`];
+
+                        return (
+                          <button
+                            key={universe.id}
+                            onClick={() => toggleUniverseAccess(user.id, universe.id, hasAccess)}
+                            disabled={isLoading}
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full transition-all ${
+                              isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'
+                            } ${
+                              hasAccess
+                                ? 'ring-2 ring-offset-1'
+                                : 'opacity-40 hover:opacity-70'
+                            }`}
+                            style={{
+                              backgroundColor: hasAccess ? `${universe.color}30` : `${universe.color}10`,
+                              color: universe.color,
+                              ringColor: hasAccess ? universe.color : 'transparent'
+                            }}
+                            title={hasAccess ? `Retirer l'accès à ${universe.name}` : `Donner accès à ${universe.name}`}
+                          >
+                            {hasAccess && <Check className="h-3 w-3" />}
+                            {universe.name}
+                          </button>
+                        );
+                      })}
+                      {universes.length === 0 && (
+                        <span className="text-xs text-gray-400">Aucun univers</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <div className="flex justify-end gap-2">
