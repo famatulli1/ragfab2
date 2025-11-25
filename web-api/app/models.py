@@ -63,6 +63,15 @@ class DocumentStats(Document):
     universe_color: Optional[str] = None
 
 
+class DocumentListResponse(BaseModel):
+    """Paginated document list response"""
+    documents: List[DocumentStats]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class ChunkResponse(BaseModel):
     id: UUID
     content: str

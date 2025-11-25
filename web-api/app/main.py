@@ -1,7 +1,7 @@
 """
 Application principale FastAPI pour RAGFab Web Interface
 """
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -28,7 +28,7 @@ from .database import initialize_database, close_database
 from .auth import get_current_admin_user, get_current_user
 from .models import (
     LoginRequest, TokenResponse, User,
-    Document, DocumentStats, ChunkResponse,
+    Document, DocumentStats, DocumentListResponse, ChunkResponse,
     Conversation, ConversationCreate, ConversationUpdate, ConversationWithStats,
     MessageResponse, ChatRequest, ChatResponse,
     RatingCreate, Rating,
@@ -165,23 +165,74 @@ async def health_check():
 # Documents Routes
 # ============================================================================
 
-@app.get("/api/documents", response_model=List[DocumentStats])
+@app.get("/api/documents", response_model=DocumentListResponse)
 async def list_documents(
-    limit: int = 100,
-    offset: int = 0,
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    universe_id: Optional[UUID] = Query(None, description="Filter by universe ID"),
+    no_universe: bool = Query(False, description="Filter documents without universe"),
+    search: Optional[str] = Query(None, max_length=100, description="Search in document title"),
+    sort_by: str = Query("created_at", description="Sort by: created_at, title, chunk_count, universe_name"),
+    order: str = Query("desc", description="Sort order: asc or desc"),
     current_user: dict = Depends(get_current_admin_user)
 ):
-    """Liste tous les documents avec stats"""
+    """Liste tous les documents avec pagination, filtrage et tri"""
+    # Validate sort parameters
+    allowed_sort_columns = ["created_at", "title", "chunk_count", "universe_name"]
+    if sort_by not in allowed_sort_columns:
+        sort_by = "created_at"
+    if order.lower() not in ["asc", "desc"]:
+        order = "desc"
+
+    # Build dynamic WHERE clause
+    conditions = []
+    params = []
+    param_idx = 1
+
+    if universe_id:
+        conditions.append(f"universe_id = ${param_idx}")
+        params.append(universe_id)
+        param_idx += 1
+    elif no_universe:
+        conditions.append("universe_id IS NULL")
+
+    if search:
+        conditions.append(f"title ILIKE ${param_idx}")
+        params.append(f"%{search}%")
+        param_idx += 1
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
     async with database.db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
+        # Get total count
+        count_query = f"SELECT COUNT(*) FROM document_stats {where_clause}"
+        total = await conn.fetchval(count_query, *params)
+
+        # Calculate pagination
+        offset = (page - 1) * page_size
+        total_pages = max(1, (total + page_size - 1) // page_size)
+
+        # Get paginated data
+        data_query = f"""
             SELECT * FROM document_stats
-            ORDER BY created_at DESC
-            LIMIT $1 OFFSET $2
-            """,
-            limit, offset
+            {where_clause}
+            ORDER BY {sort_by} {order.upper()} NULLS LAST
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """
+        params.extend([page_size, offset])
+
+        rows = await conn.fetch(data_query, *params)
+        documents = [DocumentStats(**dict(row)) for row in rows]
+
+        return DocumentListResponse(
+            documents=documents,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages
         )
-        return [DocumentStats(**dict(row)) for row in rows]
 
 
 @app.get("/api/documents/{document_id}", response_model=DocumentStats)

@@ -573,6 +573,42 @@ async def get_my_default_universe(
 # Document Universe Assignment
 # ============================================================================
 
+@router.get("/documents/counts")
+async def get_all_universe_document_counts(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retourne le nombre de documents par univers en une seule requete.
+    Inclut le nombre total et les documents sans univers.
+    """
+    async with database.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                universe_id,
+                COUNT(*) as count
+            FROM documents
+            GROUP BY universe_id
+        """)
+
+        counts = {}
+        no_universe_count = 0
+        total = 0
+
+        for row in rows:
+            count = row['count']
+            total += count
+            if row['universe_id'] is None:
+                no_universe_count = count
+            else:
+                counts[str(row['universe_id'])] = count
+
+        return {
+            "counts": counts,
+            "total": total,
+            "no_universe_count": no_universe_count
+        }
+
+
 @router.get("/{universe_id}/documents/count")
 async def get_universe_document_count(
     universe_id: UUID,

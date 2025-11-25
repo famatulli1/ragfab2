@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield, Globe } from 'lucide-react';
+import { Upload, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield, Globe } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
@@ -8,6 +8,7 @@ import UserManagement from '../components/UserManagement';
 import UserMenu from '../components/UserMenu';
 import ReingestionBadge from '../components/ReingestionBadge';
 import UniverseManagement from '../components/UniverseManagement';
+import DocumentTable from '../components/DocumentTable';
 import type { DocumentStats, Chunk, IngestionJob, User, ProductUniverse } from '../types';
 
 type TabType = 'documents' | 'users' | 'universes';
@@ -21,7 +22,6 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('documents');
-  const [documents, setDocuments] = useState<DocumentStats[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<DocumentStats | null>(null);
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, IngestionJob>>(new Map());
@@ -31,10 +31,10 @@ export default function AdminPage() {
   const [selectedChunkerType, setSelectedChunkerType] = useState<ChunkerType>('hybrid');
   const [universes, setUniverses] = useState<ProductUniverse[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>('');
+  const [documentTableKey, setDocumentTableKey] = useState(0);
 
   useEffect(() => {
     loadCurrentUser();
-    loadDocuments();
     loadUniverses();
   }, []);
 
@@ -67,7 +67,7 @@ export default function AdminPage() {
             setUploadingFiles(prev => new Map(prev).set(jobId, updatedJob));
 
             if (updatedJob.status === 'completed') {
-              loadDocuments();
+              setDocumentTableKey(k => k + 1);
             }
           } catch (error) {
             console.error('Error polling job:', error);
@@ -82,15 +82,6 @@ export default function AdminPage() {
   const handleLogout = async () => {
     await api.logout();
     navigate('/login');
-  };
-
-  const loadDocuments = async () => {
-    try {
-      const docs = await api.getDocuments();
-      setDocuments(docs);
-    } catch (error) {
-      console.error('Error loading documents:', error);
-    }
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -128,22 +119,6 @@ export default function AdminPage() {
       'text/plain': ['.txt'],
     },
   });
-
-  const deleteDocument = async (id: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) return;
-
-    try {
-      await api.deleteDocument(id);
-      setDocuments(docs => docs.filter(d => d.id !== id));
-      if (selectedDocument?.id === id) {
-        setSelectedDocument(null);
-        setShowChunks(false);
-      }
-    } catch (error) {
-      console.error('Error deleting document:', error);
-      alert('Erreur lors de la suppression');
-    }
-  };
 
   const viewChunks = async (doc: DocumentStats) => {
     try {
@@ -389,78 +364,14 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Documents List */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                Documents ({documents.length})
-              </h2>
-              <div className="space-y-2">
-                {documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg"
-                  >
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900 dark:text-white">{doc.title}</h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {doc.chunk_count} chunks • {new Date(doc.created_at).toLocaleDateString('fr-FR')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {/* Universe Selector */}
-                      <select
-                        value={doc.universe_id || ''}
-                        onChange={async (e) => {
-                          const newUniverseId = e.target.value;
-                          try {
-                            if (newUniverseId) {
-                              await api.assignDocumentToUniverse(newUniverseId, doc.id);
-                            } else {
-                              await api.unassignDocumentFromUniverse(doc.id);
-                            }
-                            loadDocuments();
-                          } catch (error) {
-                            console.error('Error updating document universe:', error);
-                            alert('Erreur lors de la mise à jour de l\'univers');
-                          }
-                        }}
-                        className="px-2 py-1 text-sm bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-gray-700 dark:text-gray-200"
-                        style={doc.universe_color ? {
-                          borderLeftWidth: '4px',
-                          borderLeftColor: doc.universe_color
-                        } : {}}
-                      >
-                        <option value="">Sans univers</option>
-                        {universes.map((universe) => (
-                          <option key={universe.id} value={universe.id}>
-                            {universe.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => viewChunks(doc)}
-                        className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-                        title="Voir les chunks"
-                      >
-                        <Eye size={18} />
-                      </button>
-                      <button
-                        onClick={() => deleteDocument(doc.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                        title="Supprimer"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {documents.length === 0 && (
-                  <p className="text-center text-gray-500 dark:text-gray-400 py-8">
-                    Aucun document pour le moment
-                  </p>
-                )}
-              </div>
-            </div>
+            {/* Documents Table with Pagination */}
+            <DocumentTable
+              key={documentTableKey}
+              universes={universes}
+              theme={theme}
+              onViewChunks={viewChunks}
+              onDocumentDeleted={() => {}}
+            />
 
             {/* Chunks Modal */}
             {showChunks && selectedDocument && (

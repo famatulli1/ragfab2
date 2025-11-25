@@ -39,6 +39,31 @@ export interface DocumentStats extends Document {
   universe_color?: string;
 }
 
+// Document list with pagination
+export interface DocumentListParams {
+  page?: number;
+  page_size?: number;
+  universe_id?: string;
+  no_universe?: boolean;
+  search?: string;
+  sort_by?: 'created_at' | 'title' | 'chunk_count' | 'universe_name';
+  order?: 'asc' | 'desc';
+}
+
+export interface DocumentListResponse {
+  documents: DocumentStats[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface UniverseDocumentCounts {
+  counts: Record<string, number>;
+  total: number;
+  no_universe_count: number;
+}
+
 export interface Chunk {
   id: string;
   content: string;

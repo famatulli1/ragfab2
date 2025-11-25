@@ -4,6 +4,9 @@ import type {
   TokenResponse,
   User,
   DocumentStats,
+  DocumentListParams,
+  DocumentListResponse,
+  UniverseDocumentCounts,
   Chunk,
   IngestionJob,
   Conversation,
@@ -115,10 +118,23 @@ class APIClient {
   // Documents
   // ============================================================================
 
-  async getDocuments(limit = 100, offset = 0): Promise<DocumentStats[]> {
-    const { data } = await this.client.get<DocumentStats[]>('/api/documents', {
-      params: { limit, offset },
+  async getDocuments(params: DocumentListParams = {}): Promise<DocumentListResponse> {
+    const { data } = await this.client.get<DocumentListResponse>('/api/documents', {
+      params: {
+        page: params.page || 1,
+        page_size: params.page_size || 20,
+        universe_id: params.universe_id || undefined,
+        no_universe: params.no_universe || undefined,
+        search: params.search || undefined,
+        sort_by: params.sort_by || 'created_at',
+        order: params.order || 'desc',
+      },
     });
+    return data;
+  }
+
+  async getUniverseDocumentCounts(): Promise<UniverseDocumentCounts> {
+    const { data } = await this.client.get<UniverseDocumentCounts>('/api/universes/documents/counts');
     return data;
   }
 
