@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { User as UserIcon, Lock, ArrowLeft, Save } from 'lucide-react';
+import { User as UserIcon, Lock, ArrowLeft, Save, Globe, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import UserAvatar from '../components/UserAvatar';
 import ChangePasswordModal from '../components/ChangePasswordModal';
-import type { User } from '../types';
+import type { User, UserUniverseAccess } from '../types';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -17,8 +17,14 @@ export default function ProfilePage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  // État pour les préférences univers
+  const [userUniverses, setUserUniverses] = useState<UserUniverseAccess[]>([]);
+  const [defaultUniverseId, setDefaultUniverseId] = useState<string | null>(null);
+  const [isSavingUniverse, setIsSavingUniverse] = useState(false);
+
   useEffect(() => {
     loadUser();
+    loadUniverses();
   }, []);
 
   const loadUser = async () => {
@@ -30,6 +36,38 @@ export default function ProfilePage() {
     } catch (error) {
       console.error('Error loading user:', error);
       navigate('/login');
+    }
+  };
+
+  const loadUniverses = async () => {
+    try {
+      // Charger les univers de l'utilisateur
+      const universes = await api.getMyUniverseAccess();
+      setUserUniverses(universes);
+
+      // Charger l'univers par défaut
+      const defaultResponse = await api.getMyDefaultUniverse();
+      if (defaultResponse.default_universe) {
+        setDefaultUniverseId(defaultResponse.default_universe.universe_id);
+      }
+    } catch (error) {
+      console.error('Error loading universes:', error);
+    }
+  };
+
+  const handleSetDefaultUniverse = async (universeId: string) => {
+    setIsSavingUniverse(true);
+    setErrorMessage('');
+
+    try {
+      await api.setMyDefaultUniverse(universeId);
+      setDefaultUniverseId(universeId);
+      setSuccessMessage('Univers par defaut mis a jour');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Erreur lors de la mise a jour');
+    } finally {
+      setIsSavingUniverse(false);
     }
   };
 
@@ -236,6 +274,59 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Preferences Section - Universe */}
+        {userUniverses.length > 1 && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Préférences</h2>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Univers par défaut
+                </label>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Cet univers sera sélectionné automatiquement lors de vos nouvelles conversations
+                </p>
+
+                <div className="space-y-2">
+                  {userUniverses.map((universe) => (
+                    <button
+                      key={universe.universe_id}
+                      onClick={() => handleSetDefaultUniverse(universe.universe_id)}
+                      disabled={isSavingUniverse}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
+                        defaultUniverseId === universe.universe_id
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: universe.universe_color }}
+                        />
+                        <span className={`font-medium ${
+                          defaultUniverseId === universe.universe_id
+                            ? 'text-blue-700 dark:text-blue-300'
+                            : 'text-gray-900 dark:text-white'
+                        }`}>
+                          {universe.universe_name}
+                        </span>
+                      </div>
+                      {defaultUniverseId === universe.universe_id && (
+                        <Check className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Security Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">

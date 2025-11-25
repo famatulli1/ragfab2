@@ -225,11 +225,19 @@ async def probe_search(
         k = REFORMULATION_PROBE_K
 
     try:
-        # Import local pour éviter circular import
-        from app.utils.embeddings import get_embedding
+        # Générer l'embedding via le service HTTP (même méthode que main.py)
+        embeddings_url = os.getenv("EMBEDDINGS_API_URL", "http://ragfab-embeddings:8001")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{embeddings_url}/embed",
+                json={"text": question},
+                timeout=10.0
+            )
+            response.raise_for_status()
+            embedding = response.json()["embedding"]
 
-        # Générer embedding de la question
-        embedding = await get_embedding(question)
+        # Convertir en string pour PostgreSQL
+        embedding_str = "[" + ",".join(map(str, embedding)) + "]"
 
         async with db_pool.acquire() as conn:
             if universe_ids:
@@ -241,7 +249,7 @@ async def probe_search(
                     WHERE d.universe_id = ANY($2::uuid[])
                     ORDER BY c.embedding <=> $1::vector
                     LIMIT $3
-                """, embedding, universe_ids, k)
+                """, embedding_str, universe_ids, k)
             else:
                 results = await conn.fetch("""
                     SELECT c.content, c.metadata, d.title as document_title,
@@ -250,7 +258,7 @@ async def probe_search(
                     JOIN documents d ON c.document_id = d.id
                     ORDER BY c.embedding <=> $1::vector
                     LIMIT $2
-                """, embedding, k)
+                """, embedding_str, k)
 
         return [dict(r) for r in results]
 
