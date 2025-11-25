@@ -166,11 +166,20 @@ class GenericLLMAgentModel(AgentModel):
         # Formater les messages pour l'API OpenAI
         formatted_messages = self._format_messages(messages)
 
+        # Paramètres par défaut pour stabilité (évite les hallucinations multilingues)
+        default_settings = {
+            "temperature": 0.3,  # Température basse pour réponses cohérentes
+            "top_p": 0.9,
+        }
+
+        # Fusionner avec les settings fournis (les settings fournis ont priorité)
+        merged_settings = {**default_settings, **(model_settings or {})}
+
         # Construire le payload
         payload = {
             "model": self.model_name,
             "messages": formatted_messages,
-            **(model_settings or {}),
+            **merged_settings,
         }
 
         # Ajouter les tools si disponibles
@@ -243,12 +252,21 @@ class GenericLLMAgentModel(AgentModel):
         # Formater les messages
         formatted_messages = self._format_messages(messages)
 
+        # Paramètres par défaut pour stabilité (évite les hallucinations multilingues)
+        default_settings = {
+            "temperature": 0.3,  # Température basse pour réponses cohérentes
+            "top_p": 0.9,
+        }
+
+        # Fusionner avec les settings fournis (les settings fournis ont priorité)
+        merged_settings = {**default_settings, **(model_settings or {})}
+
         # Construire le payload avec stream=True
         payload = {
             "model": self.model_name,
             "messages": formatted_messages,
             "stream": True,
-            **(model_settings or {}),
+            **merged_settings,
         }
 
         # Ajouter les tools si disponibles
