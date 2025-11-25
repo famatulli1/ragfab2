@@ -1306,12 +1306,13 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
 
             logger.info(f"🔀 Recherche hybride activée (BM25 + Vector) avec alpha={hybrid_search_alpha}")
 
-            # Utiliser smart_hybrid_search avec alpha depuis conversation
+            # Utiliser smart_hybrid_search avec alpha depuis conversation et filtrage univers
             hybrid_results = await smart_hybrid_search(
                 query=enriched_query,
                 query_embedding=query_embedding,
                 k=search_limit,
-                alpha=hybrid_search_alpha  # 🆕 Passer alpha depuis conversation, plus None
+                alpha=hybrid_search_alpha,
+                universe_ids=_current_universe_ids  # 🆕 Passer les univers pour filtrage
             )
 
             # Convertir format hybrid_results vers format attendu

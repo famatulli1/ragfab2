@@ -286,7 +286,8 @@ async def smart_hybrid_search(
     query: str,
     query_embedding: List[float],
     k: int = 5,
-    alpha: Optional[float] = None
+    alpha: Optional[float] = None,
+    universe_ids: Optional[List[UUID]] = None
 ) -> List[Dict]:
     """
     Recherche hybride intelligente qui gère automatiquement parent-child chunks.
@@ -301,6 +302,7 @@ async def smart_hybrid_search(
         query_embedding: Embedding de la question
         k: Nombre de résultats
         alpha: Poids vector/keyword (None = adaptive)
+        universe_ids: Liste des IDs d'univers pour filtrer les résultats (None = tous)
 
     Returns:
         Résultats hybrid search avec meilleur contexte (parents si disponibles)
@@ -315,22 +317,40 @@ async def smart_hybrid_search(
     if not processed_query:
         processed_query = query.lower()
 
-    logger.info(f"🧠 Smart hybrid search: query='{query}', alpha={alpha:.2f}")
+    logger.info(f"🧠 Smart hybrid search: query='{query}', alpha={alpha:.2f}, universes={len(universe_ids) if universe_ids else 'all'}")
 
     # Convertir embedding liste Python en chaîne PostgreSQL vector
     embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
     try:
         async with database.db_pool.acquire() as conn:
-            # Appeler directement la fonction sans SELECT (évite réordonnancement)
-            results = await conn.fetch("""
-                SELECT * FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4)
-            """,
-            embedding_str,
-            processed_query,
-            k,
-            alpha
-            )
+            if universe_ids:
+                # Avec filtrage par univers - doubler k pour compenser le filtrage
+                universe_ids_str = [str(uid) for uid in universe_ids]
+                results = await conn.fetch("""
+                    SELECT mcs.* FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4) mcs
+                    JOIN documents d ON mcs.document_id = d.id
+                    WHERE d.universe_id = ANY($5::uuid[])
+                """,
+                embedding_str,
+                processed_query,
+                k * 2,  # Doubler pour compenser le filtrage
+                alpha,
+                universe_ids_str
+                )
+                # Limiter aux k premiers résultats
+                results = results[:k]
+                logger.info(f"🌐 Filtrage univers appliqué: {len(results)} résultats")
+            else:
+                # Sans filtrage - tous les documents
+                results = await conn.fetch("""
+                    SELECT * FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4)
+                """,
+                embedding_str,
+                processed_query,
+                k,
+                alpha
+                )
 
         # Formater identique à hybrid_search()
         formatted_results = []
