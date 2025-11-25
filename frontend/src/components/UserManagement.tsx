@@ -376,13 +376,13 @@ export default function UserManagement() {
                               isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'
                             } ${
                               hasAccess
-                                ? 'ring-2 ring-offset-1'
+                                ? ''
                                 : 'opacity-40 hover:opacity-70'
                             }`}
                             style={{
                               backgroundColor: hasAccess ? `${universe.color}30` : `${universe.color}10`,
                               color: universe.color,
-                              ringColor: hasAccess ? universe.color : 'transparent'
+                              boxShadow: hasAccess ? `0 0 0 2px ${universe.color}` : 'none'
                             }}
                             title={hasAccess ? `Retirer l'accès à ${universe.name}` : `Donner accès à ${universe.name}`}
                           >
