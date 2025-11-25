@@ -2289,3 +2289,210 @@ docker-compose logs ragfab-api | grep "422"
 
 **Documentation**:
 - This section in `CLAUDE.md`
+
+---
+
+## Gestion des Univers Produits
+
+### Concept
+
+Les **Univers Produits** permettent de segmenter la base de connaissances par gamme de produits (ex: Medimail, Sillage, etc.). Chaque utilisateur a accès à un ou plusieurs univers, et la recherche RAG filtre automatiquement les résultats selon l'univers sélectionné.
+
+### Architecture Base de Données
+
+#### Tables principales
+
+```sql
+-- Table des univers
+product_universes (
+    id UUID PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    color VARCHAR(7) DEFAULT '#6366f1',  -- Couleur hex pour UI
+    detection_keywords TEXT[],            -- Mots-clés pour détection auto
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+)
+
+-- Table d'association utilisateur-univers
+user_universe_access (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    universe_id UUID REFERENCES product_universes(id),
+    is_default BOOLEAN DEFAULT false,     -- Univers par défaut de l'utilisateur
+    granted_at TIMESTAMP,
+    granted_by UUID REFERENCES users(id),
+    UNIQUE(user_id, universe_id)
+)
+
+-- Colonne ajoutée à documents
+documents.universe_id UUID REFERENCES product_universes(id)
+```
+
+#### Vues
+
+```sql
+-- Vue pour accès utilisateur avec détails univers
+user_universes_view (
+    access_id, user_id, universe_id, universe_name, universe_slug,
+    universe_color, is_default, granted_at, granted_by, granted_by_username
+)
+
+-- Vue stats documents avec univers
+document_stats (
+    id, title, source, created_at, universe_id,
+    universe_name, universe_color, chunk_count,
+    total_content_length, avg_chunk_tokens
+)
+```
+
+### Backend API Routes
+
+**Fichier**: `web-api/app/routes/universes.py`
+
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET | `/api/universes` | Liste tous les univers (admin) |
+| POST | `/api/universes` | Créer un univers (admin) |
+| GET | `/api/universes/{id}` | Détail d'un univers |
+| PATCH | `/api/universes/{id}` | Modifier un univers (admin) |
+| DELETE | `/api/universes/{id}` | Supprimer un univers (admin) |
+| GET | `/api/universes/me/access` | Mes univers accessibles |
+| GET | `/api/universes/me/default` | Mon univers par défaut |
+| PUT | `/api/universes/me/default/{id}` | Définir mon univers par défaut |
+| GET | `/api/universes/users/{user_id}/access` | Accès d'un utilisateur (admin) |
+| POST | `/api/universes/users/{user_id}/access` | Accorder accès (admin) |
+| DELETE | `/api/universes/users/{user_id}/access/{universe_id}` | Révoquer accès (admin) |
+| POST | `/api/universes/{id}/documents/{doc_id}` | Assigner document à univers |
+| DELETE | `/api/universes/documents/{doc_id}` | Retirer document d'un univers |
+
+### Frontend Components
+
+#### Types (`frontend/src/types/index.ts`)
+
+```typescript
+interface ProductUniverse {
+    id: string;
+    name: string;
+    slug: string;
+    description?: string;
+    color: string;
+    detection_keywords: string[];
+    is_active: boolean;
+}
+
+interface UserUniverseAccess {
+    user_id: string;
+    universe_id: string;
+    universe_name: string;
+    universe_color: string;
+    is_default: boolean;
+    granted_at: string;
+}
+
+interface DocumentStats {
+    // ... autres champs
+    universe_id?: string;
+    universe_name?: string;
+    universe_color?: string;
+}
+```
+
+#### Composants
+
+| Fichier | Description |
+|---------|-------------|
+| `UniverseSelector.tsx` | Dropdown de sélection d'univers dans le chat |
+| `UserManagement.tsx` | Gestion des accès univers par utilisateur (badges colorés cliquables) |
+| `AdminPage.tsx` | Dropdown assignation document → univers dans liste documents |
+
+### Filtrage RAG par Univers
+
+#### Flow de recherche
+
+1. **Frontend** envoie `universe_ids[]` dans `ChatRequest`
+2. **Backend** (`main.py`) détermine les univers :
+   - Si `universe_ids` fournis → utiliser ceux-là
+   - Si `search_all_universes=true` → tous les univers autorisés
+   - Sinon → univers par défaut de l'utilisateur
+3. **Search tool** (`search_knowledge_base_tool`) filtre les résultats
+4. **Hybrid search** (`smart_hybrid_search`) applique le filtre SQL
+
+#### Requête SQL avec filtrage
+
+```sql
+-- Recherche vectorielle avec filtre univers
+SELECT mcs.* FROM match_chunks_smart($1::vector, $2) mcs
+JOIN documents d ON mcs.document_id = d.id
+WHERE d.universe_id = ANY($3::uuid[])
+
+-- Recherche hybride avec filtre univers
+SELECT mcs.* FROM match_chunks_smart_hybrid($1::vector, $2, $3, $4) mcs
+JOIN documents d ON mcs.document_id = d.id
+WHERE d.universe_id = ANY($5::uuid[])
+```
+
+### Fichiers Clés
+
+```
+database/
+├── 03_product_universes.sql      # Création tables univers
+├── 04_documents_universe.sql     # Ajout colonne universe_id
+└── 08_document_stats_universe.sql # MAJ vue document_stats
+
+web-api/app/
+├── routes/universes.py           # Routes API univers (500+ lignes)
+├── main.py                       # Filtrage dans search_knowledge_base_tool
+├── hybrid_search.py              # Paramètre universe_ids dans smart_hybrid_search
+└── models.py                     # Modèles Pydantic univers
+
+frontend/src/
+├── api/client.ts                 # Méthodes API univers
+├── types/index.ts                # Types TypeScript univers
+├── components/
+│   ├── UniverseSelector.tsx      # Sélecteur univers chat
+│   └── UserManagement.tsx        # Gestion accès utilisateurs (badges)
+└── pages/
+    └── AdminPage.tsx             # Assignation documents → univers
+```
+
+### Variables Globales (main.py)
+
+```python
+_current_universe_ids: Optional[List[UUID]] = None  # Univers pour filtrage RAG
+```
+
+### Migrations SQL
+
+Pour appliquer les migrations :
+
+```bash
+# Copier et exécuter dans le container PostgreSQL
+docker cp database/03_product_universes.sql ragfab-postgres:/tmp/
+docker exec -it ragfab-postgres psql -U raguser -d ragdb -f /tmp/03_product_universes.sql
+
+# Migration vue document_stats avec univers
+docker exec -it ragfab-postgres psql -U raguser -d ragdb -c "DROP VIEW IF EXISTS document_stats CASCADE;"
+docker cp database/08_document_stats_universe.sql ragfab-postgres:/tmp/
+docker exec -it ragfab-postgres psql -U raguser -d ragdb -f /tmp/08_document_stats_universe.sql
+```
+
+### Corrections Appliquées
+
+1. **Fix erreur 500 assignation univers** (`universes.py:383,419`)
+   - Problème: `user_universes_view` retourne `access_id` mais modèle attend `id`
+   - Solution: Alias `access_id as id` dans les requêtes SQL
+
+2. **Fix filtrage hybrid search** (`hybrid_search.py:285-353`)
+   - Problème: `smart_hybrid_search()` ignorait le filtre univers
+   - Solution: Ajout paramètre `universe_ids` + filtrage SQL avec JOIN documents
+
+3. **Fix TypeScript ringColor** (`UserManagement.tsx`)
+   - Problème: `ringColor` n'est pas une propriété CSS valide
+   - Solution: Remplacé par `boxShadow: '0 0 0 2px ${color}'`
+
+4. **Stabilisation LLM** (`generic_llm_provider.py`)
+   - Problème: Réponses multilingues (chinois) aléatoires
+   - Solution: Ajout `temperature: 0.3` et `top_p: 0.9` par défaut
