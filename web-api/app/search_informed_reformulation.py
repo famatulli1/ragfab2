@@ -239,8 +239,14 @@ async def probe_search(
         # Convertir en string pour PostgreSQL
         embedding_str = "[" + ",".join(map(str, embedding)) + "]"
 
+        logger.info(f"🔍 Probe search: embedding généré ({len(embedding)} dims), universe_ids={universe_ids}")
+
         async with db_pool.acquire() as conn:
             if universe_ids:
+                # Convertir les UUIDs en liste pour PostgreSQL
+                universe_list = [str(uid) for uid in universe_ids]
+                logger.info(f"🔍 Probe search: filtrage sur {len(universe_list)} univers: {universe_list}")
+
                 results = await conn.fetch("""
                     SELECT c.content, c.metadata, d.title as document_title,
                            1 - (c.embedding <=> $1::vector) as similarity
@@ -249,8 +255,9 @@ async def probe_search(
                     WHERE d.universe_id = ANY($2::uuid[])
                     ORDER BY c.embedding <=> $1::vector
                     LIMIT $3
-                """, embedding_str, universe_ids, k)
+                """, embedding_str, universe_list, k)
             else:
+                logger.info(f"🔍 Probe search: pas de filtrage univers")
                 results = await conn.fetch("""
                     SELECT c.content, c.metadata, d.title as document_title,
                            1 - (c.embedding <=> $1::vector) as similarity
@@ -260,10 +267,11 @@ async def probe_search(
                     LIMIT $2
                 """, embedding_str, k)
 
+        logger.info(f"✅ Probe search: {len(results)} résultats trouvés")
         return [dict(r) for r in results]
 
     except Exception as e:
-        logger.error(f"Erreur probe search: {e}", exc_info=True)
+        logger.error(f"❌ Erreur probe search: {e}", exc_info=True)
         return []
 
 
