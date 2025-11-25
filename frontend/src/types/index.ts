@@ -125,6 +125,8 @@ export interface ChatRequest {
   provider?: 'mistral' | 'chocolatine';
   use_tools?: boolean;
   reranking_enabled?: boolean | null;
+  universe_ids?: string[];  // Filtrer par univers spécifiques
+  search_all_universes?: boolean;  // Chercher dans tous les univers autorisés
 }
 
 export interface ChatResponse {

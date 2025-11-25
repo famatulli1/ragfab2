@@ -16,6 +16,11 @@ import type {
   UserUpdate,
   UserResponse,
   UserListResponse,
+  ProductUniverse,
+  ProductUniverseCreate,
+  ProductUniverseUpdate,
+  UserUniverseAccess,
+  UserWithUniverses,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -310,6 +315,123 @@ class APIClient {
 
   async resetUserPassword(userId: string, newPassword: string): Promise<void> {
     await this.client.post(`/api/admin/users/${userId}/reset-password`, { new_password: newPassword });
+  }
+
+  // ============================================================================
+  // Universes
+  // ============================================================================
+
+  // Liste tous les univers (actifs par défaut)
+  async getUniverses(includeInactive = false): Promise<{ universes: ProductUniverse[]; total: number }> {
+    const { data } = await this.client.get('/api/universes', {
+      params: { include_inactive: includeInactive },
+    });
+    return data;
+  }
+
+  // Récupère un univers par ID
+  async getUniverse(universeId: string): Promise<ProductUniverse> {
+    const { data } = await this.client.get<ProductUniverse>(`/api/universes/${universeId}`);
+    return data;
+  }
+
+  // Crée un nouvel univers (admin)
+  async createUniverse(universeData: ProductUniverseCreate): Promise<ProductUniverse> {
+    const { data } = await this.client.post<ProductUniverse>('/api/universes', universeData);
+    return data;
+  }
+
+  // Met à jour un univers (admin)
+  async updateUniverse(universeId: string, updates: ProductUniverseUpdate): Promise<ProductUniverse> {
+    const { data } = await this.client.patch<ProductUniverse>(`/api/universes/${universeId}`, updates);
+    return data;
+  }
+
+  // Supprime un univers (admin)
+  async deleteUniverse(universeId: string): Promise<void> {
+    await this.client.delete(`/api/universes/${universeId}`);
+  }
+
+  // ============================================================================
+  // User Universe Access (Current User)
+  // ============================================================================
+
+  // Récupère les univers auxquels l'utilisateur courant a accès
+  async getMyUniverseAccess(): Promise<UserUniverseAccess[]> {
+    const { data } = await this.client.get<UserUniverseAccess[]>('/api/universes/me/access');
+    return data;
+  }
+
+  // Définit l'univers par défaut de l'utilisateur courant
+  async setMyDefaultUniverse(universeId: string): Promise<UserUniverseAccess> {
+    const { data } = await this.client.post<UserUniverseAccess>('/api/universes/me/set-default', {
+      universe_id: universeId,
+    });
+    return data;
+  }
+
+  // Récupère l'univers par défaut de l'utilisateur courant
+  async getMyDefaultUniverse(): Promise<{ default_universe: UserUniverseAccess | null }> {
+    const { data } = await this.client.get('/api/universes/me/default');
+    return data;
+  }
+
+  // ============================================================================
+  // User Universe Access Management (Admin)
+  // ============================================================================
+
+  // Récupère les accès univers d'un utilisateur (admin)
+  async getUserUniverseAccess(userId: string): Promise<{
+    user_id: string;
+    username: string;
+    accesses: UserUniverseAccess[];
+    total: number;
+  }> {
+    const { data } = await this.client.get(`/api/universes/users/${userId}/access`);
+    return data;
+  }
+
+  // Accorde l'accès à un univers pour un utilisateur (admin)
+  async grantUniverseAccess(
+    userId: string,
+    universeId: string,
+    isDefault = false
+  ): Promise<UserUniverseAccess> {
+    const { data } = await this.client.post<UserUniverseAccess>(
+      `/api/universes/users/${userId}/access`,
+      { universe_id: universeId, is_default: isDefault }
+    );
+    return data;
+  }
+
+  // Révoque l'accès à un univers pour un utilisateur (admin)
+  async revokeUniverseAccess(userId: string, universeId: string): Promise<void> {
+    await this.client.delete(`/api/universes/users/${userId}/access/${universeId}`);
+  }
+
+  // Définit l'univers par défaut d'un utilisateur (admin)
+  async setUserDefaultUniverse(userId: string, universeId: string): Promise<void> {
+    await this.client.post(`/api/universes/users/${userId}/access/${universeId}/set-default`);
+  }
+
+  // ============================================================================
+  // Document Universe Assignment
+  // ============================================================================
+
+  // Récupère le nombre de documents dans un univers
+  async getUniverseDocumentCount(universeId: string): Promise<{ universe_id: string; document_count: number }> {
+    const { data } = await this.client.get(`/api/universes/${universeId}/documents/count`);
+    return data;
+  }
+
+  // Assigne un document à un univers (admin)
+  async assignDocumentToUniverse(universeId: string, documentId: string): Promise<void> {
+    await this.client.post(`/api/universes/${universeId}/documents/${documentId}/assign`);
+  }
+
+  // Retire un document de son univers (admin)
+  async unassignDocumentFromUniverse(documentId: string): Promise<void> {
+    await this.client.post(`/api/universes/documents/${documentId}/unassign`);
   }
 
   // ============================================================================

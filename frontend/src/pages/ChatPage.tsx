@@ -12,6 +12,7 @@ import ImageViewer from '../components/ImageViewer';
 import ChangePasswordModal from '../components/ChangePasswordModal';
 import UserMenu from '../components/UserMenu';
 import ResponseTemplates from '../components/ResponseTemplates';
+import UniverseSelector from '../components/UniverseSelector';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -34,6 +35,10 @@ export default function ChatPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [formattedResponses, setFormattedResponses] = useState<Map<string, any>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Universe selection state
+  const [selectedUniverseIds, setSelectedUniverseIds] = useState<string[]>([]);
+  const [searchAllUniverses, setSearchAllUniverses] = useState(false);
 
   // Charger l'utilisateur courant
   useEffect(() => {
@@ -179,6 +184,8 @@ export default function ChatPage() {
         provider,
         use_tools: useTools,
         reranking_enabled: currentConversation.reranking_enabled,
+        universe_ids: selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined,
+        search_all_universes: searchAllUniverses,
       });
 
       setMessages([...messages, response.user_message, response.assistant_message]);
@@ -427,6 +434,16 @@ export default function ChatPage() {
             </h1>
             {currentConversation && (
               <div className="flex items-center gap-3">
+                <UniverseSelector
+                  selectedUniverseIds={selectedUniverseIds}
+                  searchAllUniverses={searchAllUniverses}
+                  onChange={(universeIds, searchAll) => {
+                    setSelectedUniverseIds(universeIds);
+                    setSearchAllUniverses(searchAll);
+                  }}
+                  compact={true}
+                />
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600"></div>
                 <RerankingToggle
                   initialValue={currentConversation.reranking_enabled}
                   onUpdate={(value) => {

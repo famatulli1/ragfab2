@@ -57,6 +57,10 @@ class Document(DocumentBase):
 class DocumentStats(Document):
     total_content_length: Optional[int] = 0
     avg_chunk_tokens: Optional[float] = 0
+    universe_id: Optional[UUID] = None
+    universe_name: Optional[str] = None
+    universe_slug: Optional[str] = None
+    universe_color: Optional[str] = None
 
 
 class ChunkResponse(BaseModel):
@@ -197,6 +201,8 @@ class ChatRequest(BaseModel):
     provider: Optional[str] = None  # Override conversation provider
     use_tools: Optional[bool] = None  # Override conversation use_tools
     reranking_enabled: Optional[bool] = None  # Override conversation reranking setting
+    universe_ids: Optional[List[UUID]] = None  # Filtrer par univers spécifiques
+    search_all_universes: bool = False  # Chercher dans tous les univers autorisés
 
 
 class ChatResponse(BaseModel):
@@ -302,3 +308,100 @@ class PasswordChange(BaseModel):
     current_password: str = Field(..., description="Mot de passe actuel")
     new_password: str = Field(..., min_length=8, description="Nouveau mot de passe (minimum 8 caractères)")
     confirm_password: str = Field(..., description="Confirmation du nouveau mot de passe")
+
+
+# ============================================================================
+# Product Universe Models
+# ============================================================================
+
+class ProductUniverseBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    slug: str = Field(..., min_length=1, max_length=50, pattern=r'^[a-z0-9-]+$')
+    description: Optional[str] = None
+    detection_keywords: Optional[List[str]] = None
+    color: str = Field(default='#6366f1', pattern=r'^#[0-9a-fA-F]{6}$')
+    is_active: bool = True
+
+
+class ProductUniverseCreate(ProductUniverseBase):
+    pass
+
+
+class ProductUniverseUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    detection_keywords: Optional[List[str]] = None
+    color: Optional[str] = Field(None, pattern=r'^#[0-9a-fA-F]{6}$')
+    is_active: Optional[bool] = None
+
+
+class ProductUniverse(ProductUniverseBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProductUniverseList(BaseModel):
+    universes: List[ProductUniverse]
+    total: int
+
+
+# ============================================================================
+# User Universe Access Models
+# ============================================================================
+
+class UserUniverseAccessCreate(BaseModel):
+    """Création d'un accès univers pour un utilisateur"""
+    universe_id: UUID
+    is_default: bool = False
+
+
+class UserUniverseAccessSimple(BaseModel):
+    """Accès univers simplifié (pour inclusion dans User)"""
+    universe_id: UUID
+    universe_name: str
+    universe_slug: str
+    universe_color: str
+    is_default: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class UserUniverseAccess(BaseModel):
+    """Accès univers complet"""
+    id: UUID
+    user_id: UUID
+    universe_id: UUID
+    universe_name: str
+    universe_slug: str
+    universe_color: str
+    is_default: bool
+    granted_at: datetime
+    granted_by: Optional[UUID] = None
+    granted_by_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserUniverseAccessList(BaseModel):
+    """Liste des accès univers d'un utilisateur"""
+    user_id: UUID
+    username: str
+    accesses: List[UserUniverseAccess]
+    total: int
+
+
+class SetDefaultUniverseRequest(BaseModel):
+    """Requête pour définir l'univers par défaut"""
+    universe_id: UUID
+
+
+class UserWithUniverses(User):
+    """User avec ses univers autorisés"""
+    allowed_universes: List[UserUniverseAccessSimple] = []
+    default_universe_id: Optional[UUID] = None

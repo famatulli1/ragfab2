@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield } from 'lucide-react';
+import { Upload, Trash2, Eye, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield, Globe } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
@@ -7,9 +7,10 @@ import api from '../api/client';
 import UserManagement from '../components/UserManagement';
 import UserMenu from '../components/UserMenu';
 import ReingestionBadge from '../components/ReingestionBadge';
+import UniverseManagement from '../components/UniverseManagement';
 import type { DocumentStats, Chunk, IngestionJob, User } from '../types';
 
-type TabType = 'documents' | 'users';
+type TabType = 'documents' | 'users' | 'universes';
 
 type OcrEngine = 'rapidocr' | 'easyocr' | 'tesseract';
 type VlmEngine = 'paddleocr-vl' | 'internvl' | 'none';
@@ -208,6 +209,17 @@ export default function AdminPage() {
               >
                 <UsersIcon className="h-5 w-5" />
                 Utilisateurs
+              </button>
+              <button
+                onClick={() => setActiveTab('universes')}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition ${
+                  activeTab === 'universes'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <Globe className="h-5 w-5" />
+                Univers
               </button>
             </nav>
           </div>
@@ -428,6 +440,9 @@ export default function AdminPage() {
 
         {/* Content - Users Tab */}
         {activeTab === 'users' && <UserManagement />}
+
+        {/* Content - Universes Tab */}
+        {activeTab === 'universes' && <UniverseManagement />}
       </div>
     </div>
   );

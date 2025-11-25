@@ -42,6 +42,7 @@ from .routes import users
 from .routes import templates
 from .routes import analytics
 from .routes import documents
+from .routes import universes
 
 # Configuration logging
 logging.basicConfig(
@@ -62,6 +63,7 @@ _current_conversation_id: Optional[UUID] = None
 _current_reranking_enabled: Optional[bool] = None
 _current_hybrid_search_enabled: Optional[bool] = None
 _current_hybrid_search_alpha: Optional[float] = None
+_current_universe_ids: Optional[List[UUID]] = None  # Filtrage par univers
 
 # Rate limiter configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -118,6 +120,7 @@ app.include_router(users.router)
 app.include_router(templates.router)
 app.include_router(analytics.router)
 app.include_router(documents.router, tags=["documents"])
+app.include_router(universes.router)
 
 
 # ============================================================================
@@ -606,6 +609,50 @@ async def send_message(
     use_tools = chat_request.use_tools if chat_request.use_tools is not None else conversation["use_tools"]
     reranking_enabled = chat_request.reranking_enabled if chat_request.reranking_enabled is not None else conversation.get("reranking_enabled")
 
+    # Déterminer les univers à utiliser pour le filtrage RAG
+    universe_ids = None
+    if chat_request.universe_ids:
+        # Univers explicitement spécifiés dans la requête
+        universe_ids = chat_request.universe_ids
+        logger.info(f"🌐 Filtrage RAG: univers explicites {len(universe_ids)}")
+    elif chat_request.search_all_universes:
+        # Recherche dans tous les univers autorisés
+        async with database.db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT universe_id FROM user_universe_access
+                WHERE user_id = $1
+                """,
+                current_user['id']
+            )
+            universe_ids = [row['universe_id'] for row in rows] if rows else None
+            logger.info(f"🌐 Filtrage RAG: tous univers autorisés ({len(universe_ids) if universe_ids else 0})")
+    else:
+        # Par défaut: utiliser l'univers par défaut de l'utilisateur
+        async with database.db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT universe_id FROM user_universe_access
+                WHERE user_id = $1 AND is_default = true
+                LIMIT 1
+                """,
+                current_user['id']
+            )
+            if row:
+                universe_ids = [row['universe_id']]
+                logger.info(f"🌐 Filtrage RAG: univers par défaut {row['universe_id']}")
+            else:
+                # Fallback: tous les univers autorisés si pas de défaut
+                rows = await conn.fetch(
+                    """
+                    SELECT universe_id FROM user_universe_access
+                    WHERE user_id = $1
+                    """,
+                    current_user['id']
+                )
+                universe_ids = [row['universe_id'] for row in rows] if rows else None
+                logger.info(f"🌐 Filtrage RAG: fallback tous univers ({len(universe_ids) if universe_ids else 0})")
+
     # Créer le message utilisateur
     async with database.db_pool.acquire() as conn:
         user_message = await conn.fetchrow(
@@ -665,7 +712,8 @@ async def send_message(
             provider=provider,
             use_tools=use_tools,
             conversation_id=chat_request.conversation_id,
-            reranking_enabled=reranking_enabled
+            reranking_enabled=reranking_enabled,
+            universe_ids=universe_ids
         )
     except Exception as e:
         logger.error(f"Erreur RAG agent: {e}", exc_info=True)
@@ -1140,8 +1188,10 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
     Returns:
         Résultats formatés pour le LLM avec sources, images, et contexte adjacent
     """
-    global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha
+    global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha, _current_universe_ids
     logger.info(f"🔍 Tool search_knowledge_base_tool appelé avec query: {query}")
+    if _current_universe_ids:
+        logger.info(f"🌐 Filtrage univers actif: {len(_current_universe_ids)} univers")
     try:
         # 🆕 ENRICHISSEMENT AUTOMATIQUE DE LA QUERY SI CONTEXTE DISPONIBLE
         enriched_query = query  # Par défaut, utiliser query originale
@@ -1305,35 +1355,77 @@ async def search_knowledge_base_tool(query: str, limit: int = 5) -> str:
                 min_appearances = int(os.getenv("QUALITY_MIN_APPEARANCES", "3"))
 
                 async with database.db_pool.acquire() as conn:
-                    results = await conn.fetch(
-                        """
-                        SELECT * FROM match_chunks_quality_filtered(
-                            $1::vector,
-                            $2,
-                            $3,
-                            $4
+                    if _current_universe_ids:
+                        # Avec filtrage par univers
+                        universe_ids_str = [str(uid) for uid in _current_universe_ids]
+                        results = await conn.fetch(
+                            """
+                            SELECT mcs.* FROM match_chunks_quality_filtered(
+                                $1::vector,
+                                $2,
+                                $3,
+                                $4
+                            ) mcs
+                            JOIN documents d ON mcs.document_id = d.id
+                            WHERE d.universe_id = ANY($5::uuid[])
+                            """,
+                            embedding_str,
+                            search_limit * 2,  # Doubler la limite pour compenser le filtrage
+                            satisfaction_threshold,
+                            min_appearances,
+                            universe_ids_str
                         )
-                        """,
-                        embedding_str,
-                        search_limit,
-                        satisfaction_threshold,
-                        min_appearances
-                    )
+                        results = results[:search_limit]  # Limiter aux search_limit premiers
+                        logger.info(f"🌐 Filtrage univers appliqué: {len(results)} résultats")
+                    else:
+                        results = await conn.fetch(
+                            """
+                            SELECT * FROM match_chunks_quality_filtered(
+                                $1::vector,
+                                $2,
+                                $3,
+                                $4
+                            )
+                            """,
+                            embedding_str,
+                            search_limit,
+                            satisfaction_threshold,
+                            min_appearances
+                        )
 
                     logger.info(f"✅ Filtrage qualité appliqué: satisfaction>{satisfaction_threshold*100:.0f}%, min_appearances={min_appearances}")
             else:
                 logger.info("🧠 Recherche vectorielle avec match_chunks_smart() (sans filtrage qualité)")
                 async with database.db_pool.acquire() as conn:
-                    results = await conn.fetch(
-                        """
-                        SELECT * FROM match_chunks_smart(
-                            $1::vector,
-                            $2
+                    if _current_universe_ids:
+                        # Avec filtrage par univers
+                        universe_ids_str = [str(uid) for uid in _current_universe_ids]
+                        results = await conn.fetch(
+                            """
+                            SELECT mcs.* FROM match_chunks_smart(
+                                $1::vector,
+                                $2
+                            ) mcs
+                            JOIN documents d ON mcs.document_id = d.id
+                            WHERE d.universe_id = ANY($3::uuid[])
+                            """,
+                            embedding_str,
+                            search_limit * 2,  # Doubler la limite pour compenser le filtrage
+                            universe_ids_str
                         )
-                        """,
-                        embedding_str,
-                        search_limit
-                    )
+                        results = results[:search_limit]  # Limiter aux search_limit premiers
+                        logger.info(f"🌐 Filtrage univers appliqué: {len(results)} résultats")
+                    else:
+                        results = await conn.fetch(
+                            """
+                            SELECT * FROM match_chunks_smart(
+                                $1::vector,
+                                $2
+                            )
+                            """,
+                            embedding_str,
+                            search_limit
+                        )
 
             # Renommer les colonnes pour compatibilité avec le reste du code
             results = [
@@ -1719,7 +1811,8 @@ async def execute_rag_agent(
     provider: str,
     use_tools: bool,
     conversation_id: Optional[UUID] = None,
-    reranking_enabled: Optional[bool] = None
+    reranking_enabled: Optional[bool] = None,
+    universe_ids: Optional[List[UUID]] = None
 ) -> dict:
     """
     Exécute le RAG agent avec contexte conversationnel intelligent.
@@ -1747,7 +1840,7 @@ async def execute_rag_agent(
             enrich_query_with_context
         )
 
-        global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha
+        global _current_request_sources, _current_conversation_id, _current_reranking_enabled, _current_hybrid_search_enabled, _current_hybrid_search_alpha, _current_universe_ids
 
         # Initialiser le contexte pour cette requête
         _current_request_sources = []
@@ -1755,7 +1848,11 @@ async def execute_rag_agent(
         _current_reranking_enabled = reranking_enabled
         _current_hybrid_search_enabled = None  # Sera chargé depuis conversation.hybrid_search_enabled dans search_knowledge_base_tool()
         _current_hybrid_search_alpha = None  # Sera chargé depuis conversation.hybrid_search_alpha dans search_knowledge_base_tool()
+        _current_universe_ids = universe_ids  # Filtrage par univers
         sources = []
+
+        if universe_ids:
+            logger.info(f"🌐 RAG agent: filtrage sur {len(universe_ids)} univers")
 
         # 🆕 CONSTRUIRE LE CONTEXTE CONVERSATIONNEL DEPUIS LA DB
         conversation_context = None
