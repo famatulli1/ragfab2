@@ -582,7 +582,7 @@ export default function ChatPage() {
                   >
                     {message.role === 'user' ? <UserIcon className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="markdown-content">
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
