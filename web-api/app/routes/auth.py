@@ -7,7 +7,8 @@ from slowapi.util import get_remote_address
 from datetime import timedelta
 import logging
 
-from ..models import LoginRequest, TokenResponse, User, UserProfileUpdate, PasswordChange
+from ..models import LoginRequest, TokenResponse, User, UserProfileUpdate, PasswordChange, UserPreferencesUpdate, UserPreferencesResponse
+from ..question_quality import QUESTION_QUALITY_PHASE
 from ..auth import authenticate_user, create_access_token, get_current_user, verify_password, get_password_hash, validate_password_strength
 from ..config import settings
 from .. import database
@@ -298,3 +299,71 @@ async def change_my_password(
 
     logger.info(f"🔑 Mot de passe changé pour: {current_user['username']}")
     return {"message": "Mot de passe modifié avec succès"}
+
+
+@router.get("/me/preferences", response_model=UserPreferencesResponse)
+async def get_my_preferences(current_user: dict = Depends(get_current_user)):
+    """
+    Récupère les préférences de l'utilisateur courant
+
+    Args:
+        current_user: Utilisateur courant (dépendance JWT)
+
+    Returns:
+        Préférences utilisateur avec le mode effectif calculé
+    """
+    user_mode = current_user.get("suggestion_mode")
+    effective_mode = user_mode if user_mode else QUESTION_QUALITY_PHASE
+
+    return UserPreferencesResponse(
+        suggestion_mode=user_mode,
+        effective_mode=effective_mode
+    )
+
+
+@router.put("/me/preferences", response_model=UserPreferencesResponse)
+async def update_my_preferences(
+    preferences: UserPreferencesUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Met à jour les préférences de l'utilisateur courant
+
+    Args:
+        preferences: Nouvelles préférences
+        current_user: Utilisateur courant (dépendance JWT)
+
+    Returns:
+        Préférences mises à jour avec le mode effectif calculé
+
+    Raises:
+        HTTPException: Si la valeur de suggestion_mode est invalide
+    """
+    # Valider la valeur de suggestion_mode
+    valid_modes = [None, "off", "soft", "interactive"]
+    if preferences.suggestion_mode not in valid_modes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Mode de suggestion invalide. Valeurs acceptées: {valid_modes}"
+        )
+
+    async with database.db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE users
+            SET suggestion_mode = $1
+            WHERE id = $2
+            """,
+            preferences.suggestion_mode,
+            current_user["id"]
+        )
+
+    user_mode = preferences.suggestion_mode
+    effective_mode = user_mode if user_mode else QUESTION_QUALITY_PHASE
+
+    logger.info(f"⚙️ Préférences mises à jour pour: {current_user['username']} (suggestion_mode={user_mode})")
+
+    return UserPreferencesResponse(
+        suggestion_mode=user_mode,
+        effective_mode=effective_mode
+    )

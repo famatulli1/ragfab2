@@ -1,5 +1,7 @@
 // Types pour l'application RAGFab
 
+export type SuggestionMode = 'off' | 'soft' | 'interactive' | null;
+
 export interface User {
   id: string;
   username: string;
@@ -9,7 +11,17 @@ export interface User {
   is_active: boolean;
   is_admin: boolean;
   must_change_password: boolean;
+  suggestion_mode?: SuggestionMode;
   created_at: string;
+}
+
+export interface UserPreferencesUpdate {
+  suggestion_mode: SuggestionMode;
+}
+
+export interface UserPreferencesResponse {
+  suggestion_mode: SuggestionMode;
+  effective_mode: string;
 }
 
 export interface LoginRequest {

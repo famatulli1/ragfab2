@@ -771,7 +771,15 @@ async def send_message(
     # 🔍 ANALYSE QUALITÉ DE LA QUESTION (Question Quality Review System)
     # ============================================================================
     quality_analysis_result = None
-    if QUESTION_QUALITY_ENABLED:
+
+    # Calculer le mode effectif: préférence utilisateur ou global
+    user_suggestion_mode = current_user.get("suggestion_mode")
+    effective_quality_mode = user_suggestion_mode if user_suggestion_mode else QUESTION_QUALITY_PHASE
+
+    # Désactiver si l'utilisateur a choisi "off"
+    quality_enabled = QUESTION_QUALITY_ENABLED and effective_quality_mode != "off"
+
+    if quality_enabled:
         try:
             # Construire le contexte conversationnel pour l'analyse
             conversation_context_for_quality = None
@@ -792,7 +800,7 @@ async def send_message(
             logger.info(
                 f"📊 Quality Analysis Phase 1: classification={quality_analysis_result.classification.value}, "
                 f"score={quality_analysis_result.heuristic_score:.3f}, "
-                f"phase={QUESTION_QUALITY_PHASE}"
+                f"phase={effective_quality_mode} (user={user_suggestion_mode})"
             )
 
             # Phase 2: Search-Informed Reformulation (si score < seuil)
@@ -833,7 +841,7 @@ async def send_message(
             )
 
             # En mode shadow, on log uniquement (pas de blocage)
-            if QUESTION_QUALITY_PHASE == "shadow":
+            if effective_quality_mode == "shadow":
                 logger.debug(f"🔇 Shadow mode: logging quality only, no user intervention")
 
         except Exception as e:
@@ -925,10 +933,10 @@ async def send_message(
     # 📊 AJOUTER ANALYSE QUALITÉ À LA RÉPONSE (pour phases soft/interactive)
     # ============================================================================
     if quality_analysis_result and quality_analysis_result.classification != QuestionClassification.CLEAR:
-        # Inclure l'analyse si question problématique (phases soft/interactive uniquement)
-        if QUESTION_QUALITY_PHASE in ("soft", "interactive"):
+        # Inclure l'analyse si question problématique (mode soft/interactive de l'utilisateur)
+        if effective_quality_mode in ("soft", "interactive"):
             response_data["quality_analysis"] = quality_analysis_result.to_dict()
-            logger.info(f"📤 Quality analysis included in response: {quality_analysis_result.classification.value}")
+            logger.info(f"📤 Quality analysis included in response: {quality_analysis_result.classification.value} (mode={effective_quality_mode})")
 
         # Stocker le feedback pour apprentissage (toutes phases)
         try:

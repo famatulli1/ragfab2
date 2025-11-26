@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { User as UserIcon, Lock, ArrowLeft, Save, Globe, Check } from 'lucide-react';
+import { User as UserIcon, Lock, ArrowLeft, Save, Globe, Check, Lightbulb } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import UserAvatar from '../components/UserAvatar';
 import ChangePasswordModal from '../components/ChangePasswordModal';
-import type { User, UserUniverseAccess } from '../types';
+import type { User, UserUniverseAccess, SuggestionMode } from '../types';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -22,9 +22,15 @@ export default function ProfilePage() {
   const [defaultUniverseId, setDefaultUniverseId] = useState<string | null>(null);
   const [isSavingUniverse, setIsSavingUniverse] = useState(false);
 
+  // État pour les préférences de suggestions
+  const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>(null);
+  const [effectiveMode, setEffectiveMode] = useState<string>('');
+  const [isSavingSuggestion, setIsSavingSuggestion] = useState(false);
+
   useEffect(() => {
     loadUser();
     loadUniverses();
+    loadPreferences();
   }, []);
 
   const loadUser = async () => {
@@ -68,6 +74,33 @@ export default function ProfilePage() {
       setErrorMessage(error.response?.data?.detail || 'Erreur lors de la mise a jour');
     } finally {
       setIsSavingUniverse(false);
+    }
+  };
+
+  const loadPreferences = async () => {
+    try {
+      const prefs = await api.getMyPreferences();
+      setSuggestionMode(prefs.suggestion_mode);
+      setEffectiveMode(prefs.effective_mode);
+    } catch (error) {
+      console.error('Error loading preferences:', error);
+    }
+  };
+
+  const handleSetSuggestionMode = async (mode: SuggestionMode) => {
+    setIsSavingSuggestion(true);
+    setErrorMessage('');
+
+    try {
+      const result = await api.updateMyPreferences({ suggestion_mode: mode });
+      setSuggestionMode(result.suggestion_mode);
+      setEffectiveMode(result.effective_mode);
+      setSuccessMessage('Preference de suggestions mise a jour');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Erreur lors de la mise a jour');
+    } finally {
+      setIsSavingSuggestion(false);
     }
   };
 
@@ -327,6 +360,58 @@ export default function ProfilePage() {
             </div>
           </div>
         )}
+
+        {/* Suggestions Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Lightbulb className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Suggestions de reformulation</h2>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Controlez quand les suggestions de reformulation de questions s'affichent
+              </p>
+
+              <div className="space-y-2">
+                {[
+                  { value: null as SuggestionMode, label: 'Par defaut (systeme)', desc: `Utiliser la configuration systeme (${effectiveMode || 'soft'})` },
+                  { value: 'off' as SuggestionMode, label: 'Desactive', desc: 'Ne jamais afficher de suggestions' },
+                  { value: 'soft' as SuggestionMode, label: 'Suggestions douces', desc: 'Afficher apres la reponse' },
+                  { value: 'interactive' as SuggestionMode, label: 'Interactif', desc: 'Proposer avant de repondre' }
+                ].map((option) => (
+                  <button
+                    key={option.value ?? 'default'}
+                    onClick={() => handleSetSuggestionMode(option.value)}
+                    disabled={isSavingSuggestion}
+                    className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
+                      suggestionMode === option.value
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="text-left">
+                      <span className={`font-medium ${
+                        suggestionMode === option.value
+                          ? 'text-amber-700 dark:text-amber-300'
+                          : 'text-gray-900 dark:text-white'
+                      }`}>
+                        {option.label}
+                      </span>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {option.desc}
+                      </p>
+                    </div>
+                    {suggestionMode === option.value && (
+                      <Check className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Security Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">

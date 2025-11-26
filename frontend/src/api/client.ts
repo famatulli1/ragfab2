@@ -114,6 +114,16 @@ class APIClient {
     return data;
   }
 
+  async getMyPreferences(): Promise<import('../types').UserPreferencesResponse> {
+    const { data } = await this.client.get('/api/auth/me/preferences');
+    return data;
+  }
+
+  async updateMyPreferences(preferences: import('../types').UserPreferencesUpdate): Promise<import('../types').UserPreferencesResponse> {
+    const { data } = await this.client.put('/api/auth/me/preferences', preferences);
+    return data;
+  }
+
   // ============================================================================
   // Documents
   // ============================================================================

@@ -31,6 +31,7 @@ class User(BaseModel):
     is_active: bool = True
     is_admin: bool = True
     must_change_password: bool = False
+    suggestion_mode: Optional[str] = None  # off, soft, interactive, or None (use global)
     created_at: datetime
 
 
@@ -284,6 +285,7 @@ class UserResponse(BaseModel):
     last_name: Optional[str] = None
     is_active: bool
     is_admin: bool
+    suggestion_mode: Optional[str] = None
     created_at: datetime
     last_login: Optional[datetime] = None
 
@@ -297,6 +299,7 @@ class UserListResponse(BaseModel):
     last_name: Optional[str] = None
     is_active: bool
     is_admin: bool
+    suggestion_mode: Optional[str] = None
     created_at: datetime
     last_login: Optional[datetime] = None
 
@@ -317,6 +320,20 @@ class PasswordChange(BaseModel):
     current_password: str = Field(..., description="Mot de passe actuel")
     new_password: str = Field(..., min_length=8, description="Nouveau mot de passe (minimum 8 caractères)")
     confirm_password: str = Field(..., description="Confirmation du nouveau mot de passe")
+
+
+class UserPreferencesUpdate(BaseModel):
+    """Modèle pour mettre à jour les préférences utilisateur"""
+    suggestion_mode: Optional[str] = Field(
+        None,
+        description="Mode de suggestions: off, soft, interactive, ou null pour utiliser le paramètre global"
+    )
+
+
+class UserPreferencesResponse(BaseModel):
+    """Modèle de réponse pour les préférences utilisateur"""
+    suggestion_mode: Optional[str] = None
+    effective_mode: str  # Le mode effectif (user pref ou global)
 
 
 # ============================================================================
