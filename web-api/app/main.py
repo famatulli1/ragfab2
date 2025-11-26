@@ -945,6 +945,64 @@ async def send_message(
             token_usage_json
         )
 
+    # ============================================================================
+    # 🔄 ENRICHISSEMENT POST-RAG: Utiliser les sources pour améliorer suggestions
+    # ============================================================================
+    if (quality_analysis_result
+        and quality_analysis_result.classification != QuestionClassification.CLEAR
+        and assistant_response.get("sources")
+        and quality_analysis_result.analyzed_by == "heuristics_fallback"):
+
+        rag_sources = assistant_response["sources"]
+
+        try:
+            from .search_informed_reformulation import (
+                extract_vocabulary_from_search_results,
+                generate_term_based_suggestions
+            )
+            from .question_quality import QuestionSuggestion
+
+            # Convertir les sources RAG au format attendu
+            search_results_format = [
+                {
+                    "content": src.get("content", ""),
+                    "document_title": src.get("document_title", src.get("title", "")),
+                }
+                for src in rag_sources[:5]
+            ]
+
+            # Extraire vocabulaire des sources RAG
+            vocabulary = extract_vocabulary_from_search_results(
+                search_results_format,
+                chat_request.message
+            )
+
+            if vocabulary.terms:
+                new_suggestions = generate_term_based_suggestions(
+                    chat_request.message,
+                    vocabulary
+                )
+
+                if new_suggestions:
+                    quality_analysis_result.suggestions = [
+                        QuestionSuggestion(
+                            text=s.text,
+                            type=s.type,
+                            reason=s.reason if s.source_document is None
+                                   else f"{s.reason} (source: {s.source_document})"
+                        ) for s in new_suggestions
+                    ]
+                    quality_analysis_result.suggested_terms = vocabulary.terms
+                    quality_analysis_result.analyzed_by = "post_rag_enrichment"
+
+                    logger.info(
+                        f"🔄 Post-RAG Enrichment: {len(new_suggestions)} suggestions "
+                        f"depuis {len(rag_sources)} sources, termes: {vocabulary.terms[:3]}"
+                    )
+
+        except Exception as e:
+            logger.warning(f"⚠️ Erreur enrichissement post-RAG: {e}")
+
     # 🆕 DÉTECTER TOPIC SHIFT POUR SUGGESTION (optionnel, non-bloquant)
     topic_shift_suggestion = None
     try:
