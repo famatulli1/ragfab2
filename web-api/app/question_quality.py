@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 QUESTION_QUALITY_ENABLED = os.getenv("QUESTION_QUALITY_ENABLED", "true").lower() == "true"
 QUESTION_QUALITY_PHASE = os.getenv("QUESTION_QUALITY_PHASE", "shadow")  # shadow | soft | interactive
-HEURISTIC_THRESHOLD = float(os.getenv("QUESTION_QUALITY_HEURISTIC_THRESHOLD", "0.7"))
+HEURISTIC_THRESHOLD = float(os.getenv("QUESTION_QUALITY_HEURISTIC_THRESHOLD", "0.75"))
 LLM_CONFIDENCE_THRESHOLD = float(os.getenv("QUESTION_QUALITY_LLM_CONFIDENCE_THRESHOLD", "0.75"))
 LLM_TIMEOUT = float(os.getenv("QUESTION_QUALITY_LLM_TIMEOUT", "5"))
 

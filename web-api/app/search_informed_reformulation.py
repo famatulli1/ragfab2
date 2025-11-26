@@ -35,8 +35,8 @@ import os
 
 REFORMULATION_ENABLED = os.getenv("REFORMULATION_ENABLED", "true").lower() == "true"
 REFORMULATION_PROBE_K = int(os.getenv("REFORMULATION_PROBE_K", "3"))
-REFORMULATION_LLM_TIMEOUT = float(os.getenv("REFORMULATION_LLM_TIMEOUT", "10"))
-REFORMULATION_HEURISTIC_THRESHOLD = float(os.getenv("REFORMULATION_HEURISTIC_THRESHOLD", "0.7"))
+REFORMULATION_LLM_TIMEOUT = float(os.getenv("REFORMULATION_LLM_TIMEOUT", "25"))
+REFORMULATION_HEURISTIC_THRESHOLD = float(os.getenv("REFORMULATION_HEURISTIC_THRESHOLD", "0.75"))
 
 # ============================================================================
 # Data Classes
@@ -501,46 +501,182 @@ async def generate_llm_suggestions(
 
 
 # ============================================================================
-# Fallback: Suggestions basées sur termes extraits
+# Fallback: Suggestions basées sur termes extraits (Amélioré)
 # ============================================================================
+
+# Patterns de questions françaises pour reformulation intelligente
+QUESTION_PATTERNS = {
+    "comment": {
+        "patterns": [
+            "Comment {action} {term} ?",
+            "Quelle est la procédure pour {action} avec {term} ?",
+            "Comment fonctionne {term} ?",
+        ],
+        "verbs": ["faire", "configurer", "utiliser", "créer", "modifier", "gérer"]
+    },
+    "pourquoi": {
+        "patterns": [
+            "Pourquoi {term} {verb} ?",
+            "Quelle est la raison de {term} ?",
+            "Pour quelle raison {term} est {adjective} ?",
+        ],
+        "verbs": ["fonctionne", "est nécessaire", "doit être", "a été conçu"]
+    },
+    "quoi": {
+        "patterns": [
+            "Qu'est-ce que {term} ?",
+            "Quelle est la définition de {term} ?",
+            "À quoi sert {term} ?",
+        ],
+        "verbs": []
+    },
+    "ou": {
+        "patterns": [
+            "Où trouver {term} ?",
+            "Dans quelle section est {term} ?",
+            "Où se situe {term} dans le système ?",
+        ],
+        "verbs": []
+    },
+    "generic": {
+        "patterns": [
+            "Pouvez-vous expliquer {term} ?",
+            "Quelles sont les informations sur {term} ?",
+            "Comment {term} fonctionne-t-il ?",
+        ],
+        "verbs": []
+    }
+}
+
+
+def detect_question_type(question: str) -> str:
+    """Détecte le type de question pour choisir le bon pattern de reformulation."""
+    question_lower = question.lower().strip()
+
+    if question_lower.startswith("comment"):
+        return "comment"
+    elif question_lower.startswith("pourquoi"):
+        return "pourquoi"
+    elif "quoi" in question_lower or "qu'est" in question_lower or "c'est quoi" in question_lower:
+        return "quoi"
+    elif question_lower.startswith("où") or question_lower.startswith("ou "):
+        return "ou"
+    else:
+        return "generic"
+
+
+def extract_action_from_question(question: str) -> Optional[str]:
+    """Extrait l'action principale de la question si présente."""
+    question_lower = question.lower()
+
+    # Verbes d'action courants
+    action_verbs = [
+        "faire", "configurer", "utiliser", "créer", "modifier", "supprimer",
+        "ajouter", "gérer", "installer", "désinstaller", "activer", "désactiver",
+        "réparer", "corriger", "améliorer", "optimiser", "résoudre", "remettre"
+    ]
+
+    for verb in action_verbs:
+        if verb in question_lower:
+            return verb
+
+    return None
+
 
 def generate_term_based_suggestions(
     question: str,
     vocabulary: ExtractedVocabulary
 ) -> List[ReformulationSuggestion]:
     """
-    Génère des suggestions simples basées sur les termes extraits.
+    Génère des suggestions intelligentes basées sur les termes extraits.
     Utilisé comme fallback si le LLM timeout.
+
+    Améliorations par rapport à la version basique:
+    1. Détection du type de question (comment, pourquoi, quoi, etc.)
+    2. Extraction de l'action de la question originale
+    3. Génération de reformulations naturelles avec les termes extraits
+    4. Suggestions variées (pas juste "concernant X")
 
     Args:
         question: Question originale
         vocabulary: Vocabulaire extrait
 
     Returns:
-        Liste de suggestions (max 2)
+        Liste de suggestions (max 3)
     """
     if not vocabulary.terms:
         return []
 
     suggestions = []
     question_lower = question.lower()
-    question_clean = question.rstrip("?").strip()
+    question_type = detect_question_type(question)
+    action = extract_action_from_question(question)
 
-    for term in vocabulary.terms[:3]:
-        if term.lower() not in question_lower:
+    # Filtrer les termes non présents dans la question
+    relevant_terms = [t for t in vocabulary.terms if t.lower() not in question_lower]
+
+    if not relevant_terms:
+        # Si tous les termes sont déjà dans la question, suggérer des clarifications
+        if vocabulary.terms:
+            term = vocabulary.terms[0]
             source_doc = vocabulary.term_sources.get(term, "documents trouvés")
+            suggestions.append(ReformulationSuggestion(
+                text=f"Pouvez-vous préciser votre question concernant {term} ?",
+                type="clarification",
+                reason="Besoin de précision sur le contexte",
+                source_document=source_doc
+            ))
+        return suggestions
 
-            # Créer une reformulation simple
-            suggestion_text = f"{question_clean} concernant {term} ?"
+    patterns = QUESTION_PATTERNS.get(question_type, QUESTION_PATTERNS["generic"])["patterns"]
+
+    for i, term in enumerate(relevant_terms[:3]):
+        source_doc = vocabulary.term_sources.get(term, "documents trouvés")
+
+        if i == 0:
+            # Première suggestion: reformulation directe avec le terme le plus pertinent
+            if question_type == "comment" and action:
+                suggestion_text = f"Comment {action} {term} ?"
+                reason = f"Reformulation avec le terme '{term}' des documents"
+            elif question_type == "quoi":
+                suggestion_text = f"Qu'est-ce que {term} et comment ça fonctionne ?"
+                reason = f"Clarification du concept '{term}'"
+            elif question_type == "pourquoi":
+                suggestion_text = f"Pourquoi {term} est-il important ?"
+                reason = f"Question sur l'importance de '{term}'"
+            else:
+                suggestion_text = f"Comment fonctionne {term} ?"
+                reason = f"Question sur le fonctionnement de '{term}'"
 
             suggestions.append(ReformulationSuggestion(
                 text=suggestion_text,
                 type="vocabulary",
-                reason=f"Terme '{term}' trouvé dans les documents",
+                reason=reason,
                 source_document=source_doc
             ))
 
-    return suggestions[:2]
+        elif i == 1:
+            # Deuxième suggestion: question de définition/explication
+            suggestion_text = f"Pouvez-vous expliquer {term} et son utilisation ?"
+            suggestions.append(ReformulationSuggestion(
+                text=suggestion_text,
+                type="clarification",
+                reason=f"Demande d'explication sur '{term}'",
+                source_document=source_doc
+            ))
+
+        elif i == 2:
+            # Troisième suggestion: question pratique
+            suggestion_text = f"Quelles sont les étapes pour utiliser {term} ?"
+            suggestions.append(ReformulationSuggestion(
+                text=suggestion_text,
+                type="expansion",
+                reason=f"Question pratique sur '{term}'",
+                source_document=source_doc
+            ))
+
+    logger.info(f"📝 Fallback: {len(suggestions)} suggestions générées (type={question_type}, action={action})")
+    return suggestions[:3]
 
 
 # ============================================================================
