@@ -196,14 +196,14 @@ export default function ChatPage() {
       setMessages([...messages, response.user_message, response.assistant_message]);
 
       // Capturer l'analyse de qualité si présente (phases soft/interactive)
-      const qualityAnalysis = (response as any).quality_analysis;
+      const qualityAnalysis = response.quality_analysis;
+
       if (qualityAnalysis && qualityAnalysis.classification !== 'clear') {
         setQualityAnalyses(prev => {
           const newMap = new Map(prev);
           newMap.set(response.assistant_message.id, qualityAnalysis);
           return newMap;
         });
-        console.log('📊 Quality analysis received:', qualityAnalysis.classification);
       }
 
       // Mettre à jour la conversation dans la liste

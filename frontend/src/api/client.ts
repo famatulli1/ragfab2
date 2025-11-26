@@ -14,6 +14,7 @@ import type {
   Message,
   ChatRequest,
   ChatResponse,
+  ChatResponseWithQuality,
   RatingCreate,
   UserCreate,
   UserUpdate,
@@ -274,8 +275,8 @@ class APIClient {
     return data;
   }
 
-  async sendMessage(request: ChatRequest): Promise<ChatResponse> {
-    const { data } = await this.client.post<ChatResponse>('/api/chat', request);
+  async sendMessage(request: ChatRequest): Promise<ChatResponseWithQuality> {
+    const { data } = await this.client.post<ChatResponseWithQuality>('/api/chat', request);
     return data;
   }
 

@@ -836,6 +836,62 @@ async def send_message(
                 except Exception as e:
                     logger.warning(f"⚠️ Erreur reformulation search-informed (non-bloquant): {e}")
 
+            # ============================================================================
+            # FALLBACK: Générer des suggestions si classification != clear mais suggestions vides
+            # ============================================================================
+            if (quality_analysis_result.classification != QuestionClassification.CLEAR
+                and not quality_analysis_result.suggestions):
+                from .question_quality import QuestionSuggestion
+
+                # Générer des suggestions génériques basées sur la classification
+                fallback_suggestions = []
+
+                if quality_analysis_result.classification == QuestionClassification.TOO_VAGUE:
+                    fallback_suggestions = [
+                        QuestionSuggestion(
+                            text="Pouvez-vous préciser ce que vous recherchez exactement ?",
+                            type="clarification",
+                            reason="Question trop générale"
+                        ),
+                        QuestionSuggestion(
+                            text="Quel est le contexte ou le problème spécifique ?",
+                            type="clarification",
+                            reason="Besoin de contexte supplémentaire"
+                        ),
+                    ]
+                elif quality_analysis_result.classification == QuestionClassification.MISSING_CONTEXT:
+                    fallback_suggestions = [
+                        QuestionSuggestion(
+                            text="Pouvez-vous donner plus de détails sur votre situation ?",
+                            type="clarification",
+                            reason="Contexte manquant"
+                        ),
+                    ]
+                elif quality_analysis_result.classification == QuestionClassification.WRONG_VOCABULARY:
+                    fallback_suggestions = [
+                        QuestionSuggestion(
+                            text="Essayez de reformuler avec des termes plus spécifiques",
+                            type="vocabulary",
+                            reason="Vocabulaire non reconnu dans les documents"
+                        ),
+                    ]
+                else:
+                    # Suggestion générique pour autres cas
+                    fallback_suggestions = [
+                        QuestionSuggestion(
+                            text="Pouvez-vous reformuler votre question plus précisément ?",
+                            type="clarification",
+                            reason="Amélioration suggérée"
+                        ),
+                    ]
+
+                quality_analysis_result.suggestions = fallback_suggestions
+                quality_analysis_result.analyzed_by = "heuristics_fallback"
+                logger.info(
+                    f"📊 Quality Analysis Fallback: {len(fallback_suggestions)} suggestions génériques "
+                    f"(classification={quality_analysis_result.classification.value})"
+                )
+
             logger.info(
                 f"📊 Quality Analysis Final: suggestions={len(quality_analysis_result.suggestions)}"
             )
