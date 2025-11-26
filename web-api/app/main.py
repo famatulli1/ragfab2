@@ -30,7 +30,7 @@ from .models import (
     LoginRequest, TokenResponse, User,
     Document, DocumentStats, DocumentListResponse, ChunkResponse,
     Conversation, ConversationCreate, ConversationUpdate, ConversationWithStats,
-    MessageResponse, ChatRequest, ChatResponse,
+    MessageResponse, ChatRequest, ChatResponse, ChatResponseWithQuality,
     RatingCreate, Rating,
     IngestionJob,
     ExportRequest
@@ -640,7 +640,7 @@ Maximum 50 caractères."""
         return user_message[:50] + ("..." if len(user_message) > 50 else "")
 
 
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat", response_model=ChatResponseWithQuality)
 @limiter.limit("20/minute")  # Max 20 messages per minute
 async def send_message(
     request: Request,
@@ -956,7 +956,7 @@ async def send_message(
         except Exception as e:
             logger.warning(f"⚠️ Erreur stockage feedback qualité: {e}")
 
-    return ChatResponse(**response_data)
+    return ChatResponseWithQuality(**response_data)
 
 
 @app.post("/api/messages/{message_id}/regenerate", response_model=MessageResponse)
