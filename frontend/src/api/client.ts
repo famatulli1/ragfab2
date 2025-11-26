@@ -13,7 +13,6 @@ import type {
   ConversationWithStats,
   Message,
   ChatRequest,
-  ChatResponse,
   ChatResponseWithQuality,
   RatingCreate,
   UserCreate,
