@@ -319,3 +319,20 @@ export interface QualityAnalysis {
 export interface ChatResponseWithQuality extends ChatResponse {
   quality_analysis?: QualityAnalysis;
 }
+
+// Mode Interactive - Pre-Analyze
+export interface PreAnalyzeRequest {
+  message: string;
+  conversation_id?: string;
+  universe_ids?: string[];
+}
+
+export interface PreAnalyzeResponse {
+  needs_clarification: boolean;
+  classification?: QuestionClassification;
+  confidence?: number;
+  suggestions: QuestionSuggestion[];
+  original_question: string;
+  detected_intent?: string;
+  extracted_terms: string[];
+}

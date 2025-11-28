@@ -35,8 +35,8 @@ import os
 
 REFORMULATION_ENABLED = os.getenv("REFORMULATION_ENABLED", "true").lower() == "true"
 REFORMULATION_PROBE_K = int(os.getenv("REFORMULATION_PROBE_K", "3"))
-REFORMULATION_LLM_TIMEOUT = float(os.getenv("REFORMULATION_LLM_TIMEOUT", "25"))
-REFORMULATION_HEURISTIC_THRESHOLD = float(os.getenv("REFORMULATION_HEURISTIC_THRESHOLD", "0.75"))
+REFORMULATION_LLM_TIMEOUT = float(os.getenv("REFORMULATION_LLM_TIMEOUT", "8"))  # Réduit de 25s
+REFORMULATION_HEURISTIC_THRESHOLD = float(os.getenv("REFORMULATION_HEURISTIC_THRESHOLD", "0.65"))  # Aligné avec question_quality
 
 # ============================================================================
 # Data Classes
@@ -380,31 +380,44 @@ def extract_vocabulary_from_search_results(
 
 LLM_GENERIC_PROMPT = """Tu reformules des questions pour améliorer la recherche documentaire.
 
-QUESTION UTILISATEUR:
-"{question}"
+QUESTION UTILISATEUR: "{question}"
 
-DOCUMENTS TROUVÉS (pour comprendre le vocabulaire du domaine):
+INTENTION DÉTECTÉE: {detected_intent}
+
+DOCUMENTS TROUVÉS:
 {document_context}
 
-TERMES FRÉQUENTS DANS CES DOCUMENTS:
-{extracted_terms}
+TERMES CLÉS EXTRAITS: {extracted_terms}
 
-TÂCHE:
-Analyse si la question peut être améliorée pour la recherche. Si oui, propose 1-3 reformulations qui:
-- Utilisent les termes des documents ci-dessus (pas d'invention)
-- Gardent le sens original de la question
-- Sont plus précises pour une recherche documentaire
+RÈGLES CRITIQUES:
+1. PRÉSERVE L'INTENTION: Si l'utilisateur demande "comment configurer", garde "configurer" (pas "comprendre" ou "expliquer")
+2. AJOUTE DE LA SPÉCIFICITÉ avec les termes extraits des documents
+3. NE CHANGE PAS LE SENS de la question
+4. MAX 15 mots par suggestion
+5. UTILISE UNIQUEMENT les termes extraits (pas d'invention)
+
+EXEMPLES CORRECTS:
+- "comment configurer ?" + termes=[SSO, LDAP] → "Comment configurer le SSO LDAP ?"
+- "ça marche pas" + termes=[OAuth, authentification] → "Pourquoi l'authentification OAuth ne fonctionne pas ?"
+- "c'est quoi le truc" + termes=[JWT, token] → "Qu'est-ce que le JWT ?"
+
+EXEMPLES INCORRECTS (à éviter):
+- "comment configurer ?" → "Qu'est-ce que le SSO ?" (change l'intention configurer→expliquer)
+- "ça marche comment" → "Comment fonctionne OAuth ?" si l'utilisateur voulait résoudre un problème
 
 RÉPONDS EN JSON:
 {{
   "needs_reformulation": true/false,
-  "reasoning": "Explication courte",
+  "reasoning": "Explication en 1 phrase",
   "suggestions": [
-    {{"text": "Question reformulée", "reason": "Pourquoi cette reformulation"}}
+    {{"text": "Question reformulée", "reason": "Utilise le terme X pour plus de précision"}}
   ]
 }}
 
-IMPORTANT: Si la question est déjà claire ou si les documents ne suggèrent pas de meilleur vocabulaire, retourne needs_reformulation=false."""
+NE REFORMULE PAS SI:
+- La question est déjà spécifique et claire
+- Les documents ne suggèrent pas de meilleur vocabulaire
+- L'intention ne peut pas être déterminée"""
 
 
 async def generate_llm_suggestions(
@@ -432,12 +445,21 @@ async def generate_llm_suggestions(
         model = get_generic_llm_model()
         api_url = model.api_url.rstrip('/')
 
+        # Détecter l'intention pour préserver le sens
+        intent_type, preserve_verb, intent_label = detect_intent(question)
+        detected_intent = f"{intent_label}"
+        if preserve_verb:
+            detected_intent += f" (préserver le verbe: {preserve_verb})"
+
+        logger.debug(f"🎯 Intention détectée: {intent_type} -> {intent_label}")
+
         # Construire le prompt
         document_context = "\n---\n".join(vocabulary.context_snippets) if vocabulary.context_snippets else "Aucun document trouvé"
         extracted_terms = ", ".join(vocabulary.terms) if vocabulary.terms else "Aucun terme extrait"
 
         prompt = LLM_GENERIC_PROMPT.format(
             question=question,
+            detected_intent=detected_intent,
             document_context=document_context,
             extracted_terms=extracted_terms
         )
@@ -498,6 +520,100 @@ async def generate_llm_suggestions(
     except Exception as e:
         logger.error(f"Erreur LLM suggestions: {e}", exc_info=True)
         return (False, [], f"Erreur: {e}")
+
+
+# ============================================================================
+# Détection d'Intention (pour préservation dans reformulations)
+# ============================================================================
+
+# Patterns d'intention avec action associée
+INTENT_PATTERNS = {
+    "howto_configure": {
+        "patterns": [
+            r"comment\s+(configurer|paramétrer|régler|ajuster|modifier\s+les?\s+paramètres?)",
+            r"(configuration|paramétrage)\s+de",
+        ],
+        "label": "Configuration/Paramétrage",
+        "preserve_verb": "configurer"
+    },
+    "howto_create": {
+        "patterns": [
+            r"comment\s+(créer|ajouter|mettre\s+en\s+place|installer|générer)",
+            r"(création|ajout|installation)\s+d",
+        ],
+        "label": "Création/Installation",
+        "preserve_verb": "créer"
+    },
+    "howto_fix": {
+        "patterns": [
+            r"comment\s+(réparer|corriger|résoudre|fixer|débugger)",
+            r"(ne\s+(marche|fonctionne)\s+(pas|plus))",
+            r"(erreur|problème|bug|échec)\s+(avec|de|sur)",
+            r"ça\s+(marche|fonctionne)\s+(pas|plus)",
+        ],
+        "label": "Résolution de problème",
+        "preserve_verb": "résoudre"
+    },
+    "howto_use": {
+        "patterns": [
+            r"comment\s+(utiliser|employer|se\s+servir\s+de)",
+            r"(utilisation|usage)\s+de",
+        ],
+        "label": "Utilisation",
+        "preserve_verb": "utiliser"
+    },
+    "explain": {
+        "patterns": [
+            r"c['']?est\s+quoi",
+            r"qu['']?est[- ]ce\s+que",
+            r"(définition|signification)\s+de",
+            r"à\s+quoi\s+sert",
+        ],
+        "label": "Explication/Définition",
+        "preserve_verb": None
+    },
+    "locate": {
+        "patterns": [
+            r"où\s+(trouver|est|se\s+trouve)",
+            r"dans\s+quelle?\s+(section|partie|menu)",
+        ],
+        "label": "Localisation",
+        "preserve_verb": "trouver"
+    },
+    "compare": {
+        "patterns": [
+            r"(différence|comparaison)\s+entre",
+            r"(quel|quelle)\s+est\s+(la\s+différence|mieux)",
+        ],
+        "label": "Comparaison",
+        "preserve_verb": None
+    },
+}
+
+
+def detect_intent(question: str) -> Tuple[str, Optional[str], str]:
+    """
+    Détecte l'intention de la question pour préserver le sens dans les reformulations.
+
+    Returns:
+        (intent_type, preserve_verb, human_label)
+        - intent_type: clé technique (howto_configure, explain, etc.)
+        - preserve_verb: verbe à préserver dans les reformulations (ou None)
+        - human_label: description lisible pour le prompt LLM
+    """
+    question_lower = question.lower()
+
+    for intent_type, config in INTENT_PATTERNS.items():
+        for pattern in config["patterns"]:
+            if re.search(pattern, question_lower, re.IGNORECASE):
+                return (
+                    intent_type,
+                    config.get("preserve_verb"),
+                    config["label"]
+                )
+
+    # Intention générique si aucun pattern ne matche
+    return ("generic", None, "Question générale")
 
 
 # ============================================================================
@@ -792,6 +908,8 @@ __all__ = [
     "extract_vocabulary_from_search_results",
     "generate_llm_suggestions",
     "generate_term_based_suggestions",
+    "detect_intent",
+    "INTENT_PATTERNS",
     "REFORMULATION_ENABLED",
     "REFORMULATION_HEURISTIC_THRESHOLD",
 ]

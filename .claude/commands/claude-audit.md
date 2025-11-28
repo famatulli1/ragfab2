@@ -1,4 +1,4 @@
-# Claude Audit - Analyse de la Mémoire Claude
+/cont# Claude Audit - Analyse de la Mémoire Claude
 
 Tu es un expert en optimisation de fichiers mémoire pour Claude Code. Analyse l'écosystème mémoire et propose des améliorations.
 

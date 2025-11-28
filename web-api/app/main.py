@@ -640,6 +640,152 @@ Maximum 50 caractères."""
         return user_message[:50] + ("..." if len(user_message) > 50 else "")
 
 
+# ============================================================================
+# Mode Interactive - Pre-Analyze Endpoint
+# ============================================================================
+
+from app.models import PreAnalyzeRequest, PreAnalyzeResponse, QuestionSuggestion
+
+@app.post("/api/chat/pre-analyze", response_model=PreAnalyzeResponse)
+@limiter.limit("30/minute")  # Plus permissif car c'est une pré-analyse
+async def pre_analyze_question(
+    request: Request,
+    pre_analyze_request: PreAnalyzeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Analyse préalable d'une question pour le mode interactive.
+
+    Cet endpoint est appelé AVANT d'envoyer le message au RAG.
+    Si needs_clarification=True, le frontend affiche un modal
+    pour que l'utilisateur choisisse une reformulation.
+
+    Returns:
+        PreAnalyzeResponse avec suggestions si la question est problématique
+    """
+    from app.question_quality import (
+        analyze_question_quality_cached,
+        QuestionClassification,
+        QUESTION_QUALITY_PHASE
+    )
+    from app.search_informed_reformulation import (
+        probe_search,
+        extract_vocabulary_from_search_results,
+        generate_llm_suggestions,
+        generate_term_based_suggestions,
+        detect_intent,
+        REFORMULATION_ENABLED
+    )
+
+    question = pre_analyze_request.message.strip()
+    logger.info(f"🔍 Pre-analyze: '{question[:50]}...'")
+
+    # Déterminer les univers pour le probe search
+    universe_ids = pre_analyze_request.universe_ids
+    if not universe_ids:
+        # Utiliser les univers autorisés de l'utilisateur
+        async with database.db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT universe_id FROM user_universe_access
+                WHERE user_id = $1
+                """,
+                current_user['id']
+            )
+            universe_ids = [row['universe_id'] for row in rows] if rows else None
+
+    # Phase 1: Analyse qualité (heuristiques)
+    quality_result = await analyze_question_quality_cached(question)
+
+    # Détecter l'intention
+    intent_type, preserve_verb, intent_label = detect_intent(question)
+
+    logger.info(
+        f"📊 Pre-analyze: score={quality_result.heuristic_score:.2f}, "
+        f"classification={quality_result.classification.value}, "
+        f"intent={intent_type}"
+    )
+
+    # Si la question est claire (fast path), pas besoin de suggestions
+    if quality_result.classification == QuestionClassification.CLEAR:
+        return PreAnalyzeResponse(
+            needs_clarification=False,
+            classification="clear",
+            confidence=quality_result.confidence,
+            suggestions=[],
+            original_question=question,
+            detected_intent=intent_label,
+            extracted_terms=[]
+        )
+
+    # Phase 2: Probe search + extraction vocabulaire (si reformulation activée)
+    suggestions = []
+    extracted_terms = []
+
+    if REFORMULATION_ENABLED:
+        try:
+            # Probe search rapide
+            probe_results = await probe_search(
+                question=question,
+                db_pool=database.db_pool,
+                universe_ids=universe_ids,
+                k=3
+            )
+
+            if probe_results:
+                # Extraire vocabulaire
+                vocabulary = extract_vocabulary_from_search_results(
+                    probe_results, question
+                )
+                extracted_terms = vocabulary.terms
+
+                # Générer suggestions via LLM (avec timeout court)
+                try:
+                    needs_reform, llm_suggestions, reasoning = await generate_llm_suggestions(
+                        question=question,
+                        vocabulary=vocabulary,
+                        timeout=5.0  # Timeout court pour pre-analyze
+                    )
+
+                    for s in llm_suggestions:
+                        suggestions.append({
+                            "text": s.text,
+                            "type": s.type,
+                            "reason": s.reason
+                        })
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Pre-analyze LLM timeout, using fallback: {e}")
+                    # Fallback: suggestions basées sur termes
+                    fallback_suggestions = generate_term_based_suggestions(
+                        question=question,
+                        vocabulary=vocabulary
+                    )
+                    for s in fallback_suggestions[:3]:
+                        suggestions.append({
+                            "text": s.text,
+                            "type": s.type,
+                            "reason": s.reason
+                        })
+
+        except Exception as e:
+            logger.warning(f"⚠️ Pre-analyze probe search error: {e}")
+
+    # Construire la réponse
+    return PreAnalyzeResponse(
+        needs_clarification=True,
+        classification=quality_result.classification.value,
+        confidence=quality_result.confidence,
+        suggestions=[
+            QuestionSuggestion(text=s["text"], type=s["type"], reason=s.get("reason"))
+            for s in suggestions
+        ],
+        original_question=question,
+        detected_intent=intent_label,
+        extracted_terms=extracted_terms
+    )
+
+
 @app.post("/api/chat", response_model=ChatResponseWithQuality)
 @limiter.limit("20/minute")  # Max 20 messages per minute
 async def send_message(

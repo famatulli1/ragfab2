@@ -23,6 +23,8 @@ import type {
   ProductUniverseCreate,
   ProductUniverseUpdate,
   UserUniverseAccess,
+  PreAnalyzeRequest,
+  PreAnalyzeResponse,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -276,6 +278,11 @@ class APIClient {
 
   async sendMessage(request: ChatRequest): Promise<ChatResponseWithQuality> {
     const { data } = await this.client.post<ChatResponseWithQuality>('/api/chat', request);
+    return data;
+  }
+
+  async preAnalyzeQuestion(request: PreAnalyzeRequest): Promise<PreAnalyzeResponse> {
+    const { data } = await this.client.post<PreAnalyzeResponse>('/api/chat/pre-analyze', request);
     return data;
   }
 

@@ -459,3 +459,25 @@ class QualityAnalysis(BaseModel):
 class ChatResponseWithQuality(ChatResponse):
     """ChatResponse étendu avec analyse de qualité (pour phase soft/interactive)."""
     quality_analysis: Optional[QualityAnalysis] = Field(None, description="Analyse de qualité si question problématique")
+
+
+# ============================================================================
+# Mode Interactive - Pre-Analyze
+# ============================================================================
+
+class PreAnalyzeRequest(BaseModel):
+    """Requête d'analyse préalable d'une question (mode interactive)."""
+    message: str = Field(..., min_length=1, description="Question à analyser avant envoi")
+    conversation_id: Optional[UUID] = Field(None, description="ID de la conversation pour contexte")
+    universe_ids: Optional[List[UUID]] = Field(None, description="Univers à utiliser pour le probe search")
+
+
+class PreAnalyzeResponse(BaseModel):
+    """Réponse d'analyse préalable pour le mode interactive."""
+    needs_clarification: bool = Field(..., description="True si la question nécessite reformulation")
+    classification: Optional[str] = Field(None, description="Classification: clear, too_vague, etc.")
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Score de confiance")
+    suggestions: List[QuestionSuggestion] = Field(default_factory=list, description="Suggestions de reformulation")
+    original_question: str = Field(..., description="Question originale")
+    detected_intent: Optional[str] = Field(None, description="Intention détectée (howto, explain, etc.)")
+    extracted_terms: List[str] = Field(default_factory=list, description="Termes extraits des documents")

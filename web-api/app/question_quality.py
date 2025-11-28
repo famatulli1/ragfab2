@@ -35,9 +35,30 @@ logger = logging.getLogger(__name__)
 
 QUESTION_QUALITY_ENABLED = os.getenv("QUESTION_QUALITY_ENABLED", "true").lower() == "true"
 QUESTION_QUALITY_PHASE = os.getenv("QUESTION_QUALITY_PHASE", "shadow")  # shadow | soft | interactive
-HEURISTIC_THRESHOLD = float(os.getenv("QUESTION_QUALITY_HEURISTIC_THRESHOLD", "0.75"))
+HEURISTIC_THRESHOLD = float(os.getenv("QUESTION_QUALITY_HEURISTIC_THRESHOLD", "0.65"))  # Réduit de 0.75 pour plus de fast path
 LLM_CONFIDENCE_THRESHOLD = float(os.getenv("QUESTION_QUALITY_LLM_CONFIDENCE_THRESHOLD", "0.75"))
-LLM_TIMEOUT = float(os.getenv("QUESTION_QUALITY_LLM_TIMEOUT", "5"))
+LLM_TIMEOUT = float(os.getenv("QUESTION_QUALITY_LLM_TIMEOUT", "3"))  # Réduit de 5s
+
+# Termes techniques connus (ne pas pénaliser les questions courtes les contenant)
+KNOWN_TECHNICAL_TERMS = {
+    # Authentification & Sécurité
+    "sso", "jwt", "oauth", "oauth2", "ldap", "saml", "mfa", "2fa", "totp",
+    "api", "apikey", "bearer", "token", "auth", "rbac", "acl",
+    # Protocoles & Web
+    "http", "https", "rest", "graphql", "grpc", "webhook", "websocket", "ws",
+    "ssl", "tls", "cors", "csrf", "xss",
+    # Data & Storage
+    "sql", "nosql", "json", "xml", "csv", "yaml", "pdf", "xlsx",
+    "postgres", "postgresql", "mysql", "mongodb", "redis", "elasticsearch",
+    # RAG & AI
+    "rag", "llm", "embedding", "embeddings", "vector", "chunk", "chunks",
+    "rerank", "reranking", "ocr", "vlm", "nlp", "gpt", "mistral",
+    # DevOps & Infra
+    "docker", "kubernetes", "k8s", "ci", "cd", "git", "npm", "pip",
+    "aws", "azure", "gcp", "s3", "cdn", "dns", "ip", "url", "uri",
+    # Formats & Encodages
+    "utf8", "base64", "md5", "sha256", "uuid", "guid",
+}
 
 
 # ============================================================================
@@ -95,22 +116,35 @@ class QualityAnalysisResult:
 # ============================================================================
 
 # Red flags: indicateurs de question problématique
+# Format: (pattern, flag_type, penalty, skip_if_technical)
+# skip_if_technical=True → ne pas pénaliser si la question contient un terme technique
 RED_FLAG_PATTERNS = [
     # Questions mono-mot ou très courtes
-    (r"^(comment|pourquoi|quoi|ou|quand)\s*\?*$", "question_monoword", 0.5),
-    # "c'est quoi X" sans contexte
-    (r"^c['']?est\s+quoi\s+\w+\s*\?*$", "cest_quoi_vague", 0.4),
+    (r"^(comment|pourquoi|quoi|ou|quand)\s*\?*$", "question_monoword", 0.5, False),
+    # "c'est quoi X" sans contexte - SKIP si terme technique (ex: "c'est quoi le JWT?")
+    (r"^c['']?est\s+quoi\s+\w+\s*\?*$", "cest_quoi_vague", 0.4, True),
     # Trop vague
-    (r"^(ca|ça)\s+(marche|fonctionne|se passe)\s*(comment)?\s*\?*$", "ca_vague", 0.5),
+    (r"^(ca|ça)\s+(marche|fonctionne|se passe)\s*(comment)?\s*\?*$", "ca_vague", 0.5, False),
     # Début par conjonction (suite implicite)
-    (r"^(et|ou|mais|donc)\s+", "starts_conjunction", 0.3),
+    (r"^(et|ou|mais|donc)\s+", "starts_conjunction", 0.3, False),
     # Pronoms seuls
-    (r"^(celui|celle|ceux|celles)[-\s]?(ci|la|là)?\s*\?*$", "pronouns_only", 0.5),
+    (r"^(celui|celle|ceux|celles)[-\s]?(ci|la|là)?\s*\?*$", "pronouns_only", 0.5, False),
     # Multiples espaces (potentiel copier-coller mal formaté)
-    (r"\s{3,}", "multiple_spaces", 0.1),
-    # Questions ultra-courtes
-    (r"^.{1,10}\?*$", "ultra_short", 0.3),
+    (r"\s{3,}", "multiple_spaces", 0.1, False),
+    # Questions ultra-courtes - SKIP si terme technique (ex: "SSO?", "JWT?")
+    (r"^.{1,10}\?*$", "ultra_short", 0.3, True),
 ]
+
+
+def has_technical_term(question: str) -> bool:
+    """
+    Détecte si la question contient un terme technique connu.
+
+    Les questions courtes avec des termes techniques (SSO?, JWT?, API?)
+    ne doivent pas être pénalisées car elles sont souvent légitimes.
+    """
+    words = set(re.findall(r'\b\w+\b', question.lower()))
+    return bool(words & KNOWN_TECHNICAL_TERMS)
 
 # Green flags: indicateurs de bonne question (STRUCTURELS uniquement)
 # Note: Les termes métier sont maintenant extraits dynamiquement via search_informed_reformulation.py
@@ -263,19 +297,35 @@ def apply_pattern_modifiers(question: str, base_score: float) -> Tuple[float, Li
     """
     Applique les modificateurs red/green flags au score.
     Retourne (score_modifie, raisons)
+
+    Les questions contenant des termes techniques connus bénéficient:
+    - Skip des pénalités red_flag marquées skip_if_technical
+    - Bonus de score +0.15
     """
     question_lower = question.lower()
     score = base_score
     reasons = []
 
+    # Détecter si la question contient un terme technique
+    is_technical = has_technical_term(question)
+
     # Red flags (pénalités)
-    for pattern, flag_type, penalty in RED_FLAG_PATTERNS:
+    for item in RED_FLAG_PATTERNS:
+        pattern, flag_type, penalty = item[0], item[1], item[2]
+        skip_if_tech = item[3] if len(item) > 3 else False
+
+        # Skip la pénalité si terme technique et pattern le permet
+        if skip_if_tech and is_technical:
+            continue
+
         if re.search(pattern, question_lower, re.IGNORECASE):
             score *= (1 - penalty)
             reasons.append(f"red_flag:{flag_type}")
 
-    # Green flags sont déjà comptés dans vocabulary_score
-    # mais on peut ajouter des bonus supplémentaires
+    # Bonus pour questions avec termes techniques
+    if is_technical:
+        score = min(1.0, score + 0.15)
+        reasons.append("green_flag:technical_term")
 
     return (max(0.0, min(1.0, score)), reasons)
 
@@ -642,6 +692,91 @@ async def store_quality_feedback(
 
 
 # ============================================================================
+# Cache en Mémoire pour Analyse de Qualité
+# ============================================================================
+
+# Cache simple en mémoire (éviction par taille max)
+_quality_cache: Dict[str, QualityAnalysisResult] = {}
+_CACHE_MAX_SIZE = int(os.getenv("QUESTION_QUALITY_CACHE_SIZE", "500"))
+_cache_hits = 0
+_cache_misses = 0
+
+
+async def analyze_question_quality_cached(
+    question: str,
+    conversation_context: Optional[Dict] = None,
+    threshold: float = None
+) -> QualityAnalysisResult:
+    """
+    Version cachée de analyze_question_quality.
+
+    Le cache utilise la question normalisée comme clé.
+    TTL géré par redémarrage de l'application.
+
+    Args:
+        question: Question utilisateur
+        conversation_context: Contexte conversationnel (optionnel)
+        threshold: Seuil pour déclencher LLM
+
+    Returns:
+        QualityAnalysisResult (depuis cache ou calculé)
+    """
+    global _cache_hits, _cache_misses
+
+    cache_key = get_cache_key(question)
+
+    # Check cache
+    if cache_key in _quality_cache:
+        _cache_hits += 1
+        logger.debug(f"⚡ Cache HIT: {cache_key[:8]}... (hits={_cache_hits})")
+        return _quality_cache[cache_key]
+
+    _cache_misses += 1
+
+    # Calculer le résultat
+    result = await analyze_question_quality(
+        question=question,
+        conversation_context=conversation_context,
+        threshold=threshold
+    )
+
+    # Éviction simple si cache plein
+    if len(_quality_cache) >= _CACHE_MAX_SIZE:
+        logger.info(f"🗑️ Cache plein ({_CACHE_MAX_SIZE}), éviction complète")
+        _quality_cache.clear()
+
+    # Stocker dans le cache
+    _quality_cache[cache_key] = result
+    logger.debug(f"💾 Cache MISS -> stored: {cache_key[:8]}... (size={len(_quality_cache)})")
+
+    return result
+
+
+def get_cache_stats() -> Dict:
+    """Retourne les statistiques du cache."""
+    total = _cache_hits + _cache_misses
+    hit_rate = (_cache_hits / total * 100) if total > 0 else 0
+    return {
+        "size": len(_quality_cache),
+        "max_size": _CACHE_MAX_SIZE,
+        "hits": _cache_hits,
+        "misses": _cache_misses,
+        "hit_rate_percent": round(hit_rate, 1)
+    }
+
+
+def clear_quality_cache() -> int:
+    """Vide le cache et retourne le nombre d'entrées supprimées."""
+    global _cache_hits, _cache_misses
+    count = len(_quality_cache)
+    _quality_cache.clear()
+    _cache_hits = 0
+    _cache_misses = 0
+    logger.info(f"🗑️ Cache vidé: {count} entrées supprimées")
+    return count
+
+
+# ============================================================================
 # Export pour tests
 # ============================================================================
 
@@ -650,9 +785,14 @@ __all__ = [
     "QuestionSuggestion",
     "QualityAnalysisResult",
     "analyze_question_quality",
+    "analyze_question_quality_cached",
     "quick_quality_check",
     "analyze_with_llm",
     "store_quality_feedback",
+    "get_cache_stats",
+    "clear_quality_cache",
+    "has_technical_term",
+    "KNOWN_TECHNICAL_TERMS",
     "QUESTION_QUALITY_ENABLED",
     "QUESTION_QUALITY_PHASE",
     "HEURISTIC_THRESHOLD",

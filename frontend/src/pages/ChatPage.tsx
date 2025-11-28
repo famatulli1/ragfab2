@@ -3,7 +3,7 @@ import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, Rota
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { Conversation, Message, Provider, User, QualityAnalysis } from '../types';
+import type { Conversation, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -14,6 +14,7 @@ import UserMenu from '../components/UserMenu';
 import ResponseTemplates from '../components/ResponseTemplates';
 import UniverseSelector from '../components/UniverseSelector';
 import QuestionSuggestions from '../components/QuestionSuggestions';
+import InteractiveSuggestionModal from '../components/InteractiveSuggestionModal';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -44,6 +45,11 @@ export default function ChatPage() {
   // Universe selection state
   const [selectedUniverseIds, setSelectedUniverseIds] = useState<string[]>([]);
   const [searchAllUniverses, setSearchAllUniverses] = useState(false);
+
+  // Interactive mode state (pre-analyze before sending)
+  const [preAnalyzeResult, setPreAnalyzeResult] = useState<PreAnalyzeResponse | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string>('');
+  const [isPreAnalyzing, setIsPreAnalyzing] = useState(false);
 
   // Charger l'utilisateur courant
   useEffect(() => {
@@ -174,18 +180,17 @@ export default function ChatPage() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!inputMessage.trim() || !currentConversation || isLoading) return;
+  // Core function to actually send the message (bypasses pre-analyze)
+  const doSendMessage = async (messageToSend: string) => {
+    if (!messageToSend.trim() || !currentConversation || isLoading) return;
 
-    const userMessage = inputMessage;
     const wasRerankingEnabled = currentConversation.reranking_enabled;
-    setInputMessage('');
     setIsLoading(true);
 
     try {
       const response = await api.sendMessage({
         conversation_id: currentConversation.id,
-        message: userMessage,
+        message: messageToSend,
         provider,
         use_tools: useTools,
         reranking_enabled: currentConversation.reranking_enabled,
@@ -228,6 +233,75 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Main send function - checks for interactive mode first
+  const sendMessage = async () => {
+    if (!inputMessage.trim() || !currentConversation || isLoading || isPreAnalyzing) return;
+
+    const messageToSend = inputMessage;
+
+    // Check if user has interactive suggestion mode enabled
+    const isInteractiveMode = currentUser?.suggestion_mode === 'interactive';
+
+    if (isInteractiveMode) {
+      // Pre-analyze the question before sending
+      setIsPreAnalyzing(true);
+      try {
+        const preAnalysis = await api.preAnalyzeQuestion({
+          message: messageToSend,
+          conversation_id: currentConversation.id,
+          universe_ids: selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined,
+        });
+
+        if (preAnalysis.needs_clarification && preAnalysis.suggestions.length > 0) {
+          // Show the interactive modal instead of sending
+          setPendingMessage(messageToSend);
+          setPreAnalyzeResult(preAnalysis);
+          // Don't clear input yet - user might cancel
+          return;
+        }
+
+        // Question is clear, proceed to send
+        setInputMessage('');
+        await doSendMessage(messageToSend);
+      } catch (error) {
+        console.error('Error in pre-analyze:', error);
+        // On error, fallback to direct send
+        setInputMessage('');
+        await doSendMessage(messageToSend);
+      } finally {
+        setIsPreAnalyzing(false);
+      }
+    } else {
+      // Not in interactive mode, send directly
+      setInputMessage('');
+      await doSendMessage(messageToSend);
+    }
+  };
+
+  // Handle using a suggestion from the interactive modal
+  const handleUseSuggestion = async (suggestion: string) => {
+    setPreAnalyzeResult(null);
+    setPendingMessage('');
+    setInputMessage('');
+    await doSendMessage(suggestion);
+  };
+
+  // Handle sending the original question anyway
+  const handleSendAnyway = async () => {
+    const messageToSend = pendingMessage;
+    setPreAnalyzeResult(null);
+    setPendingMessage('');
+    setInputMessage('');
+    await doSendMessage(messageToSend);
+  };
+
+  // Handle canceling the interactive modal
+  const handleCancelInteractive = () => {
+    setPreAnalyzeResult(null);
+    setPendingMessage('');
+    // Keep the input message so user can edit it
   };
 
   const regenerateMessage = async (messageId: string) => {
@@ -787,24 +861,40 @@ export default function ChatPage() {
         {/* Input */}
         <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800">
           <div className="max-w-3xl mx-auto flex gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Posez votre question..."
-              className="input flex-1"
-              disabled={isLoading || !currentConversation}
-            />
+            <div className="relative flex-1">
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                placeholder={isPreAnalyzing ? "Analyse en cours..." : "Posez votre question..."}
+                className="input w-full"
+                disabled={isLoading || isPreAnalyzing || !currentConversation}
+              />
+              {isPreAnalyzing && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
+            </div>
             <button
               onClick={sendMessage}
-              disabled={!inputMessage.trim() || isLoading || !currentConversation}
+              disabled={!inputMessage.trim() || isLoading || isPreAnalyzing || !currentConversation}
               className="btn-primary"
             >
               <Send size={20} />
             </button>
           </div>
+          {/* Interactive mode indicator */}
+          {currentUser?.suggestion_mode === 'interactive' && (
+            <div className="max-w-3xl mx-auto mt-2">
+              <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                Mode interactif actif - Vos questions seront analysees avant envoi
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -824,6 +914,17 @@ export default function ChatPage() {
           isFirstLogin={true}
           onPasswordChanged={handlePasswordChanged}
           onSubmit={handlePasswordSubmit}
+        />
+      )}
+
+      {/* Interactive Suggestion Modal (pre-analyze mode) */}
+      {preAnalyzeResult && (
+        <InteractiveSuggestionModal
+          preAnalysis={preAnalyzeResult}
+          onUseSuggestion={handleUseSuggestion}
+          onSendAnyway={handleSendAnyway}
+          onCancel={handleCancelInteractive}
+          isLoading={isLoading}
         />
       )}
     </div>
