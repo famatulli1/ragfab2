@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, Bot, User as UserIcon } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
@@ -196,6 +196,8 @@ export default function ChatPage() {
         reranking_enabled: currentConversation.reranking_enabled,
         universe_ids: selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined,
         search_all_universes: searchAllUniverses,
+        hybrid_search_enabled: currentConversation.hybrid_search_enabled,
+        hybrid_search_alpha: currentConversation.hybrid_search_alpha,
       });
 
       setMessages([...messages, response.user_message, response.assistant_message]);
@@ -302,6 +304,63 @@ export default function ChatPage() {
     setPreAnalyzeResult(null);
     setPendingMessage('');
     // Keep the input message so user can edit it
+  };
+
+  // Relancer la recherche avec le mode hybride opposé
+  const relaunchWithMode = async (hybridMode: boolean) => {
+    if (!currentConversation || messages.length === 0) return;
+
+    // 1. Trouver le premier message utilisateur
+    const firstUserMessage = messages.find(m => m.role === 'user');
+    if (!firstUserMessage) return;
+
+    setIsLoading(true);
+
+    try {
+      // 2. Créer nouvelle conversation avec le mode hybride configuré
+      const newConversation = await api.createConversation('Nouvelle conversation', provider, useTools);
+
+      // 3. Mettre à jour les settings hybrides de la nouvelle conversation
+      await api.updateConversation(newConversation.id, {
+        hybrid_search_enabled: hybridMode,
+        hybrid_search_alpha: 0.5, // valeur par défaut
+      });
+
+      // 4. Mettre à jour le state local
+      const updatedConversation = {
+        ...newConversation,
+        hybrid_search_enabled: hybridMode,
+        hybrid_search_alpha: 0.5,
+      };
+      setCurrentConversation(updatedConversation);
+      setConversations([updatedConversation, ...conversations]);
+      setMessages([]);
+
+      // 5. Envoyer le message original avec le nouveau mode
+      const response = await api.sendMessage({
+        conversation_id: newConversation.id,
+        message: firstUserMessage.content,
+        provider,
+        use_tools: useTools,
+        reranking_enabled: false,
+        universe_ids: selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined,
+        search_all_universes: searchAllUniverses,
+        hybrid_search_enabled: hybridMode,
+        hybrid_search_alpha: 0.5,
+      });
+
+      setMessages([response.user_message, response.assistant_message]);
+
+      // Mettre à jour la conversation dans la liste
+      setConversations(convs =>
+        convs.map(c => c.id === newConversation.id ? response.conversation : c)
+      );
+    } catch (error) {
+      console.error('Error relaunching with hybrid mode:', error);
+      alert('Erreur lors de la relance de la recherche');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const regenerateMessage = async (messageId: string) => {
@@ -559,8 +618,20 @@ export default function ChatPage() {
                   conversationId={currentConversation.id}
                   onChange={(enabled, alpha) => {
                     console.log('🔀 Hybrid search settings:', { enabled, alpha });
-                    // Les paramètres sont sauvegardés dans localStorage par le composant
-                    // Ils seront envoyés avec chaque requête de chat via l'API
+                    // Mettre à jour le state local de la conversation
+                    setCurrentConversation({
+                      ...currentConversation,
+                      hybrid_search_enabled: enabled,
+                      hybrid_search_alpha: alpha,
+                    });
+                    // Mettre à jour dans la liste des conversations
+                    setConversations(convs =>
+                      convs.map(c =>
+                        c.id === currentConversation.id
+                          ? { ...c, hybrid_search_enabled: enabled, hybrid_search_alpha: alpha }
+                          : c
+                      )
+                    );
                   }}
                 />
               </div>
@@ -809,6 +880,31 @@ export default function ChatPage() {
                         >
                           <ThumbsDown size={16} />
                         </button>
+                        {/* Icône relance en mode hybride (si mode actuel = normal) */}
+                        {!currentConversation?.hybrid_search_enabled && (
+                          <button
+                            onClick={() => relaunchWithMode(true)}
+                            className="btn-ghost p-1"
+                            title="Relancer en recherche hybride"
+                            disabled={isLoading}
+                          >
+                            <div className="relative">
+                              <Search size={16} />
+                              <Zap size={10} className="absolute -bottom-1 -right-1 text-yellow-500" />
+                            </div>
+                          </button>
+                        )}
+                        {/* Icône relance en mode normal (si mode actuel = hybride) */}
+                        {currentConversation?.hybrid_search_enabled && (
+                          <button
+                            onClick={() => relaunchWithMode(false)}
+                            className="btn-ghost p-1"
+                            title="Relancer en recherche normale"
+                            disabled={isLoading}
+                          >
+                            <Search size={16} />
+                          </button>
+                        )}
                       </div>
                     )}
 

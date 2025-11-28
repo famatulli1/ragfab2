@@ -213,6 +213,8 @@ class ChatRequest(BaseModel):
     reranking_enabled: Optional[bool] = None  # Override conversation reranking setting
     universe_ids: Optional[List[UUID]] = None  # Filtrer par univers spécifiques
     search_all_universes: bool = False  # Chercher dans tous les univers autorisés
+    hybrid_search_enabled: Optional[bool] = None  # Override hybrid search setting
+    hybrid_search_alpha: Optional[float] = None  # Override hybrid search alpha (0=keywords, 1=semantic)
 
 
 class ChatResponse(BaseModel):

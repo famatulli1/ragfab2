@@ -848,6 +848,8 @@ async def send_message(
     provider = chat_request.provider or conversation["provider"]
     use_tools = chat_request.use_tools if chat_request.use_tools is not None else conversation["use_tools"]
     reranking_enabled = chat_request.reranking_enabled if chat_request.reranking_enabled is not None else conversation.get("reranking_enabled")
+    hybrid_search_enabled = chat_request.hybrid_search_enabled if chat_request.hybrid_search_enabled is not None else conversation.get("hybrid_search_enabled")
+    hybrid_search_alpha = chat_request.hybrid_search_alpha if chat_request.hybrid_search_alpha is not None else conversation.get("hybrid_search_alpha")
 
     # Déterminer les univers à utiliser pour le filtrage RAG
     universe_ids = None
@@ -1090,7 +1092,9 @@ async def send_message(
             use_tools=use_tools,
             conversation_id=chat_request.conversation_id,
             reranking_enabled=reranking_enabled,
-            universe_ids=universe_ids
+            universe_ids=universe_ids,
+            hybrid_search_enabled=hybrid_search_enabled,
+            hybrid_search_alpha=hybrid_search_alpha
         )
     except Exception as e:
         logger.error(f"Erreur RAG agent: {e}", exc_info=True)
@@ -2270,7 +2274,9 @@ async def execute_rag_agent(
     use_tools: bool,
     conversation_id: Optional[UUID] = None,
     reranking_enabled: Optional[bool] = None,
-    universe_ids: Optional[List[UUID]] = None
+    universe_ids: Optional[List[UUID]] = None,
+    hybrid_search_enabled: Optional[bool] = None,
+    hybrid_search_alpha: Optional[float] = None
 ) -> dict:
     """
     Exécute le RAG agent avec contexte conversationnel intelligent.
@@ -2304,8 +2310,8 @@ async def execute_rag_agent(
         _current_request_sources = []
         _current_conversation_id = conversation_id
         _current_reranking_enabled = reranking_enabled
-        _current_hybrid_search_enabled = None  # Sera chargé depuis conversation.hybrid_search_enabled dans search_knowledge_base_tool()
-        _current_hybrid_search_alpha = None  # Sera chargé depuis conversation.hybrid_search_alpha dans search_knowledge_base_tool()
+        _current_hybrid_search_enabled = hybrid_search_enabled  # Si None, sera chargé depuis conversation dans search_knowledge_base_tool()
+        _current_hybrid_search_alpha = hybrid_search_alpha  # Si None, sera chargé depuis conversation dans search_knowledge_base_tool()
         _current_universe_ids = universe_ids  # Filtrage par univers
         sources = []
 

@@ -167,6 +167,8 @@ export interface ChatRequest {
   reranking_enabled?: boolean | null;
   universe_ids?: string[];  // Filtrer par univers spécifiques
   search_all_universes?: boolean;  // Chercher dans tous les univers autorisés
+  hybrid_search_enabled?: boolean;  // Activer la recherche hybride
+  hybrid_search_alpha?: number;  // Alpha pour la recherche hybride (0=keywords, 1=semantic)
 }
 
 export interface ChatResponse {
