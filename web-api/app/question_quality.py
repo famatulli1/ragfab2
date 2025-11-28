@@ -125,6 +125,8 @@ RED_FLAG_PATTERNS = [
     (r"^c['']?est\s+quoi\s+\w+\s*\?*$", "cest_quoi_vague", 0.4, True),
     # Trop vague
     (r"^(ca|ça)\s+(marche|fonctionne|se passe)\s*(comment)?\s*\?*$", "ca_vague", 0.5, False),
+    # "comment ca marche X" - question vague avec un seul terme (ex: "comment ca marche sillage?")
+    (r"^comment\s+(ça|ca)\s+(marche|fonctionne)\s+\w+\s*\?*$", "vague_how_works", 0.35, False),
     # Début par conjonction (suite implicite)
     (r"^(et|ou|mais|donc)\s+", "starts_conjunction", 0.3, False),
     # Pronoms seuls
@@ -269,7 +271,22 @@ def compute_specificity_score(question: str) -> float:
     """
     Score basé sur la spécificité de la question.
     Vérifie présence d'entités nommées, IDs, dates, etc.
+
+    Note: Les patterns génériques ("comment ca marche X", "c'est quoi X")
+    ne méritent pas de bonus de spécificité même s'ils contiennent des noms propres.
     """
+    # Patterns génériques qui ne méritent pas de bonus de spécificité
+    generic_patterns = [
+        r"^comment\s+(ça|ca)\s+(marche|fonctionne)",  # "comment ca marche X"
+        r"^c['']?est\s+quoi\s+",                       # "c'est quoi X"
+        r"^qu['']?est[- ]ce\s+que\s+c['']?est",        # "qu'est-ce que c'est X"
+    ]
+
+    question_lower = question.lower()
+    for pattern in generic_patterns:
+        if re.match(pattern, question_lower):
+            return 0.3  # Score bas, pas de bonus pour ces patterns
+
     score = 0.5
 
     # Présence de nombres/IDs

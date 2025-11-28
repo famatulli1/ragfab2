@@ -646,6 +646,30 @@ Maximum 50 caractères."""
 
 from app.models import PreAnalyzeRequest, PreAnalyzeResponse, QuestionSuggestion
 
+# Patterns qui forcent TOUJOURS le slow path (modal interactif)
+# Ces questions sont structurellement vagues même si elles contiennent des termes spécifiques
+FORCE_SLOW_PATH_PATTERNS = [
+    r"^comment\s+(ça|ca)\s+(marche|fonctionne)",  # "comment ca marche X"
+    r"^c['']?est\s+quoi\s+\w+",                    # "c'est quoi X"
+    r"^\w{2,}\s*\?+$",                              # Un seul mot + ? ("sillage?")
+]
+
+
+def should_force_slow_path(question: str) -> bool:
+    """
+    Vérifie si la question doit forcer le slow path (modal interactif).
+
+    Certains patterns de questions sont structurellement vagues et doivent
+    toujours déclencher le modal de suggestions, même si le score heuristique
+    est au-dessus du seuil.
+    """
+    import re
+    question_lower = question.lower().strip()
+    for pattern in FORCE_SLOW_PATH_PATTERNS:
+        if re.match(pattern, question_lower):
+            return True
+    return False
+
 @app.post("/api/chat/pre-analyze", response_model=PreAnalyzeResponse)
 @limiter.limit("30/minute")  # Plus permissif car c'est une pré-analyse
 async def pre_analyze_question(
@@ -700,14 +724,17 @@ async def pre_analyze_question(
     # Détecter l'intention
     intent_type, preserve_verb, intent_label = detect_intent(question)
 
+    # Vérifier si on doit forcer le slow path pour patterns génériques
+    force_slow = should_force_slow_path(question)
+
     logger.info(
         f"📊 Pre-analyze: score={quality_result.heuristic_score:.2f}, "
         f"classification={quality_result.classification.value}, "
-        f"intent={intent_type}"
+        f"intent={intent_type}, force_slow={force_slow}"
     )
 
-    # Si la question est claire (fast path), pas besoin de suggestions
-    if quality_result.classification == QuestionClassification.CLEAR:
+    # Si la question est claire (fast path) ET pas de force slow, pas besoin de suggestions
+    if quality_result.classification == QuestionClassification.CLEAR and not force_slow:
         return PreAnalyzeResponse(
             needs_clarification=False,
             classification="clear",
@@ -717,6 +744,10 @@ async def pre_analyze_question(
             detected_intent=intent_label,
             extracted_terms=[]
         )
+
+    # Log si on force le slow path malgré un score "clear"
+    if force_slow and quality_result.classification == QuestionClassification.CLEAR:
+        logger.info(f"🔄 Force slow path pour pattern générique: '{question[:30]}...'")
 
     # Phase 2: Probe search + extraction vocabulaire (si reformulation activée)
     suggestions = []
