@@ -1135,7 +1135,8 @@ async def send_message(
         try:
             from .search_informed_reformulation import (
                 extract_vocabulary_from_search_results,
-                generate_term_based_suggestions
+                generate_term_based_suggestions,
+                generate_llm_suggestions  # Suggestions LLM haute qualité
             )
             from .question_quality import QuestionSuggestion
 
@@ -1155,10 +1156,35 @@ async def send_message(
             )
 
             if vocabulary.terms:
-                new_suggestions = generate_term_based_suggestions(
-                    chat_request.message,
-                    vocabulary
-                )
+                new_suggestions = []
+
+                # Utiliser LLM pour des suggestions haute qualité (comme interactive)
+                try:
+                    needs_reform, llm_suggestions, reasoning = await generate_llm_suggestions(
+                        question=chat_request.message,
+                        vocabulary=vocabulary,
+                        timeout=3.0  # Timeout court car post-RAG
+                    )
+
+                    if llm_suggestions:
+                        new_suggestions = llm_suggestions
+                        analyzed_by = "llm_with_context"
+                        logger.info(f"🤖 Post-RAG LLM: {len(llm_suggestions)} suggestions générées")
+                    else:
+                        # Fallback sur term-based si LLM ne génère rien
+                        new_suggestions = generate_term_based_suggestions(
+                            chat_request.message,
+                            vocabulary
+                        )
+                        analyzed_by = "post_rag_enrichment"
+
+                except Exception as llm_error:
+                    logger.warning(f"⚠️ Post-RAG LLM timeout, fallback sur termes: {llm_error}")
+                    new_suggestions = generate_term_based_suggestions(
+                        chat_request.message,
+                        vocabulary
+                    )
+                    analyzed_by = "post_rag_enrichment"
 
                 if new_suggestions:
                     quality_analysis_result.suggestions = [
@@ -1170,11 +1196,11 @@ async def send_message(
                         ) for s in new_suggestions
                     ]
                     quality_analysis_result.suggested_terms = vocabulary.terms
-                    quality_analysis_result.analyzed_by = "post_rag_enrichment"
+                    quality_analysis_result.analyzed_by = analyzed_by
 
                     logger.info(
                         f"🔄 Post-RAG Enrichment: {len(new_suggestions)} suggestions "
-                        f"depuis {len(rag_sources)} sources, termes: {vocabulary.terms[:3]}"
+                        f"via {analyzed_by}, termes: {vocabulary.terms[:3]}"
                     )
 
         except Exception as e:
