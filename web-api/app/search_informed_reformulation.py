@@ -126,26 +126,37 @@ TITLE_EXCLUSION_PATTERNS = [
     r'.*_V\d+.*',  # Patterns de version (_V25, _V1.2)
     r'.*\.\w+_V\d+.*',  # Patterns comme "Webmail.Administration_V25"
     r'^v?\d+(\.\d+)*$',  # Numéros de version seuls
+    r'.*V\d+\.?\d*$',  # Se termine par version (inistration_V25, Admin_V2.1)
+    r'^[a-z]*tion_V\d+',  # Mots cassés finissant par "tion_V25" (inistration_V25)
+    r'^\d+$',  # Nombres seuls
 ]
 
-# Mots génériques à exclure des titres (métadonnées non pertinentes)
+# Mots génériques à exclure (métadonnées et termes non pertinents pour suggestions)
 GENERIC_TITLE_WORDS = {
+    # Métadonnées de documents
     'document', 'documents', 'fichier', 'fichiers', 'file', 'files',
     'guide', 'manuel', 'manual', 'procedure', 'procédure', 'process',
     'version', 'administration', 'configuration', 'installation',
-    'webmail', 'outlook', 'office', 'microsoft', 'google',
+    # Noms de produits/services génériques
+    'webmail', 'outlook', 'office', 'microsoft', 'google', 'gmail',
+    # Mots trop génériques pour être utiles
+    'cas', 'type', 'mode', 'liste', 'page', 'menu', 'option', 'onglet',
+    'bouton', 'clic', 'cliquez', 'sélectionner', 'choisir',
+    'suivant', 'précédent', 'exemple', 'note', 'remarque', 'attention',
+    'voir', 'figure', 'image', 'tableau', 'section', 'partie', 'chapitre',
 }
 
 
-def is_valid_title_term(term: str) -> bool:
+def is_valid_vocabulary_term(term: str) -> bool:
     """
-    Vérifie si un terme extrait d'un titre de document est pertinent.
+    Vérifie si un terme extrait est pertinent pour les suggestions.
 
     Exclut:
-    - Mots génériques (Document, Guide, Manuel, etc.)
+    - Mots génériques (Document, Guide, Manuel, Cas, etc.)
     - Noms de fichiers avec extensions
-    - Patterns de version (_V25, V1.2, etc.)
+    - Patterns de version (_V25, V1.2, inistration_V25, etc.)
     - Termes contenant des points (sauf acronymes)
+    - Mots trop génériques pour être utiles dans une suggestion
 
     Args:
         term: Le terme à valider
@@ -381,7 +392,7 @@ def extract_vocabulary_from_search_results(
         title_words = [w for w in title.split() if len(w) > 3 and w.lower() not in FRENCH_STOPWORDS]
         for tw in title_words:
             # Filtrer les termes non pertinents (noms de fichiers, mots génériques)
-            if tw.lower() not in question_words and is_valid_title_term(tw):
+            if tw.lower() not in question_words and is_valid_vocabulary_term(tw):
                 extracted_terms.append(tw)
                 if tw not in term_sources:
                     term_sources[tw] = title
@@ -406,12 +417,16 @@ def extract_vocabulary_from_search_results(
     term_counts = Counter(t.lower() for t in extracted_terms)
 
     # Garder les termes qui apparaissent au moins 2 fois (ou 1 fois si capitalisé/acronyme)
+    # ET qui passent le filtre de validité (pas de métadonnées/noms de fichiers)
     ranked_terms = []
     seen = set()
-    for term, count in term_counts.most_common(15):
+    for term, count in term_counts.most_common(20):  # Plus de candidats pour compenser filtrage
         if term not in seen:
             # Retrouver la forme originale (avec casse)
             original_form = next((t for t in extracted_terms if t.lower() == term), term)
+            # Filtrer les termes non pertinents (métadonnées, noms de fichiers, mots génériques)
+            if not is_valid_vocabulary_term(original_form):
+                continue
             if count >= 2 or (original_form.isupper() and len(original_form) <= 6):
                 ranked_terms.append(original_form)
                 seen.add(term)
