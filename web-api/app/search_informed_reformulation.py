@@ -120,6 +120,57 @@ FRENCH_STOPWORDS = {
     "comment", "pourquoi", "quand", "où", "quoi", "quel", "quelle",
 }
 
+# Patterns à exclure des titres de documents (noms de fichiers, versions, mots génériques)
+TITLE_EXCLUSION_PATTERNS = [
+    r'.*\.(pdf|docx?|xlsx?|pptx?|txt|md|html?)$',  # Extensions de fichiers
+    r'.*_V\d+.*',  # Patterns de version (_V25, _V1.2)
+    r'.*\.\w+_V\d+.*',  # Patterns comme "Webmail.Administration_V25"
+    r'^v?\d+(\.\d+)*$',  # Numéros de version seuls
+]
+
+# Mots génériques à exclure des titres (métadonnées non pertinentes)
+GENERIC_TITLE_WORDS = {
+    'document', 'documents', 'fichier', 'fichiers', 'file', 'files',
+    'guide', 'manuel', 'manual', 'procedure', 'procédure', 'process',
+    'version', 'administration', 'configuration', 'installation',
+    'webmail', 'outlook', 'office', 'microsoft', 'google',
+}
+
+
+def is_valid_title_term(term: str) -> bool:
+    """
+    Vérifie si un terme extrait d'un titre de document est pertinent.
+
+    Exclut:
+    - Mots génériques (Document, Guide, Manuel, etc.)
+    - Noms de fichiers avec extensions
+    - Patterns de version (_V25, V1.2, etc.)
+    - Termes contenant des points (sauf acronymes)
+
+    Args:
+        term: Le terme à valider
+
+    Returns:
+        True si le terme est pertinent pour les suggestions
+    """
+    term_lower = term.lower()
+
+    # Exclure mots génériques
+    if term_lower in GENERIC_TITLE_WORDS:
+        return False
+
+    # Exclure patterns de fichiers/versions
+    for pattern in TITLE_EXCLUSION_PATTERNS:
+        if re.match(pattern, term, re.IGNORECASE):
+            return False
+
+    # Exclure si contient un point (probablement nom de fichier)
+    # Exception: garder les acronymes comme "B.A.L."
+    if '.' in term and not term.isupper():
+        return False
+
+    return True
+
 
 def compute_structural_score(question: str) -> float:
     """
@@ -326,10 +377,11 @@ def extract_vocabulary_from_search_results(
                 if acro not in term_sources:
                     term_sources[acro] = title
 
-        # 3. Termes des titres (souvent les plus pertinents)
+        # 3. Termes des titres (filtrés pour exclure métadonnées)
         title_words = [w for w in title.split() if len(w) > 3 and w.lower() not in FRENCH_STOPWORDS]
         for tw in title_words:
-            if tw.lower() not in question_words:
+            # Filtrer les termes non pertinents (noms de fichiers, mots génériques)
+            if tw.lower() not in question_words and is_valid_title_term(tw):
                 extracted_terms.append(tw)
                 if tw not in term_sources:
                     term_sources[tw] = title
