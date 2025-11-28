@@ -1125,51 +1125,55 @@ async def send_message(
     # ============================================================================
     # 🔄 ENRICHISSEMENT POST-RAG: Suggestions de suivi basées sur le contenu
     # ============================================================================
-    if (quality_analysis_result
-        and quality_analysis_result.classification != QuestionClassification.CLEAR
-        and assistant_response.get("sources")
-        and quality_analysis_result.analyzed_by == "heuristics_fallback"):
+    try:
+        if (quality_analysis_result
+            and quality_analysis_result.classification != QuestionClassification.CLEAR
+            and assistant_response.get("sources")
+            and quality_analysis_result.analyzed_by == "heuristics_fallback"):
 
-        rag_sources = assistant_response["sources"]
+            rag_sources = assistant_response["sources"]
 
-        try:
-            from .search_informed_reformulation import generate_followup_suggestions
-            from .question_quality import QuestionSuggestion
+            try:
+                from .search_informed_reformulation import generate_followup_suggestions
+                from .question_quality import QuestionSuggestion
 
-            # Extraire le contenu des sources (pas les métadonnées)
-            source_contents = [
-                src.get("content", "")
-                for src in rag_sources[:5]
-                if src.get("content")
-            ]
+                # Extraire le contenu des sources (pas les métadonnées)
+                source_contents = [
+                    src.get("content", "")
+                    for src in rag_sources[:5]
+                    if src.get("content")
+                ]
 
-            if source_contents:
-                # Générer des suggestions basées sur le CONTENU des sources
-                # (pas sur des termes extraits qui peuvent être pollués)
-                followup_suggestions = await generate_followup_suggestions(
-                    question=chat_request.message,
-                    source_contents=source_contents,
-                    timeout=3.0
-                )
-
-                if followup_suggestions:
-                    quality_analysis_result.suggestions = [
-                        QuestionSuggestion(
-                            text=s.text,
-                            type=s.type,
-                            reason=s.reason
-                        ) for s in followup_suggestions
-                    ]
-                    quality_analysis_result.suggested_terms = []  # Plus de termes extraits
-                    quality_analysis_result.analyzed_by = "followup_from_content"
-
-                    logger.info(
-                        f"🔄 Post-RAG Followup: {len(followup_suggestions)} suggestions "
-                        f"générées à partir du contenu des sources"
+                if source_contents:
+                    # Générer des suggestions basées sur le CONTENU des sources
+                    # (pas sur des termes extraits qui peuvent être pollués)
+                    followup_suggestions = await generate_followup_suggestions(
+                        question=chat_request.message,
+                        source_contents=source_contents,
+                        timeout=3.0
                     )
 
-        except Exception as e:
-            logger.warning(f"⚠️ Erreur enrichissement post-RAG: {e}")
+                    if followup_suggestions:
+                        quality_analysis_result.suggestions = [
+                            QuestionSuggestion(
+                                text=s.text,
+                                type=s.type,
+                                reason=s.reason
+                            ) for s in followup_suggestions
+                        ]
+                        quality_analysis_result.suggested_terms = []  # Plus de termes extraits
+                        quality_analysis_result.analyzed_by = "followup_from_content"
+
+                        logger.info(
+                            f"🔄 Post-RAG Followup: {len(followup_suggestions)} suggestions "
+                            f"générées à partir du contenu des sources"
+                        )
+
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur enrichissement post-RAG: {e}")
+
+    except Exception as outer_e:
+        logger.warning(f"⚠️ Erreur section post-RAG: {outer_e}")
 
     # 🆕 DÉTECTER TOPIC SHIFT POUR SUGGESTION (optionnel, non-bloquant)
     topic_shift_suggestion = None
