@@ -1123,7 +1123,7 @@ async def send_message(
         )
 
     # ============================================================================
-    # 🔄 ENRICHISSEMENT POST-RAG: Utiliser les sources pour améliorer suggestions
+    # 🔄 ENRICHISSEMENT POST-RAG: Suggestions de suivi basées sur le contenu
     # ============================================================================
     if (quality_analysis_result
         and quality_analysis_result.classification != QuestionClassification.CLEAR
@@ -1133,74 +1133,39 @@ async def send_message(
         rag_sources = assistant_response["sources"]
 
         try:
-            from .search_informed_reformulation import (
-                extract_vocabulary_from_search_results,
-                generate_term_based_suggestions,
-                generate_llm_suggestions  # Suggestions LLM haute qualité
-            )
+            from .search_informed_reformulation import generate_followup_suggestions
             from .question_quality import QuestionSuggestion
 
-            # Convertir les sources RAG au format attendu
-            search_results_format = [
-                {
-                    "content": src.get("content", ""),
-                    "document_title": src.get("document_title", src.get("title", "")),
-                }
+            # Extraire le contenu des sources (pas les métadonnées)
+            source_contents = [
+                src.get("content", "")
                 for src in rag_sources[:5]
+                if src.get("content")
             ]
 
-            # Extraire vocabulaire des sources RAG
-            vocabulary = extract_vocabulary_from_search_results(
-                search_results_format,
-                chat_request.message
-            )
+            if source_contents:
+                # Générer des suggestions basées sur le CONTENU des sources
+                # (pas sur des termes extraits qui peuvent être pollués)
+                followup_suggestions = await generate_followup_suggestions(
+                    question=chat_request.message,
+                    source_contents=source_contents,
+                    timeout=3.0
+                )
 
-            if vocabulary.terms:
-                new_suggestions = []
-
-                # Utiliser LLM pour des suggestions haute qualité (comme interactive)
-                try:
-                    needs_reform, llm_suggestions, reasoning = await generate_llm_suggestions(
-                        question=chat_request.message,
-                        vocabulary=vocabulary,
-                        timeout=3.0  # Timeout court car post-RAG
-                    )
-
-                    if llm_suggestions:
-                        new_suggestions = llm_suggestions
-                        analyzed_by = "llm_with_context"
-                        logger.info(f"🤖 Post-RAG LLM: {len(llm_suggestions)} suggestions générées")
-                    else:
-                        # Fallback sur term-based si LLM ne génère rien
-                        new_suggestions = generate_term_based_suggestions(
-                            chat_request.message,
-                            vocabulary
-                        )
-                        analyzed_by = "post_rag_enrichment"
-
-                except Exception as llm_error:
-                    logger.warning(f"⚠️ Post-RAG LLM timeout, fallback sur termes: {llm_error}")
-                    new_suggestions = generate_term_based_suggestions(
-                        chat_request.message,
-                        vocabulary
-                    )
-                    analyzed_by = "post_rag_enrichment"
-
-                if new_suggestions:
+                if followup_suggestions:
                     quality_analysis_result.suggestions = [
                         QuestionSuggestion(
                             text=s.text,
                             type=s.type,
-                            reason=s.reason if s.source_document is None
-                                   else f"{s.reason} (source: {s.source_document})"
-                        ) for s in new_suggestions
+                            reason=s.reason
+                        ) for s in followup_suggestions
                     ]
-                    quality_analysis_result.suggested_terms = vocabulary.terms
-                    quality_analysis_result.analyzed_by = analyzed_by
+                    quality_analysis_result.suggested_terms = []  # Plus de termes extraits
+                    quality_analysis_result.analyzed_by = "followup_from_content"
 
                     logger.info(
-                        f"🔄 Post-RAG Enrichment: {len(new_suggestions)} suggestions "
-                        f"via {analyzed_by}, termes: {vocabulary.terms[:3]}"
+                        f"🔄 Post-RAG Followup: {len(followup_suggestions)} suggestions "
+                        f"générées à partir du contenu des sources"
                     )
 
         except Exception as e:

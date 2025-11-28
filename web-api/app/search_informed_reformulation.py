@@ -487,6 +487,136 @@ NE REFORMULE PAS SI:
 - L'intention ne peut pas être déterminée"""
 
 
+# ============================================================================
+# Prompt et fonction pour suggestions de suivi Post-RAG
+# ============================================================================
+
+POST_RAG_FOLLOWUP_PROMPT = """Tu suggères des questions de suivi pertinentes après une réponse RAG.
+
+QUESTION POSÉE PAR L'UTILISATEUR: "{question}"
+
+CONTENU DES DOCUMENTS SOURCES UTILISÉS POUR LA RÉPONSE:
+{source_content}
+
+OBJECTIF: Génère 2-3 questions de suivi que l'utilisateur pourrait poser pour:
+1. Approfondir le sujet principal de sa question
+2. Explorer des aspects connexes mentionnés dans les documents
+3. Clarifier des points techniques spécifiques
+
+RÈGLES CRITIQUES:
+1. Les questions doivent être DIRECTEMENT liées au SUJET de la question originale
+2. Base-toi sur les CONCEPTS et INFORMATIONS présents dans le contenu des documents
+3. IGNORE COMPLÈTEMENT les métadonnées (noms de fichiers, versions, "Document", "Guide", etc.)
+4. MAX 15 mots par suggestion
+5. Formule des questions naturelles en français, comme si un utilisateur les posait vraiment
+6. Ne répète pas la question originale sous une autre forme
+
+RÉPONDS UNIQUEMENT EN JSON VALIDE:
+{{
+  "suggestions": [
+    {{"text": "Question de suivi pertinente", "reason": "Approfondit l'aspect X mentionné dans les sources"}}
+  ]
+}}"""
+
+
+async def generate_followup_suggestions(
+    question: str,
+    source_contents: List[str],
+    timeout: float = 3.0
+) -> List[ReformulationSuggestion]:
+    """
+    Génère des suggestions de suivi basées sur le contenu des sources RAG.
+
+    Cette fonction est utilisée dans le mode "soft" après qu'une réponse a été
+    générée, pour proposer des questions de suivi pertinentes basées sur le
+    contenu réel des documents sources (pas sur des termes extraits).
+
+    Args:
+        question: Question originale de l'utilisateur
+        source_contents: Liste des contenus textuels des sources récupérées
+        timeout: Timeout en secondes (défaut: 3s car post-RAG)
+
+    Returns:
+        Liste de ReformulationSuggestion pour les questions de suivi
+    """
+    if not source_contents:
+        logger.debug("Pas de contenu source pour générer des suggestions de suivi")
+        return []
+
+    try:
+        from app.utils.generic_llm_provider import get_generic_llm_model
+
+        model = get_generic_llm_model()
+        api_url = model.api_url.rstrip('/')
+
+        # Concaténer les contenus (limiter pour le prompt)
+        combined_content = "\n---\n".join(
+            content[:600] for content in source_contents[:4] if content
+        )
+
+        if not combined_content.strip():
+            logger.debug("Contenu source vide après filtrage")
+            return []
+
+        prompt = POST_RAG_FOLLOWUP_PROMPT.format(
+            question=question,
+            source_content=combined_content
+        )
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{api_url}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {model.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model.model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,  # Un peu plus de créativité pour les suggestions
+                    "max_tokens": 400
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        content = result["choices"][0]["message"]["content"].strip()
+
+        # Parser JSON (gérer les code blocks markdown)
+        if content.startswith("```"):
+            content = re.sub(r'^```json?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+
+        analysis = json.loads(content)
+
+        suggestions = []
+        for s in analysis.get("suggestions", [])[:3]:
+            text = s.get("text", "").strip()
+            if text:
+                suggestions.append(ReformulationSuggestion(
+                    text=text,
+                    type="followup",
+                    reason=s.get("reason", "Question de suivi suggérée"),
+                    source_document=None
+                ))
+
+        logger.info(f"🔄 Post-RAG followup: {len(suggestions)} suggestions générées")
+
+        return suggestions
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Erreur parsing JSON followup: {e}")
+        return []
+
+    except httpx.TimeoutException:
+        logger.warning(f"Timeout followup suggestions ({timeout}s)")
+        return []
+
+    except Exception as e:
+        logger.error(f"Erreur followup suggestions: {e}", exc_info=True)
+        return []
+
+
 async def generate_llm_suggestions(
     question: str,
     vocabulary: ExtractedVocabulary,
