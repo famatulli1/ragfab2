@@ -470,6 +470,131 @@ async def create_conversation(
         return Conversation(**dict(row))
 
 
+# ============================================================================
+# Static Conversation Routes (MUST be before {conversation_id} dynamic routes)
+# ============================================================================
+
+@app.get("/api/conversations/stats", response_model=ConversationStats)
+async def get_conversation_stats(current_user: dict = Depends(get_current_user)):
+    """Récupère les statistiques de conversations de l'utilisateur"""
+    try:
+        async with database.db_pool.acquire() as conn:
+            # Try the function first
+            try:
+                row = await conn.fetchrow(
+                    "SELECT * FROM get_user_conversation_stats($1)",
+                    current_user['id']
+                )
+            except Exception as func_error:
+                logger.warning(f"Stats function failed, using fallback query: {func_error}")
+                # Fallback: direct query if function doesn't work
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE NOT archived)::INTEGER as active_count,
+                        COUNT(*) FILTER (WHERE archived)::INTEGER as archived_count,
+                        COUNT(*)::INTEGER as total_count,
+                        CASE
+                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 50 THEN 'exceeded'
+                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 40 THEN 'approaching'
+                            ELSE 'none'
+                        END as warning_level,
+                        MIN(updated_at) FILTER (WHERE NOT archived) as oldest_active_date
+                    FROM conversations
+                    WHERE user_id = $1
+                    """,
+                    current_user['id']
+                )
+
+            if not row:
+                # No data - return defaults
+                logger.info(f"No stats found for user {current_user['id']}, returning defaults")
+                return ConversationStats(
+                    active_count=0,
+                    archived_count=0,
+                    total_count=0,
+                    warning_level='none',
+                    oldest_active_date=None
+                )
+
+            return ConversationStats(
+                active_count=row['active_count'] or 0,
+                archived_count=row['archived_count'] or 0,
+                total_count=row['total_count'] or 0,
+                warning_level=row['warning_level'] or 'none',
+                oldest_active_date=row['oldest_active_date']
+            )
+    except Exception as e:
+        logger.error(f"Error getting conversation stats: {e}")
+        # Return safe defaults on any error
+        return ConversationStats(
+            active_count=0,
+            archived_count=0,
+            total_count=0,
+            warning_level='none',
+            oldest_active_date=None
+        )
+
+
+@app.get("/api/conversations/search", response_model=List[ConversationSearchResult])
+async def search_conversations(
+    q: str,
+    universe_id: Optional[UUID] = None,
+    include_archived: bool = False,
+    search_messages: bool = True,
+    limit: int = 20,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recherche full-text dans les conversations (titres et messages).
+
+    - q: Terme de recherche
+    - universe_id: Filtrer par univers
+    - include_archived: Inclure les conversations archivées
+    - search_messages: Rechercher aussi dans le contenu des messages
+    - limit/offset: Pagination
+    """
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+
+    async with database.db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM search_conversations($1, $2, $3, $4, $5, $6, $7)
+            """,
+            current_user['id'],
+            q,
+            universe_id,
+            include_archived,
+            search_messages,
+            limit,
+            offset
+        )
+
+        results = []
+        for row in rows:
+            results.append(ConversationSearchResult(
+                conversation_id=row['conversation_id'],
+                title=row['title'],
+                universe_id=row['universe_id'],
+                universe_name=row['universe_name'],
+                universe_color=row['universe_color'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                message_count=row['message_count'],
+                archived=row['archived'],
+                match_type=row['match_type'],
+                rank=row['rank']
+            ))
+
+        return results
+
+
+# ============================================================================
+# Dynamic Conversation Routes (with {conversation_id} parameter)
+# ============================================================================
+
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(
     conversation_id: UUID,
@@ -688,68 +813,6 @@ async def update_conversation_preferences(
         return ConversationPreferencesResponse(**dict(row))
 
 
-@app.get("/api/conversations/stats", response_model=ConversationStats)
-async def get_conversation_stats(current_user: dict = Depends(get_current_user)):
-    """Récupère les statistiques de conversations de l'utilisateur"""
-    try:
-        async with database.db_pool.acquire() as conn:
-            # Try the function first
-            try:
-                row = await conn.fetchrow(
-                    "SELECT * FROM get_user_conversation_stats($1)",
-                    current_user['id']
-                )
-            except Exception as func_error:
-                logger.warning(f"Stats function failed, using fallback query: {func_error}")
-                # Fallback: direct query if function doesn't work
-                row = await conn.fetchrow(
-                    """
-                    SELECT
-                        COUNT(*) FILTER (WHERE NOT archived)::INTEGER as active_count,
-                        COUNT(*) FILTER (WHERE archived)::INTEGER as archived_count,
-                        COUNT(*)::INTEGER as total_count,
-                        CASE
-                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 50 THEN 'exceeded'
-                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 40 THEN 'approaching'
-                            ELSE 'none'
-                        END as warning_level,
-                        MIN(updated_at) FILTER (WHERE NOT archived) as oldest_active_date
-                    FROM conversations
-                    WHERE user_id = $1
-                    """,
-                    current_user['id']
-                )
-
-            if not row:
-                # No data - return defaults
-                logger.info(f"No stats found for user {current_user['id']}, returning defaults")
-                return ConversationStats(
-                    active_count=0,
-                    archived_count=0,
-                    total_count=0,
-                    warning_level='none',
-                    oldest_active_date=None
-                )
-
-            return ConversationStats(
-                active_count=row['active_count'] or 0,
-                archived_count=row['archived_count'] or 0,
-                total_count=row['total_count'] or 0,
-                warning_level=row['warning_level'] or 'none',
-                oldest_active_date=row['oldest_active_date']
-            )
-    except Exception as e:
-        logger.error(f"Error getting conversation stats: {e}")
-        # Return safe defaults on any error
-        return ConversationStats(
-            active_count=0,
-            archived_count=0,
-            total_count=0,
-            warning_level='none',
-            oldest_active_date=None
-        )
-
-
 @app.post("/api/conversations/{conversation_id}/archive", response_model=Conversation)
 async def archive_conversation(
     conversation_id: UUID,
@@ -890,61 +953,6 @@ async def bulk_delete_conversations(
 
         logger.info(f"Bulk delete: {count} conversations deleted by user {current_user['username']}")
         return BulkActionResponse(success_count=count)
-
-
-@app.get("/api/conversations/search", response_model=List[ConversationSearchResult])
-async def search_conversations(
-    q: str,
-    universe_id: Optional[UUID] = None,
-    include_archived: bool = False,
-    search_messages: bool = True,
-    limit: int = 20,
-    offset: int = 0,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Recherche full-text dans les conversations (titres et messages).
-
-    - q: Terme de recherche
-    - universe_id: Filtrer par univers
-    - include_archived: Inclure les conversations archivées
-    - search_messages: Rechercher aussi dans le contenu des messages
-    - limit/offset: Pagination
-    """
-    if len(q.strip()) < 2:
-        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
-
-    async with database.db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT * FROM search_conversations($1, $2, $3, $4, $5, $6, $7)
-            """,
-            current_user['id'],
-            q,
-            universe_id,
-            include_archived,
-            search_messages,
-            limit,
-            offset
-        )
-
-        results = []
-        for row in rows:
-            results.append(ConversationSearchResult(
-                conversation_id=row['conversation_id'],
-                title=row['title'],
-                universe_id=row['universe_id'],
-                universe_name=row['universe_name'],
-                universe_color=row['universe_color'],
-                created_at=row['created_at'],
-                updated_at=row['updated_at'],
-                message_count=row['message_count'],
-                archived=row['archived'],
-                match_type=row['match_type'],
-                rank=row['rank']
-            ))
-
-        return results
 
 
 async def apply_retention_policy_async(user_id: UUID):
