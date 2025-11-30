@@ -131,7 +131,7 @@ export default function ChatPage() {
 
   const loadConversations = async () => {
     try {
-      const convs = await api.getConversations();
+      const convs = await api.getConversations(50, 0, true); // Include archived conversations
       setConversations(convs);
       if (convs.length > 0 && !currentConversation) {
         // Chercher une conversation vierge (0 messages)
@@ -174,12 +174,25 @@ export default function ChatPage() {
 
   const createNewConversation = async (existingConversations?: ConversationWithStats[]) => {
     try {
-      const conv = await api.createConversation('Nouvelle conversation', provider, useTools);
-      // Add default stats for ConversationWithStats
+      // Pass the current universe if one is selected
+      const currentUniverseId = selectedUniverseIds.length > 0 ? selectedUniverseIds[0] : undefined;
+      const currentUniverse = currentUniverseId ? universes.find(u => u.id === currentUniverseId) : undefined;
+
+      const conv = await api.createConversation({
+        title: 'Nouvelle conversation',
+        provider: provider as 'mistral' | 'chocolatine',
+        use_tools: useTools,
+        universe_id: currentUniverseId,
+      });
+
+      // Add default stats and universe info for ConversationWithStats
       const convWithStats: ConversationWithStats = {
         ...conv,
         thumbs_up_count: 0,
         thumbs_down_count: 0,
+        universe_id: currentUniverseId,
+        universe_name: currentUniverse?.name,
+        universe_color: currentUniverse?.color,
       };
       // Utiliser existingConversations si fourni, sinon le state actuel
       if (existingConversations) {
