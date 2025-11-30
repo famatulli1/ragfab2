@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
+import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, RotateCw, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { Conversation, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse } from '../types';
+import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -15,27 +15,27 @@ import ResponseTemplates from '../components/ResponseTemplates';
 import UniverseSelector from '../components/UniverseSelector';
 import QuestionSuggestions from '../components/QuestionSuggestions';
 import InteractiveSuggestionModal from '../components/InteractiveSuggestionModal';
+import ConversationSidebar from '../components/ConversationSidebar';
+import ConversationSettings from '../components/ConversationSettings';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
+  const [conversations, setConversations] = useState<ConversationWithStats[]>([]);
+  const [currentConversation, setCurrentConversation] = useState<ConversationWithStats | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // const [showSettings, setShowSettings] = useState(false); // Hidden - kept for future reactivation
+  const [showConversationSettings, setShowConversationSettings] = useState(false);
   const [provider] = useState<Provider>('chocolatine'); // setProvider hidden with settings
   const [useTools] = useState(true); // setUseTools hidden with settings
   const [selectedDocument, setSelectedDocument] = useState<{ documentId: string; chunkIds: string[]; initialChunkId: string } | null>(null);
-  const [editingConversation, setEditingConversation] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [templates, setTemplates] = useState<any[]>([]);
   const [formattedResponses, setFormattedResponses] = useState<Map<string, any>>(new Map());
+  const [universes, setUniverses] = useState<ProductUniverse[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Quality analysis state (map message_id -> QualityAnalysis)
@@ -76,18 +76,14 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Fermer le menu contextuel quand on clique ailleurs
-  useEffect(() => {
-    const handleClickOutside = () => setMenuOpen(null);
-    if (menuOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [menuOpen]);
-
   // Charger les templates de réponse
   useEffect(() => {
     api.listActiveTemplates().then(setTemplates).catch(console.error);
+  }, []);
+
+  // Charger les univers
+  useEffect(() => {
+    api.getUniverses().then(data => setUniverses(data.universes)).catch(console.error);
   }, []);
 
   const loadCurrentUser = async () => {
@@ -176,16 +172,22 @@ export default function ChatPage() {
     }
   };
 
-  const createNewConversation = async (existingConversations?: Conversation[]) => {
+  const createNewConversation = async (existingConversations?: ConversationWithStats[]) => {
     try {
       const conv = await api.createConversation('Nouvelle conversation', provider, useTools);
+      // Add default stats for ConversationWithStats
+      const convWithStats: ConversationWithStats = {
+        ...conv,
+        thumbs_up_count: 0,
+        thumbs_down_count: 0,
+      };
       // Utiliser existingConversations si fourni, sinon le state actuel
       if (existingConversations) {
-        setConversations([conv, ...existingConversations]);
+        setConversations([convWithStats, ...existingConversations]);
       } else {
-        setConversations(prev => [conv, ...prev]);
+        setConversations(prev => [convWithStats, ...prev]);
       }
-      setCurrentConversation(conv);
+      setCurrentConversation(convWithStats);
       setMessages([]);
     } catch (error) {
       console.error('Error creating conversation:', error);
@@ -225,15 +227,20 @@ export default function ChatPage() {
         });
       }
 
-      // Mettre à jour la conversation dans la liste
+      // Mettre à jour la conversation dans la liste (preserve stats)
+      const updatedConvWithStats: ConversationWithStats = {
+        ...response.conversation,
+        thumbs_up_count: currentConversation.thumbs_up_count,
+        thumbs_down_count: currentConversation.thumbs_down_count,
+      };
       setConversations(convs =>
-        convs.map(c => c.id === currentConversation.id ? response.conversation : c)
+        convs.map(c => c.id === currentConversation.id ? updatedConvWithStats : c)
       );
 
       // Désactiver automatiquement le toggle "Recherche approfondie" après la réponse
       if (wasRerankingEnabled) {
-        const updatedConversation = {
-          ...response.conversation,
+        const updatedConversation: ConversationWithStats = {
+          ...updatedConvWithStats,
           reranking_enabled: false,
         };
         setCurrentConversation(updatedConversation);
@@ -338,11 +345,13 @@ export default function ChatPage() {
         hybrid_search_alpha: 0.5, // valeur par défaut
       });
 
-      // 4. Mettre à jour le state local
-      const updatedConversation = {
+      // 4. Mettre à jour le state local (with stats)
+      const updatedConversation: ConversationWithStats = {
         ...newConversation,
         hybrid_search_enabled: hybridMode,
         hybrid_search_alpha: 0.5,
+        thumbs_up_count: 0,
+        thumbs_down_count: 0,
       };
       setCurrentConversation(updatedConversation);
       setConversations([updatedConversation, ...conversations]);
@@ -363,9 +372,14 @@ export default function ChatPage() {
 
       setMessages([response.user_message, response.assistant_message]);
 
-      // Mettre à jour la conversation dans la liste
+      // Mettre à jour la conversation dans la liste (preserve stats)
+      const responseConvWithStats: ConversationWithStats = {
+        ...response.conversation,
+        thumbs_up_count: 0,
+        thumbs_down_count: 0,
+      };
       setConversations(convs =>
-        convs.map(c => c.id === newConversation.id ? response.conversation : c)
+        convs.map(c => c.id === newConversation.id ? responseConvWithStats : c)
       );
     } catch (error) {
       console.error('Error relaunching with hybrid mode:', error);
@@ -415,7 +429,6 @@ export default function ChatPage() {
 
   const handleRenameConversation = async (id: string, newTitle: string) => {
     if (!newTitle.trim()) {
-      setEditingConversation(null);
       return;
     }
 
@@ -427,7 +440,6 @@ export default function ChatPage() {
       if (currentConversation?.id === id) {
         setCurrentConversation({ ...currentConversation, title: updated.title });
       }
-      setEditingConversation(null);
     } catch (error) {
       console.error('Error renaming conversation:', error);
       alert('Erreur lors du renommage');
@@ -452,9 +464,113 @@ export default function ChatPage() {
           await createNewConversation();
         }
       }
-      setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting conversation:', error);
+      alert('Erreur lors de la suppression');
+    }
+  };
+
+  const handleArchiveConversation = async (id: string) => {
+    try {
+      const updated = await api.archiveConversation(id);
+      setConversations(convs =>
+        convs.map(c => c.id === id ? { ...c, is_archived: updated.is_archived } : c)
+      );
+      if (currentConversation?.id === id) {
+        setCurrentConversation({ ...currentConversation, is_archived: updated.is_archived });
+      }
+    } catch (error) {
+      console.error('Error archiving conversation:', error);
+      alert('Erreur lors de l\'archivage');
+    }
+  };
+
+  const handleUnarchiveConversation = async (id: string) => {
+    try {
+      const updated = await api.unarchiveConversation(id);
+      setConversations(convs =>
+        convs.map(c => c.id === id ? { ...c, is_archived: updated.is_archived } : c)
+      );
+      if (currentConversation?.id === id) {
+        setCurrentConversation({ ...currentConversation, is_archived: updated.is_archived });
+      }
+    } catch (error) {
+      console.error('Error unarchiving conversation:', error);
+      alert('Erreur lors de la désarchivage');
+    }
+  };
+
+  const handleMoveToUniverse = async (id: string, universeId: string | null) => {
+    try {
+      const updated = await api.moveConversationToUniverse(id, universeId);
+      const universe = universeId ? universes.find(u => u.id === universeId) : null;
+      setConversations(convs =>
+        convs.map(c => c.id === id ? {
+          ...c,
+          universe_id: updated.universe_id,
+          universe_name: universe?.name,
+          universe_color: universe?.color,
+        } : c)
+      );
+      if (currentConversation?.id === id) {
+        setCurrentConversation({
+          ...currentConversation,
+          universe_id: updated.universe_id,
+          universe_name: universe?.name,
+          universe_color: universe?.color,
+        });
+      }
+    } catch (error) {
+      console.error('Error moving conversation to universe:', error);
+      alert('Erreur lors du déplacement');
+    }
+  };
+
+  const refreshConversations = () => {
+    loadConversations();
+  };
+
+  const handleBulkArchive = async (olderThanDays: number) => {
+    // Find conversations older than specified days
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+    const toArchive = conversations.filter(c => {
+      const convDate = new Date(c.updated_at);
+      return !c.is_archived && convDate < cutoffDate;
+    });
+
+    if (toArchive.length === 0) {
+      alert('Aucune conversation à archiver');
+      return;
+    }
+
+    try {
+      await api.bulkArchiveConversations(toArchive.map(c => c.id));
+      await loadConversations();
+    } catch (error) {
+      console.error('Error bulk archiving:', error);
+      alert('Erreur lors de l\'archivage');
+    }
+  };
+
+  const handleBulkDelete = async (archived: boolean) => {
+    const toDelete = conversations.filter(c => archived ? c.is_archived : true);
+
+    if (toDelete.length === 0) {
+      alert('Aucune conversation à supprimer');
+      return;
+    }
+
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer ${toDelete.length} conversations ?`)) {
+      return;
+    }
+
+    try {
+      await api.bulkDeleteConversations(toDelete.map(c => c.id), true);
+      await loadConversations();
+    } catch (error) {
+      console.error('Error bulk deleting:', error);
       alert('Erreur lors de la suppression');
     }
   };
@@ -462,107 +578,23 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
-      <div
-        className={`${
-          sidebarOpen ? 'w-64' : 'w-0'
-        } transition-all duration-300 bg-gray-900 text-white flex flex-col overflow-hidden`}
-      >
-        <div className="p-4 border-b border-gray-700">
-          <button
-            onClick={() => createNewConversation()}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <Plus size={20} />
-            <span>Nouvelle conversation</span>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-          {conversations.map(conv => (
-            <div
-              key={conv.id}
-              className={`relative group rounded-lg mb-1 transition-colors ${
-                currentConversation?.id === conv.id
-                  ? 'bg-gray-700'
-                  : 'hover:bg-gray-800'
-              }`}
-            >
-              <button
-                onClick={() => setCurrentConversation(conv)}
-                className="w-full text-left px-3 py-2"
-              >
-                {editingConversation === conv.id ? (
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={() => handleRenameConversation(conv.id, editTitle)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleRenameConversation(conv.id, editTitle);
-                      } else if (e.key === 'Escape') {
-                        setEditingConversation(null);
-                      }
-                    }}
-                    autoFocus
-                    className="w-full bg-gray-600 text-sm font-medium px-2 py-1 rounded border border-gray-500 focus:outline-none focus:border-blue-500"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <>
-                    <div className="text-sm font-medium truncate pr-8">{conv.title}</div>
-                    <div className="text-xs text-gray-400">
-                      {conv.message_count} messages
-                    </div>
-                  </>
-                )}
-              </button>
-
-              {/* Menu contextuel */}
-              {editingConversation !== conv.id && (
-                <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(menuOpen === conv.id ? null : conv.id);
-                    }}
-                    className="p-1 hover:bg-gray-600 rounded"
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-
-                  {menuOpen === conv.id && (
-                    <div className="absolute right-0 top-8 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 z-10 w-40">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditTitle(conv.title);
-                          setEditingConversation(conv.id);
-                          setMenuOpen(null);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2 text-sm"
-                      >
-                        <Edit2 size={14} />
-                        Renommer
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteConversation(conv.id);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2 text-sm text-red-400"
-                      >
-                        <Trash2 size={14} />
-                        Supprimer
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <ConversationSidebar
+        isOpen={sidebarOpen}
+        conversations={conversations}
+        currentConversation={currentConversation}
+        onSelectConversation={setCurrentConversation}
+        onNewConversation={() => createNewConversation()}
+        onRenameConversation={handleRenameConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onArchiveConversation={handleArchiveConversation}
+        onUnarchiveConversation={handleUnarchiveConversation}
+        onMoveToUniverse={handleMoveToUniverse}
+        onOpenSettings={() => setShowConversationSettings(true)}
+        onRefreshConversations={refreshConversations}
+        username={currentUser?.username}
+        universes={universes}
+        currentUniverseId={selectedUniverseIds[0]}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
@@ -1011,6 +1043,14 @@ export default function ChatPage() {
           isLoading={isLoading}
         />
       )}
+
+      {/* Conversation Settings Modal */}
+      <ConversationSettings
+        isOpen={showConversationSettings}
+        onClose={() => setShowConversationSettings(false)}
+        onBulkArchive={handleBulkArchive}
+        onBulkDelete={handleBulkDelete}
+      />
     </div>
   );
 }
