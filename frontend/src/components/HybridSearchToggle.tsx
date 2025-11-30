@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, HelpCircle, X } from 'lucide-react';
+import { Settings, X } from 'lucide-react';
 import api from '../api/client';
 import type { Conversation } from '../types';
 
@@ -10,19 +10,7 @@ interface HybridSearchToggleProps {
 
 /**
  * Composant Toggle pour activer/désactiver Hybrid Search (BM25 + Vector)
- *
- * Hybrid Search combine:
- * - Recherche sémantique (embeddings E5-Large)
- * - Recherche par mots-clés (PostgreSQL full-text BM25)
- *
- * Impact attendu: +15-25% Recall@5
- *
- * Alpha (poids de fusion):
- * - 0.0 = 100% mots-clés (BM25)
- * - 0.5 = Équilibré (recommandé)
- * - 1.0 = 100% sémantique (vector)
- *
- * Settings par conversation (nouveauté): Chaque conversation se rappelle de ses propres settings
+ * Style harmonisé avec RerankingToggle (switch iOS)
  */
 export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   conversationId,
@@ -31,7 +19,7 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   const [hybridEnabled, setHybridEnabled] = useState(false);
   const [alpha, setAlpha] = useState(0.5);
   const [showSettings, setShowSettings] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Charger l'état depuis la conversation (DB) au montage ou changement de conversation
   useEffect(() => {
@@ -47,23 +35,30 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
     }
   }, [conversationId]);
 
-  const handleToggle = async (enabled: boolean) => {
-    setHybridEnabled(enabled);
+  const handleToggle = async () => {
+    setIsLoading(true);
+    const newEnabled = !hybridEnabled;
 
-    // Sauvegarder dans la DB (par conversation)
-    if (conversationId) {
-      try {
+    try {
+      setHybridEnabled(newEnabled);
+
+      // Sauvegarder dans la DB (par conversation)
+      if (conversationId) {
         await api.updateConversation(conversationId, {
-          hybrid_search_enabled: enabled,
+          hybrid_search_enabled: newEnabled,
           hybrid_search_alpha: alpha
         });
-      } catch (err) {
-        console.error('Erreur sauvegarde hybrid_search_enabled:', err);
       }
-    }
 
-    if (onChange) {
-      onChange(enabled, alpha);
+      if (onChange) {
+        onChange(newEnabled, alpha);
+      }
+    } catch (err) {
+      console.error('Erreur sauvegarde hybrid_search_enabled:', err);
+      // Revert on error
+      setHybridEnabled(!newEnabled);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -104,184 +99,161 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col gap-2">
-      {/* Toggle principal */}
-      <div className="flex items-center justify-between gap-4 p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="hybrid-toggle"
-            checked={hybridEnabled}
-            onChange={(e) => handleToggle(e.target.checked)}
-            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+    <>
+      <div className="flex items-center gap-2">
+        {/* Switch iOS style - harmonisé avec RerankingToggle */}
+        <button
+          onClick={handleToggle}
+          disabled={isLoading}
+          className={`
+            relative inline-flex h-6 w-11 items-center rounded-full
+            transition-colors duration-200 ease-in-out
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+            ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+            ${hybridEnabled
+              ? 'bg-green-500 dark:bg-green-600'
+              : 'bg-gray-300 dark:bg-gray-600'
+            }
+          `}
+          role="switch"
+          aria-checked={hybridEnabled}
+          aria-label={hybridEnabled ? 'Recherche hybride activée' : 'Recherche hybride désactivée'}
+          title="Combine recherche sémantique et mots-clés pour des résultats plus précis"
+        >
+          <span
+            className={`
+              inline-block h-4 w-4 transform rounded-full bg-white
+              transition-transform duration-200 ease-in-out
+              ${hybridEnabled ? 'translate-x-6' : 'translate-x-1'}
+            `}
           />
-          <label htmlFor="hybrid-toggle" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
-            Recherche Hybride (Vector + Mots-clés)
-          </label>
-          {hybridEnabled && (
-            <span className="flex items-center gap-1 text-xs text-green-600">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
-              {getAlphaEmoji(alpha)} (α={alpha.toFixed(1)})
-            </span>
-          )}
+        </button>
 
-          {/* Help icon */}
-          <button
-            onClick={() => setShowHelp(!showHelp)}
-            className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-            title="En savoir plus"
-          >
-            <HelpCircle size={16} />
-          </button>
-        </div>
+        {/* Label */}
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Recherche Hybride
+        </span>
 
-        {/* Settings button */}
+        {/* Indicateur inline quand actif */}
+        {hybridEnabled && (
+          <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+            {getAlphaEmoji(alpha)} (α={alpha.toFixed(1)})
+          </span>
+        )}
+
+        {/* Settings icon quand actif */}
         {hybridEnabled && (
           <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+            onClick={() => setShowSettings(true)}
+            className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
             title="Réglages avancés"
           >
-            <Settings size={18} />
+            <Settings size={16} />
           </button>
         )}
       </div>
-
-      {/* Help panel - Version compacte avec bouton fermer */}
-      {showHelp && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs animate-fadeIn">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-start gap-2 flex-1">
-              <HelpCircle size={14} className="text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-blue-800 space-y-1">
-                <p className="font-semibold text-blue-900">Recherche Hybride = Sémantique + Mots-clés</p>
-                <p>
-                  ✅ <strong>Activer</strong> pour termes précis (acronymes, noms propres)
-                  <br />
-                  ❌ <strong>Désactiver</strong> pour questions générales
-                </p>
-              </div>
-            </div>
-            {/* Bouton fermer explicite */}
-            <button
-              onClick={() => setShowHelp(false)}
-              className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
-              title="Fermer l'aide"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Advanced settings panel - Modal overlay */}
       {showSettings && hybridEnabled && (
         <>
           {/* Backdrop overlay */}
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-40 animate-fadeIn"
+            className="fixed inset-0 bg-black bg-opacity-50 z-40"
             onClick={() => setShowSettings(false)}
           />
 
           {/* Modal panel */}
-          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-50 animate-fadeIn">
-            <div className="p-4 bg-white border border-gray-300 rounded-lg shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto">
+          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-50">
+            <div className="p-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl space-y-4 max-h-[80vh] overflow-y-auto">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-700">
-                  Réglages Avancés
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  Réglages Recherche Hybride
                 </div>
                 <button
                   onClick={() => setShowSettings(false)}
-                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   title="Fermer"
                 >
-                  ✕
+                  <X size={18} />
                 </button>
               </div>
 
-          {/* Alpha slider */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-sm text-gray-600">
-                Balance Vector / Mots-clés (α)
-              </label>
-              <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">
-                α = {alpha.toFixed(1)}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-500 min-w-[80px] text-right">
-                🔤 Mots-clés
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={alpha}
-                onChange={(e) => handleAlphaChange(parseFloat(e.target.value))}
-                className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-              <span className="text-xs text-gray-500 min-w-[80px]">
-                🧠 Sémantique
-              </span>
-            </div>
-
-            {/* Alpha description */}
-            <div className="flex items-start gap-2 p-3 bg-white border border-gray-200 rounded text-xs text-gray-600">
-              <span className="text-lg">{getAlphaEmoji(alpha)}</span>
-              <div>
-                <div className="font-medium text-gray-700 mb-1">
-                  {getAlphaDescription(alpha)}
+              {/* Alpha slider */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-gray-600 dark:text-gray-300">
+                    Balance Vector / Mots-clés (α)
+                  </label>
+                  <span className="text-xs font-mono bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
+                    α = {alpha.toFixed(1)}
+                  </span>
                 </div>
-                <div className="text-gray-500">
-                  {alpha < 0.3 && (
-                    <>Recommandé si vous cherchez des acronymes, codes, ou noms de produits</>
-                  )}
-                  {alpha >= 0.3 && alpha <= 0.7 && (
-                    <>Équilibre optimal pour la plupart des questions</>
-                  )}
-                  {alpha > 0.7 && (
-                    <>Recommandé pour les questions "Pourquoi ?", "Comment ?", "Expliquer..."</>
-                  )}
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 min-w-[80px] text-right">
+                    🔤 Mots-clés
+                  </span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={alpha}
+                    onChange={(e) => handleAlphaChange(parseFloat(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 min-w-[80px]">
+                    🧠 Sémantique
+                  </span>
+                </div>
+
+                {/* Alpha description */}
+                <div className="flex items-start gap-2 p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs text-gray-600 dark:text-gray-300">
+                  <span className="text-lg">{getAlphaEmoji(alpha)}</span>
+                  <div>
+                    <div className="font-medium text-gray-700 dark:text-gray-200 mb-1">
+                      {getAlphaDescription(alpha)}
+                    </div>
+                    <div className="text-gray-500 dark:text-gray-400">
+                      {alpha < 0.3 && (
+                        <>Recommandé si vous cherchez des acronymes, codes, ou noms de produits</>
+                      )}
+                      {alpha >= 0.3 && alpha <= 0.7 && (
+                        <>Équilibre optimal pour la plupart des questions</>
+                      )}
+                      {alpha > 0.7 && (
+                        <>Recommandé pour les questions "Pourquoi ?", "Comment ?", "Expliquer..."</>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Examples */}
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-gray-700">
-              💡 Exemples d'utilisation :
-            </div>
-            <div className="space-y-2 text-xs text-gray-600">
-              <div className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100">
-                <span className="font-mono text-blue-600">α=0.2</span>
-                <span>→ "procédure RTT" ou "logiciel PeopleDoc"</span>
+              {/* Examples */}
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-700 dark:text-gray-200">
+                  💡 Exemples d'utilisation :
+                </div>
+                <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+                  <div className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-100 dark:border-gray-600">
+                    <span className="font-mono text-blue-600 dark:text-blue-400">α=0.2</span>
+                    <span>→ "procédure RTT" ou "logiciel PeopleDoc"</span>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-100 dark:border-gray-600">
+                    <span className="font-mono text-green-600 dark:text-green-400">α=0.5</span>
+                    <span>→ "politique de télétravail" (usage général)</span>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-100 dark:border-gray-600">
+                    <span className="font-mono text-purple-600 dark:text-purple-400">α=0.8</span>
+                    <span>→ "pourquoi favoriser le télétravail ?"</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100">
-                <span className="font-mono text-green-600">α=0.5</span>
-                <span>→ "politique de télétravail" (usage général)</span>
-              </div>
-              <div className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100">
-                <span className="font-mono text-purple-600">α=0.8</span>
-                <span>→ "pourquoi favoriser le télétravail ?"</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Note about adaptive alpha */}
-          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-            <strong>Note :</strong> Le système ajuste automatiquement α si vous ne le personnalisez pas.
-            Les acronymes et noms propres sont détectés automatiquement.
-          </div>
             </div>
           </div>
         </>
       )}
-
-      </div>
+    </>
   );
 };
 

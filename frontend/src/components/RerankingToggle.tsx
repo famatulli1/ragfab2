@@ -54,7 +54,7 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
         role="switch"
         aria-checked={rerankingEnabled}
         aria-label={rerankingEnabled ? 'Recherche approfondie activée' : 'Recherche approfondie désactivée'}
-        title={rerankingEnabled ? 'Recherche approfondie activée (cliquez pour désactiver)' : 'Recherche approfondie désactivée (cliquez pour activer)'}
+        title="Réordonne les résultats par pertinence avec un modèle de reranking"
       >
         <span
           className={`
