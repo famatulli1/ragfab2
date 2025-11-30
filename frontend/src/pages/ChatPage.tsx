@@ -138,7 +138,14 @@ export default function ChatPage() {
       const convs = await api.getConversations();
       setConversations(convs);
       if (convs.length > 0 && !currentConversation) {
-        setCurrentConversation(convs[0]);
+        // Chercher une conversation vierge (0 messages)
+        const emptyConversation = convs.find(c => c.message_count === 0);
+        if (emptyConversation) {
+          setCurrentConversation(emptyConversation);
+        } else {
+          // Aucune conversation vierge, créer une nouvelle
+          await createNewConversation();
+        }
       } else if (convs.length === 0) {
         // Créer automatiquement une conversation si aucune n'existe
         await createNewConversation();
