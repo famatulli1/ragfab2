@@ -60,17 +60,19 @@ export default function ChatPage() {
   // Charger l'univers par défaut, puis les conversations
   useEffect(() => {
     const init = async () => {
+      let loadedDefaultUniverseId: string | null = null;
       try {
         // 1. Charger l'univers par défaut de l'utilisateur
         const defaultResponse = await api.getMyDefaultUniverse();
         if (defaultResponse.default_universe) {
-          setDefaultUniverseId(defaultResponse.default_universe.universe_id);
+          loadedDefaultUniverseId = defaultResponse.default_universe.universe_id;
+          setDefaultUniverseId(loadedDefaultUniverseId);
         }
       } catch (error) {
         console.error('Error loading default universe:', error);
       }
-      // 2. Charger les conversations (après avoir récupéré l'univers par défaut)
-      await loadConversations();
+      // 2. Charger les conversations (passer directement la valeur, pas le state)
+      await loadConversations(loadedDefaultUniverseId);
     };
     init();
   }, []);
@@ -143,7 +145,7 @@ export default function ChatPage() {
     navigate('/login');
   };
 
-  const loadConversations = async () => {
+  const loadConversations = async (passedDefaultUniverseId?: string | null) => {
     try {
       const convs = await api.getConversations(50, 0, true); // Include archived conversations
       setConversations(convs);
@@ -153,12 +155,12 @@ export default function ChatPage() {
         if (emptyConversation) {
           setCurrentConversation(emptyConversation);
         } else {
-          // Aucune conversation vierge, créer une nouvelle (passer convs pour éviter bug de state)
-          await createNewConversation(convs);
+          // Aucune conversation vierge, créer une nouvelle (passer convs et defaultUniverse)
+          await createNewConversation(convs, passedDefaultUniverseId);
         }
       } else if (convs.length === 0) {
         // Créer automatiquement une conversation si aucune n'existe
-        await createNewConversation();
+        await createNewConversation(undefined, passedDefaultUniverseId);
       }
     } catch (error) {
       console.error('Error loading conversations:', error);
@@ -186,13 +188,18 @@ export default function ChatPage() {
     }
   };
 
-  const createNewConversation = async (existingConversations?: ConversationWithStats[]) => {
+  const createNewConversation = async (
+    existingConversations?: ConversationWithStats[],
+    passedDefaultUniverseId?: string | null
+  ) => {
     try {
-      // Pass the current universe if one is selected, otherwise use the default universe
+      // Priority: selectedUniverseIds > passedDefaultUniverseId > state defaultUniverseId
       const currentUniverseId = selectedUniverseIds.length > 0
         ? selectedUniverseIds[0]
-        : (defaultUniverseId || undefined);
+        : (passedDefaultUniverseId || defaultUniverseId || undefined);
       const currentUniverse = currentUniverseId ? universes.find(u => u.id === currentUniverseId) : undefined;
+
+      console.log('🌍 Creating conversation with universe:', currentUniverseId, currentUniverse?.name);
 
       const conv = await api.createConversation({
         title: 'Nouvelle conversation',
