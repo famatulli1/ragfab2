@@ -382,19 +382,25 @@ export default function ChatPage() {
     const currentUniverse = currentUniverseId ? universes.find(u => u.id === currentUniverseId) : undefined;
 
     try {
-      // 2. Créer nouvelle conversation avec le mode hybride configuré ET l'univers
+      // 2. Créer nouvelle conversation avec l'univers
       const newConversation = await api.createConversation({
         title: 'Nouvelle conversation',
         provider: provider as 'mistral' | 'chocolatine',
         use_tools: useTools,
         universe_id: currentUniverseId,
+      });
+
+      // 3. Mettre à jour les settings hybrides de la nouvelle conversation
+      await api.updateConversation(newConversation.id, {
         hybrid_search_enabled: hybridMode,
         hybrid_search_alpha: 0.5,
       });
 
-      // 3. Mettre à jour le state local (with stats and universe info)
+      // 4. Mettre à jour le state local (with stats and universe info)
       const updatedConversation: ConversationWithStats = {
         ...newConversation,
+        hybrid_search_enabled: hybridMode,
+        hybrid_search_alpha: 0.5,
         thumbs_up_count: 0,
         thumbs_down_count: 0,
         universe_id: currentUniverseId,
