@@ -118,6 +118,12 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
           <label htmlFor="hybrid-toggle" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
             Recherche Hybride (Vector + Mots-clés)
           </label>
+          {hybridEnabled && (
+            <span className="flex items-center gap-1 text-xs text-green-600">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+              {getAlphaEmoji(alpha)} (α={alpha.toFixed(1)})
+            </span>
+          )}
 
           {/* Help icon */}
           <button
@@ -275,16 +281,7 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
         </>
       )}
 
-      {/* Status indicator when enabled */}
-      {hybridEnabled && !showSettings && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
-          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          <span>
-            Recherche hybride active {getAlphaEmoji(alpha)} (α={alpha.toFixed(1)})
-          </span>
-        </div>
-      )}
-    </div>
+      </div>
   );
 };
 
