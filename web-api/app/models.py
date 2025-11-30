@@ -172,7 +172,7 @@ class Conversation(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
-    is_archived: bool = Field(default=False, alias="archived")  # Alias pour la colonne DB "archived"
+    is_archived: bool = Field(default=False, validation_alias="archived")  # validation_alias pour input DB, serialise comme is_archived
     reranking_enabled: Optional[bool] = None  # None=use env var, True/False=explicit
     hybrid_search_enabled: bool = False  # Hybrid search setting per conversation
     hybrid_search_alpha: float = 0.5  # Alpha parameter (0=keywords, 1=vector)
