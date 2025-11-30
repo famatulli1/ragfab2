@@ -25,6 +25,16 @@ import type {
   UserUniverseAccess,
   PreAnalyzeRequest,
   PreAnalyzeResponse,
+  // Conversation Management
+  ConversationCreate,
+  ConversationUpdate,
+  ConversationPreferences,
+  ConversationPreferencesUpdate,
+  ConversationStats,
+  ConversationSearchResult,
+  BulkArchiveRequest,
+  BulkDeleteRequest,
+  BulkActionResponse,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -229,19 +239,39 @@ class APIClient {
   // Conversations
   // ============================================================================
 
-  async getConversations(limit = 50, offset = 0, includeArchived = false): Promise<ConversationWithStats[]> {
-    const { data } = await this.client.get<ConversationWithStats[]>('/api/conversations', {
-      params: { limit, offset, include_archived: includeArchived },
-    });
+  async getConversations(
+    limit = 50,
+    offset = 0,
+    includeArchived = false,
+    universeId?: string
+  ): Promise<ConversationWithStats[]> {
+    const params: any = { limit, offset, include_archived: includeArchived };
+    if (universeId) {
+      params.universe_id = universeId;
+    }
+    const { data } = await this.client.get<ConversationWithStats[]>('/api/conversations', { params });
     return data;
   }
 
-  async createConversation(title?: string, provider = 'mistral', useTools = true): Promise<Conversation> {
-    const { data } = await this.client.post<Conversation>('/api/conversations', {
-      title: title || 'Nouvelle conversation',
-      provider,
-      use_tools: useTools,
-    });
+  async createConversation(
+    titleOrConfig?: string | ConversationCreate,
+    provider = 'mistral',
+    useTools = true
+  ): Promise<Conversation> {
+    // Support both old signature (title, provider, useTools) and new signature (ConversationCreate)
+    let payload: ConversationCreate;
+
+    if (typeof titleOrConfig === 'object') {
+      payload = titleOrConfig;
+    } else {
+      payload = {
+        title: titleOrConfig || 'Nouvelle conversation',
+        provider: provider as 'mistral' | 'chocolatine',
+        use_tools: useTools,
+      };
+    }
+
+    const { data } = await this.client.post<Conversation>('/api/conversations', payload);
     return data;
   }
 
@@ -250,19 +280,89 @@ class APIClient {
     return data;
   }
 
-  async updateConversation(id: string, updates: {
-    title?: string;
-    is_archived?: boolean;
-    reranking_enabled?: boolean | null;
-    hybrid_search_enabled?: boolean;
-    hybrid_search_alpha?: number;
-  }): Promise<Conversation> {
+  async updateConversation(id: string, updates: ConversationUpdate): Promise<Conversation> {
     const { data } = await this.client.patch<Conversation>(`/api/conversations/${id}`, updates);
     return data;
   }
 
   async deleteConversation(id: string): Promise<void> {
     await this.client.delete(`/api/conversations/${id}`);
+  }
+
+  // ============================================================================
+  // Conversation Management
+  // ============================================================================
+
+  async getConversationPreferences(): Promise<ConversationPreferences> {
+    const { data } = await this.client.get<ConversationPreferences>('/api/me/conversation-preferences');
+    return data;
+  }
+
+  async updateConversationPreferences(
+    preferences: ConversationPreferencesUpdate
+  ): Promise<ConversationPreferences> {
+    const { data } = await this.client.put<ConversationPreferences>(
+      '/api/me/conversation-preferences',
+      preferences
+    );
+    return data;
+  }
+
+  async getConversationStats(): Promise<ConversationStats> {
+    const { data } = await this.client.get<ConversationStats>('/api/conversations/stats');
+    return data;
+  }
+
+  async archiveConversation(id: string): Promise<Conversation> {
+    const { data } = await this.client.post<Conversation>(`/api/conversations/${id}/archive`);
+    return data;
+  }
+
+  async unarchiveConversation(id: string): Promise<Conversation> {
+    const { data } = await this.client.post<Conversation>(`/api/conversations/${id}/unarchive`);
+    return data;
+  }
+
+  async bulkArchiveConversations(conversationIds: string[]): Promise<BulkActionResponse> {
+    const { data } = await this.client.post<BulkActionResponse>('/api/conversations/bulk/archive', {
+      conversation_ids: conversationIds,
+    });
+    return data;
+  }
+
+  async bulkDeleteConversations(conversationIds: string[], confirm = true): Promise<BulkActionResponse> {
+    const { data } = await this.client.post<BulkActionResponse>('/api/conversations/bulk/delete', {
+      conversation_ids: conversationIds,
+      confirm,
+    });
+    return data;
+  }
+
+  async searchConversations(
+    query: string,
+    options?: {
+      universeId?: string;
+      includeArchived?: boolean;
+      searchMessages?: boolean;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<ConversationSearchResult[]> {
+    const params: any = { q: query };
+    if (options?.universeId) params.universe_id = options.universeId;
+    if (options?.includeArchived !== undefined) params.include_archived = options.includeArchived;
+    if (options?.searchMessages !== undefined) params.search_messages = options.searchMessages;
+    if (options?.limit) params.limit = options.limit;
+    if (options?.offset) params.offset = options.offset;
+
+    const { data } = await this.client.get<ConversationSearchResult[]>('/api/conversations/search', {
+      params,
+    });
+    return data;
+  }
+
+  async moveConversationToUniverse(conversationId: string, universeId: string | null): Promise<Conversation> {
+    return this.updateConversation(conversationId, { universe_id: universeId || undefined });
   }
 
   // ============================================================================

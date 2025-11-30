@@ -150,6 +150,7 @@ class ConversationCreate(BaseModel):
     provider: str = "mistral"  # mistral, chocolatine
     use_tools: bool = True
     reranking_enabled: Optional[bool] = None  # None=global, True=on, False=off
+    universe_id: Optional[UUID] = None  # Univers auquel appartient la conversation
 
 
 class ConversationUpdate(BaseModel):
@@ -158,6 +159,7 @@ class ConversationUpdate(BaseModel):
     reranking_enabled: Optional[bool] = None  # Update reranking preference
     hybrid_search_enabled: Optional[bool] = None  # Update hybrid search per conversation
     hybrid_search_alpha: Optional[float] = None  # Update alpha parameter per conversation
+    universe_id: Optional[UUID] = None  # Changer l'univers de la conversation
 
 
 class Conversation(BaseModel):
@@ -174,6 +176,10 @@ class Conversation(BaseModel):
     reranking_enabled: Optional[bool] = None  # None=use env var, True/False=explicit
     hybrid_search_enabled: bool = False  # Hybrid search setting per conversation
     hybrid_search_alpha: float = 0.5  # Alpha parameter (0=keywords, 1=vector)
+    universe_id: Optional[UUID] = None  # Univers de la conversation
+    universe_name: Optional[str] = None  # Nom de l'univers (depuis la vue)
+    universe_slug: Optional[str] = None  # Slug de l'univers
+    universe_color: Optional[str] = None  # Couleur de l'univers
 
 
 class ConversationWithStats(Conversation):
@@ -483,3 +489,77 @@ class PreAnalyzeResponse(BaseModel):
     original_question: str = Field(..., description="Question originale")
     detected_intent: Optional[str] = Field(None, description="Intention détectée (howto, explain, etc.)")
     extracted_terms: List[str] = Field(default_factory=list, description="Termes extraits des documents")
+
+
+# ============================================================================
+# Conversation Management Models
+# ============================================================================
+
+class ConversationPreferencesUpdate(BaseModel):
+    """Préférences de gestion des conversations."""
+    retention_days: Optional[int] = Field(None, ge=1, le=365, description="Jours avant suppression (null=jamais)")
+    retention_target: Optional[str] = Field(None, description="'archived' ou 'all'")
+    auto_archive_days: Optional[int] = Field(None, ge=1, le=365, description="Jours d'inactivité avant archivage")
+    default_view: Optional[str] = Field(None, description="'all', 'universes', ou 'archive'")
+    conversations_per_page: Optional[int] = Field(None, ge=10, le=100, description="Conversations par page")
+
+
+class ConversationPreferencesResponse(BaseModel):
+    """Réponse des préférences de conversation."""
+    user_id: UUID
+    retention_days: Optional[int] = None
+    retention_target: str = "archived"
+    auto_archive_days: Optional[int] = None
+    default_view: str = "all"
+    conversations_per_page: int = 20
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationStats(BaseModel):
+    """Statistiques des conversations utilisateur."""
+    active_count: int = Field(..., description="Nombre de conversations actives")
+    archived_count: int = Field(..., description="Nombre de conversations archivées")
+    total_count: int = Field(..., description="Total des conversations")
+    warning_level: str = Field(..., description="'none', 'approaching' (>=40), ou 'exceeded' (>=50)")
+    oldest_active_date: Optional[datetime] = Field(None, description="Date de la plus ancienne conversation active")
+
+
+class ConversationSearchResult(BaseModel):
+    """Résultat de recherche de conversation."""
+    conversation_id: UUID
+    title: str
+    universe_id: Optional[UUID] = None
+    universe_name: Optional[str] = None
+    universe_color: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+    archived: bool
+    match_type: str = Field(..., description="'title', 'message', ou 'both'")
+    rank: float = Field(..., description="Score de pertinence")
+
+
+class ConversationSearchResponse(BaseModel):
+    """Réponse de recherche de conversations."""
+    results: List[ConversationSearchResult]
+    total: int
+    query: str
+
+
+class BulkArchiveRequest(BaseModel):
+    """Requête d'archivage en masse."""
+    conversation_ids: List[UUID] = Field(..., min_length=1, description="IDs des conversations à archiver")
+
+
+class BulkDeleteRequest(BaseModel):
+    """Requête de suppression en masse."""
+    conversation_ids: List[UUID] = Field(..., min_length=1, description="IDs des conversations à supprimer")
+    confirm: bool = Field(False, description="Confirmation de suppression définitive")
+
+
+class BulkActionResponse(BaseModel):
+    """Réponse d'action en masse."""
+    success_count: int
+    failed_count: int = 0
+    errors: List[str] = Field(default_factory=list)

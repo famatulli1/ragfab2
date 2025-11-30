@@ -33,7 +33,11 @@ from .models import (
     MessageResponse, ChatRequest, ChatResponse, ChatResponseWithQuality,
     RatingCreate, Rating,
     IngestionJob,
-    ExportRequest
+    ExportRequest,
+    # Conversation Management
+    ConversationPreferencesUpdate, ConversationPreferencesResponse,
+    ConversationStats, ConversationSearchResult,
+    BulkArchiveRequest, BulkDeleteRequest, BulkActionResponse
 )
 from .routes import auth
 from .routes import admin
@@ -397,18 +401,20 @@ async def list_conversations(
     limit: int = 50,
     offset: int = 0,
     include_archived: bool = False,
+    universe_id: Optional[UUID] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Liste les conversations de l'utilisateur courant"""
+    """Liste les conversations de l'utilisateur courant, avec filtrage optionnel par univers"""
     async with database.db_pool.acquire() as conn:
         query = """
             SELECT * FROM conversation_stats
             WHERE user_id = $1
             AND ($4 = true OR archived = false)
+            AND ($5::uuid IS NULL OR universe_id = $5)
             ORDER BY updated_at DESC
             LIMIT $2 OFFSET $3
         """
-        rows = await conn.fetch(query, current_user['id'], limit, offset, include_archived)
+        rows = await conn.fetch(query, current_user['id'], limit, offset, include_archived, universe_id)
         return [ConversationWithStats(**dict(row)) for row in rows]
 
 
@@ -430,14 +436,37 @@ async def create_conversation(
     logger.info(f"🎚️ Final reranking_enabled value: {reranking_enabled}")
 
     async with database.db_pool.acquire() as conn:
+        # Appliquer la limite de 50 conversations actives (archive les plus anciennes)
+        archived_count = await conn.fetchval(
+            "SELECT enforce_conversation_limit($1)",
+            current_user['id']
+        )
+        if archived_count and archived_count > 0:
+            logger.info(f"📦 Auto-archivé {archived_count} conversation(s) pour respecter la limite de 50")
+
+        # Créer la conversation avec l'univers si spécifié
         row = await conn.fetchrow(
             """
-            INSERT INTO conversations (title, provider, use_tools, reranking_enabled, user_id)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO conversations (title, provider, use_tools, reranking_enabled, user_id, universe_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             """,
-            request.title, request.provider, request.use_tools, reranking_enabled, current_user['id']
+            request.title, request.provider, request.use_tools, reranking_enabled,
+            current_user['id'], request.universe_id
         )
+
+        # Si un univers est spécifié, récupérer ses infos
+        if request.universe_id:
+            row = await conn.fetchrow(
+                """
+                SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+                FROM conversations c
+                LEFT JOIN product_universes pu ON c.universe_id = pu.id
+                WHERE c.id = $1
+                """,
+                row['id']
+            )
+
         return Conversation(**dict(row))
 
 
@@ -503,6 +532,12 @@ async def update_conversation(
         values.append(request.hybrid_search_alpha)
         param_count += 1
 
+    # Support pour universe_id (changer l'univers de la conversation)
+    if "universe_id" in request.model_dump(exclude_unset=True):
+        updates.append(f"universe_id = ${param_count}")
+        values.append(request.universe_id)
+        param_count += 1
+
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -538,6 +573,311 @@ async def delete_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
 
     return {"message": "Conversation deleted successfully"}
+
+
+# ============================================================================
+# Conversation Management Routes
+# ============================================================================
+
+@app.get("/api/me/conversation-preferences", response_model=ConversationPreferencesResponse)
+async def get_conversation_preferences(current_user: dict = Depends(get_current_user)):
+    """Récupère les préférences de gestion des conversations de l'utilisateur"""
+    async with database.db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, retention_days, retention_target, auto_archive_days,
+                   default_view, conversations_per_page, created_at, updated_at
+            FROM user_preferences
+            WHERE user_id = $1
+            """,
+            current_user['id']
+        )
+
+        if not row:
+            # Créer les préférences par défaut si elles n'existent pas
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_preferences (user_id)
+                VALUES ($1)
+                RETURNING id, user_id, retention_days, retention_target, auto_archive_days,
+                          default_view, conversations_per_page, created_at, updated_at
+                """,
+                current_user['id']
+            )
+
+        return ConversationPreferencesResponse(**dict(row))
+
+
+@app.put("/api/me/conversation-preferences", response_model=ConversationPreferencesResponse)
+async def update_conversation_preferences(
+    request: ConversationPreferencesUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Met à jour les préférences de gestion des conversations"""
+    updates = []
+    values = []
+    param_count = 1
+
+    if request.retention_days is not None:
+        updates.append(f"retention_days = ${param_count}")
+        values.append(request.retention_days)
+        param_count += 1
+
+    if request.retention_target is not None:
+        if request.retention_target not in ('archived', 'all'):
+            raise HTTPException(status_code=400, detail="retention_target must be 'archived' or 'all'")
+        updates.append(f"retention_target = ${param_count}")
+        values.append(request.retention_target)
+        param_count += 1
+
+    if request.auto_archive_days is not None:
+        updates.append(f"auto_archive_days = ${param_count}")
+        values.append(request.auto_archive_days)
+        param_count += 1
+
+    if request.default_view is not None:
+        if request.default_view not in ('all', 'universes', 'archive'):
+            raise HTTPException(status_code=400, detail="default_view must be 'all', 'universes', or 'archive'")
+        updates.append(f"default_view = ${param_count}")
+        values.append(request.default_view)
+        param_count += 1
+
+    if request.conversations_per_page is not None:
+        updates.append(f"conversations_per_page = ${param_count}")
+        values.append(request.conversations_per_page)
+        param_count += 1
+
+    async with database.db_pool.acquire() as conn:
+        if updates:
+            values.append(current_user['id'])
+            query = f"""
+                UPDATE user_preferences
+                SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ${param_count}
+                RETURNING id, user_id, retention_days, retention_target, auto_archive_days,
+                          default_view, conversations_per_page, created_at, updated_at
+            """
+            row = await conn.fetchrow(query, *values)
+
+            if not row:
+                # Créer les préférences si elles n'existent pas
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO user_preferences (user_id, retention_days, retention_target,
+                                                  auto_archive_days, default_view, conversations_per_page)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING id, user_id, retention_days, retention_target, auto_archive_days,
+                              default_view, conversations_per_page, created_at, updated_at
+                    """,
+                    current_user['id'],
+                    request.retention_days,
+                    request.retention_target or 'archived',
+                    request.auto_archive_days,
+                    request.default_view or 'all',
+                    request.conversations_per_page or 20
+                )
+        else:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        logger.info(f"Preferences updated for user {current_user['username']}")
+        return ConversationPreferencesResponse(**dict(row))
+
+
+@app.get("/api/conversations/stats", response_model=ConversationStats)
+async def get_conversation_stats(current_user: dict = Depends(get_current_user)):
+    """Récupère les statistiques de conversations de l'utilisateur"""
+    async with database.db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM get_user_conversation_stats($1)",
+            current_user['id']
+        )
+
+        return ConversationStats(
+            active_count=row['active_count'],
+            archived_count=row['archived_count'],
+            total_count=row['total_count'],
+            warning_level=row['warning_level'],
+            oldest_active_date=row['oldest_active_date']
+        )
+
+
+@app.post("/api/conversations/{conversation_id}/archive", response_model=Conversation)
+async def archive_conversation(
+    conversation_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Archive une conversation"""
+    async with database.db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE conversations
+            SET archived = true, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2
+            RETURNING *
+            """,
+            conversation_id, current_user['id']
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        logger.info(f"Conversation {conversation_id} archived by user {current_user['username']}")
+        return Conversation(**dict(row))
+
+
+@app.post("/api/conversations/{conversation_id}/unarchive", response_model=Conversation)
+async def unarchive_conversation(
+    conversation_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Désarchive une conversation"""
+    async with database.db_pool.acquire() as conn:
+        # Vérifier la limite avant de désarchiver
+        stats = await conn.fetchrow(
+            "SELECT * FROM get_user_conversation_stats($1)",
+            current_user['id']
+        )
+
+        if stats['active_count'] >= 50:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot unarchive: you have reached the limit of 50 active conversations. Archive or delete some conversations first."
+            )
+
+        row = await conn.fetchrow(
+            """
+            UPDATE conversations
+            SET archived = false, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2
+            RETURNING *
+            """,
+            conversation_id, current_user['id']
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        logger.info(f"Conversation {conversation_id} unarchived by user {current_user['username']}")
+        return Conversation(**dict(row))
+
+
+@app.post("/api/conversations/bulk/archive", response_model=BulkActionResponse)
+async def bulk_archive_conversations(
+    request: BulkArchiveRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Archive plusieurs conversations en masse"""
+    async with database.db_pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE conversations
+            SET archived = true, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ANY($1) AND user_id = $2 AND archived = false
+            """,
+            request.conversation_ids, current_user['id']
+        )
+
+        # Extraire le nombre de lignes affectées
+        count = int(result.split()[-1]) if result else 0
+
+        logger.info(f"Bulk archive: {count} conversations archived by user {current_user['username']}")
+        return BulkActionResponse(success_count=count)
+
+
+@app.post("/api/conversations/bulk/delete", response_model=BulkActionResponse)
+async def bulk_delete_conversations(
+    request: BulkDeleteRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Supprime plusieurs conversations en masse (nécessite confirmation)"""
+    if not request.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Please confirm deletion by setting 'confirm': true"
+        )
+
+    async with database.db_pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            DELETE FROM conversations
+            WHERE id = ANY($1) AND user_id = $2
+            """,
+            request.conversation_ids, current_user['id']
+        )
+
+        count = int(result.split()[-1]) if result else 0
+
+        logger.info(f"Bulk delete: {count} conversations deleted by user {current_user['username']}")
+        return BulkActionResponse(success_count=count)
+
+
+@app.get("/api/conversations/search", response_model=List[ConversationSearchResult])
+async def search_conversations(
+    q: str,
+    universe_id: Optional[UUID] = None,
+    include_archived: bool = False,
+    search_messages: bool = True,
+    limit: int = 20,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recherche full-text dans les conversations (titres et messages).
+
+    - q: Terme de recherche
+    - universe_id: Filtrer par univers
+    - include_archived: Inclure les conversations archivées
+    - search_messages: Rechercher aussi dans le contenu des messages
+    - limit/offset: Pagination
+    """
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+
+    async with database.db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM search_conversations($1, $2, $3, $4, $5, $6, $7)
+            """,
+            current_user['id'],
+            q,
+            universe_id,
+            include_archived,
+            search_messages,
+            limit,
+            offset
+        )
+
+        results = []
+        for row in rows:
+            results.append(ConversationSearchResult(
+                conversation_id=row['conversation_id'],
+                title=row['title'],
+                universe_id=row['universe_id'],
+                universe_name=row['universe_name'],
+                universe_color=row['universe_color'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                message_count=row['message_count'],
+                archived=row['archived'],
+                match_type=row['match_type'],
+                rank=row['rank']
+            ))
+
+        return results
+
+
+async def apply_retention_policy_async(user_id: UUID):
+    """Applique la politique de rétention de manière asynchrone"""
+    try:
+        async with database.db_pool.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT * FROM apply_user_retention_policy($1)",
+                user_id
+            )
+            if result and (result['archived_count'] > 0 or result['deleted_count'] > 0):
+                logger.info(f"Retention policy applied for user {user_id}: {result['archived_count']} archived, {result['deleted_count']} deleted")
+    except Exception as e:
+        logger.error(f"Error applying retention policy for user {user_id}: {e}")
 
 
 # ============================================================================

@@ -110,6 +110,11 @@ export interface Conversation {
   reranking_enabled?: boolean | null; // null = use global env var, true/false = override
   hybrid_search_enabled: boolean; // Hybrid search per conversation
   hybrid_search_alpha: number; // Alpha parameter (0=keywords, 1=vector)
+  // Conversation Management - Universe assignment
+  universe_id?: string;
+  universe_name?: string;
+  universe_slug?: string;
+  universe_color?: string;
 }
 
 export interface ConversationWithStats extends Conversation {
@@ -337,4 +342,102 @@ export interface PreAnalyzeResponse {
   original_question: string;
   detected_intent?: string;
   extracted_terms: string[];
+}
+
+// ============================================================================
+// Conversation Management Types
+// ============================================================================
+
+export type ConversationTab = 'all' | 'universes' | 'archive';
+
+export interface ConversationFilters {
+  search?: string;
+  universeIds?: string[];
+  archived?: boolean;
+  tab: ConversationTab;
+}
+
+export interface ConversationCreate {
+  title?: string;
+  provider?: 'mistral' | 'chocolatine';
+  use_tools?: boolean;
+  reranking_enabled?: boolean | null;
+  universe_id?: string;
+}
+
+export interface ConversationUpdate {
+  title?: string;
+  is_archived?: boolean;
+  reranking_enabled?: boolean | null;
+  hybrid_search_enabled?: boolean;
+  hybrid_search_alpha?: number;
+  universe_id?: string;
+}
+
+export interface ConversationPreferences {
+  id: string;
+  user_id: string;
+  retention_days: number | null;
+  retention_target: 'archived' | 'all';
+  auto_archive_days: number | null;
+  default_view: ConversationTab;
+  conversations_per_page: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationPreferencesUpdate {
+  retention_days?: number | null;
+  retention_target?: 'archived' | 'all';
+  auto_archive_days?: number | null;
+  default_view?: ConversationTab;
+  conversations_per_page?: number;
+}
+
+export type WarningLevel = 'none' | 'approaching' | 'exceeded';
+
+export interface ConversationStats {
+  active_count: number;
+  archived_count: number;
+  total_count: number;
+  warning_level: WarningLevel;
+  oldest_active_date: string | null;
+}
+
+export type MatchType = 'title' | 'message' | 'both';
+
+export interface ConversationSearchResult {
+  conversation_id: string;
+  title: string;
+  universe_id?: string;
+  universe_name?: string;
+  universe_color?: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  archived: boolean;
+  match_type: MatchType;
+  rank: number;
+}
+
+export interface BulkArchiveRequest {
+  conversation_ids: string[];
+}
+
+export interface BulkDeleteRequest {
+  conversation_ids: string[];
+  confirm: boolean;
+}
+
+export interface BulkActionResponse {
+  success_count: number;
+  failed_count: number;
+  errors: string[];
+}
+
+// Time grouping for conversation list
+export type TimeGroup = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'older';
+
+export interface GroupedConversations {
+  [key: string]: ConversationWithStats[];
 }

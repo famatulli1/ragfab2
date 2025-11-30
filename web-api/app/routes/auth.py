@@ -6,6 +6,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from datetime import timedelta
 import logging
+import asyncio
+from uuid import UUID
 
 from ..models import LoginRequest, TokenResponse, User, UserProfileUpdate, PasswordChange, UserPreferencesUpdate, UserPreferencesResponse
 from ..question_quality import QUESTION_QUALITY_PHASE
@@ -17,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
+
+
+async def apply_retention_policy_async(user_id: UUID):
+    """Applique la politique de rétention de manière asynchrone au login"""
+    try:
+        async with database.db_pool.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT * FROM apply_user_retention_policy($1)",
+                user_id
+            )
+            if result and (result['archived_count'] > 0 or result['deleted_count'] > 0):
+                logger.info(f"Retention policy applied: {result['archived_count']} archived, {result['deleted_count']} deleted")
+    except Exception as e:
+        logger.error(f"Error applying retention policy: {e}")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -53,6 +69,9 @@ async def login(request: Request, login_data: LoginRequest):
     )
 
     logger.info(f"✅ Connexion réussie pour: {user['username']}")
+
+    # Appliquer la politique de rétention des conversations en arrière-plan
+    asyncio.create_task(apply_retention_policy_async(user['id']))
 
     return TokenResponse(
         access_token=access_token,
