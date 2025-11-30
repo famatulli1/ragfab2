@@ -559,32 +559,6 @@ export default function ChatPage() {
     }
   };
 
-  const handleMoveToUniverse = async (id: string, universeId: string | null) => {
-    try {
-      const updated = await api.moveConversationToUniverse(id, universeId);
-      const universe = universeId ? universes.find(u => u.id === universeId) : null;
-      setConversations(convs =>
-        convs.map(c => c.id === id ? {
-          ...c,
-          universe_id: updated.universe_id,
-          universe_name: universe?.name,
-          universe_color: universe?.color,
-        } : c)
-      );
-      if (currentConversation?.id === id) {
-        setCurrentConversation({
-          ...currentConversation,
-          universe_id: updated.universe_id,
-          universe_name: universe?.name,
-          universe_color: universe?.color,
-        });
-      }
-    } catch (error) {
-      console.error('Error moving conversation to universe:', error);
-      alert('Erreur lors du déplacement');
-    }
-  };
-
   const refreshConversations = () => {
     loadConversations();
   };
@@ -647,7 +621,6 @@ export default function ChatPage() {
         onDeleteConversation={handleDeleteConversation}
         onArchiveConversation={handleArchiveConversation}
         onUnarchiveConversation={handleUnarchiveConversation}
-        onMoveToUniverse={handleMoveToUniverse}
         onOpenSettings={() => setShowConversationSettings(true)}
         onRefreshConversations={refreshConversations}
         username={currentUser?.username}

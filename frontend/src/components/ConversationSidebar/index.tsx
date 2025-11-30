@@ -25,7 +25,6 @@ interface ConversationSidebarProps {
   onDeleteConversation: (id: string) => Promise<void>;
   onArchiveConversation: (id: string) => Promise<void>;
   onUnarchiveConversation: (id: string) => Promise<void>;
-  onMoveToUniverse: (id: string, universeId: string | null) => Promise<void>;
   onOpenSettings: () => void;
   onRefreshConversations: () => void;
   username?: string;
@@ -43,7 +42,6 @@ export default function ConversationSidebar({
   onDeleteConversation,
   onArchiveConversation,
   onUnarchiveConversation,
-  onMoveToUniverse,
   onOpenSettings,
   onRefreshConversations: _onRefreshConversations,
   username,
@@ -168,11 +166,9 @@ export default function ConversationSidebar({
       onDeleteConversation,
       onArchiveConversation,
       onUnarchiveConversation,
-      onMoveToUniverse,
       onEditStart: handleEditStart,
       onEditChange: handleEditChange,
       onEditCancel: handleEditCancel,
-      universes,
     };
 
     if (activeTab === 'universes') {

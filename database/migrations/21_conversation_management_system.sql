@@ -204,8 +204,8 @@ BEGIN
     ),
     deduplicated AS (
         SELECT
-            id,
-            title,
+            combined.id,
+            combined.title,
             combined.universe_id,
             combined.universe_name,
             combined.universe_color,
@@ -213,13 +213,13 @@ BEGIN
             combined.updated_at,
             combined.message_count,
             combined.archived,
-            CASE
-                WHEN COUNT(DISTINCT match_type) > 1 THEN 'both'
-                ELSE MAX(match_type)
-            END as match_type,
-            MAX(rank) as rank
+            (CASE
+                WHEN COUNT(DISTINCT combined.match_type) > 1 THEN 'both'
+                ELSE MAX(combined.match_type)
+            END)::VARCHAR as match_type,
+            MAX(combined.rank) as rank
         FROM combined
-        GROUP BY id, title, combined.universe_id, combined.universe_name, combined.universe_color,
+        GROUP BY combined.id, combined.title, combined.universe_id, combined.universe_name, combined.universe_color,
                  combined.created_at, combined.updated_at, combined.message_count, combined.archived
     )
     SELECT

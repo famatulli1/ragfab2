@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { ConversationWithStats, ProductUniverse, TimeGroup } from '../../types';
+import type { ConversationWithStats, TimeGroup } from '../../types';
 import ConversationItem from './ConversationItem';
 import { getTimeGroupLabel } from './utils';
 
@@ -15,11 +15,9 @@ interface ConversationGroupProps {
   onDeleteConversation: (id: string) => void;
   onArchiveConversation?: (id: string) => void;
   onUnarchiveConversation?: (id: string) => void;
-  onMoveToUniverse?: (id: string, universeId: string | null) => void;
   onEditStart: (id: string, currentTitle: string) => void;
   onEditChange: (title: string) => void;
   onEditCancel: () => void;
-  universes?: ProductUniverse[];
   showUniverseDot?: boolean;
   collapsible?: boolean;
   defaultExpanded?: boolean;
@@ -37,11 +35,9 @@ export default function ConversationGroup({
   onDeleteConversation,
   onArchiveConversation,
   onUnarchiveConversation,
-  onMoveToUniverse,
   onEditStart,
   onEditChange,
   onEditCancel,
-  universes = [],
   showUniverseDot = true,
   collapsible = true,
   defaultExpanded = true,
@@ -88,11 +84,9 @@ export default function ConversationGroup({
               onDelete={() => onDeleteConversation(conv.id)}
               onArchive={onArchiveConversation ? () => onArchiveConversation(conv.id) : undefined}
               onUnarchive={onUnarchiveConversation ? () => onUnarchiveConversation(conv.id) : undefined}
-              onMoveToUniverse={onMoveToUniverse ? (universeId) => onMoveToUniverse(conv.id, universeId) : undefined}
               onEditStart={() => onEditStart(conv.id, conv.title)}
               onEditChange={onEditChange}
               onEditCancel={onEditCancel}
-              universes={universes}
               showUniverseDot={showUniverseDot && !color}
             />
           ))}
