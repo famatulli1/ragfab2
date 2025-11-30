@@ -143,8 +143,8 @@ export default function ChatPage() {
         if (emptyConversation) {
           setCurrentConversation(emptyConversation);
         } else {
-          // Aucune conversation vierge, créer une nouvelle
-          await createNewConversation();
+          // Aucune conversation vierge, créer une nouvelle (passer convs pour éviter bug de state)
+          await createNewConversation(convs);
         }
       } else if (convs.length === 0) {
         // Créer automatiquement une conversation si aucune n'existe
@@ -176,10 +176,15 @@ export default function ChatPage() {
     }
   };
 
-  const createNewConversation = async () => {
+  const createNewConversation = async (existingConversations?: Conversation[]) => {
     try {
       const conv = await api.createConversation('Nouvelle conversation', provider, useTools);
-      setConversations([conv, ...conversations]);
+      // Utiliser existingConversations si fourni, sinon le state actuel
+      if (existingConversations) {
+        setConversations([conv, ...existingConversations]);
+      } else {
+        setConversations(prev => [conv, ...prev]);
+      }
       setCurrentConversation(conv);
       setMessages([]);
     } catch (error) {
@@ -479,7 +484,7 @@ export default function ChatPage() {
       >
         <div className="p-4 border-b border-gray-700">
           <button
-            onClick={createNewConversation}
+            onClick={() => createNewConversation()}
             className="w-full flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
           >
             <Plus size={20} />
