@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Plus, Moon, Sun, Download, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
+import { Menu, Send, Plus, Moon, Sun, ThumbsUp, ThumbsDown, Copy, RotateCw, Trash2, Edit2, MoreVertical, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
@@ -413,21 +413,6 @@ export default function ChatPage() {
     navigator.clipboard.writeText(content);
   };
 
-  const exportConversation = async (format: 'markdown' | 'pdf') => {
-    if (!currentConversation) return;
-
-    try {
-      const blob = await api.exportConversation(currentConversation.id, format);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `conversation_${currentConversation.id}.${format === 'markdown' ? 'md' : 'pdf'}`;
-      a.click();
-    } catch (error) {
-      console.error('Error exporting conversation:', error);
-    }
-  };
-
   const handleRenameConversation = async (id: string, newTitle: string) => {
     if (!newTitle.trim()) {
       setEditingConversation(null);
@@ -590,7 +575,7 @@ export default function ChatPage() {
             >
               <Menu size={20} />
             </button>
-            <h1 className="font-semibold text-lg">
+            <h1 className="font-semibold text-lg truncate max-w-sm">
               {currentConversation?.title || 'RAGFab'}
             </h1>
             {currentConversation && (
@@ -660,15 +645,6 @@ export default function ChatPage() {
               <Settings size={20} />
             </button>
             */}
-            {currentConversation && (
-              <button
-                onClick={() => exportConversation('markdown')}
-                className="btn-ghost"
-                title="Exporter en Markdown"
-              >
-                <Download size={20} />
-              </button>
-            )}
             <button
               onClick={toggleTheme}
               className="btn-ghost"
