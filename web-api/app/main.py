@@ -478,7 +478,12 @@ async def get_conversation(
     """Récupère une conversation appartenant à l'utilisateur courant"""
     async with database.db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            """
+            SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+            FROM conversations c
+            LEFT JOIN product_universes pu ON c.universe_id = pu.id
+            WHERE c.id = $1 AND c.user_id = $2
+            """,
             conversation_id, current_user['id']
         )
         if not row:
@@ -686,18 +691,62 @@ async def update_conversation_preferences(
 @app.get("/api/conversations/stats", response_model=ConversationStats)
 async def get_conversation_stats(current_user: dict = Depends(get_current_user)):
     """Récupère les statistiques de conversations de l'utilisateur"""
-    async with database.db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM get_user_conversation_stats($1)",
-            current_user['id']
-        )
+    try:
+        async with database.db_pool.acquire() as conn:
+            # Try the function first
+            try:
+                row = await conn.fetchrow(
+                    "SELECT * FROM get_user_conversation_stats($1)",
+                    current_user['id']
+                )
+            except Exception as func_error:
+                logger.warning(f"Stats function failed, using fallback query: {func_error}")
+                # Fallback: direct query if function doesn't work
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE NOT archived)::INTEGER as active_count,
+                        COUNT(*) FILTER (WHERE archived)::INTEGER as archived_count,
+                        COUNT(*)::INTEGER as total_count,
+                        CASE
+                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 50 THEN 'exceeded'
+                            WHEN COUNT(*) FILTER (WHERE NOT archived) >= 40 THEN 'approaching'
+                            ELSE 'none'
+                        END as warning_level,
+                        MIN(updated_at) FILTER (WHERE NOT archived) as oldest_active_date
+                    FROM conversations
+                    WHERE user_id = $1
+                    """,
+                    current_user['id']
+                )
 
+            if not row:
+                # No data - return defaults
+                logger.info(f"No stats found for user {current_user['id']}, returning defaults")
+                return ConversationStats(
+                    active_count=0,
+                    archived_count=0,
+                    total_count=0,
+                    warning_level='none',
+                    oldest_active_date=None
+                )
+
+            return ConversationStats(
+                active_count=row['active_count'] or 0,
+                archived_count=row['archived_count'] or 0,
+                total_count=row['total_count'] or 0,
+                warning_level=row['warning_level'] or 'none',
+                oldest_active_date=row['oldest_active_date']
+            )
+    except Exception as e:
+        logger.error(f"Error getting conversation stats: {e}")
+        # Return safe defaults on any error
         return ConversationStats(
-            active_count=row['active_count'],
-            archived_count=row['archived_count'],
-            total_count=row['total_count'],
-            warning_level=row['warning_level'],
-            oldest_active_date=row['oldest_active_date']
+            active_count=0,
+            archived_count=0,
+            total_count=0,
+            warning_level='none',
+            oldest_active_date=None
         )
 
 
@@ -744,12 +793,22 @@ async def unarchive_conversation(
     """Désarchive une conversation"""
     async with database.db_pool.acquire() as conn:
         # Vérifier la limite avant de désarchiver
-        stats = await conn.fetchrow(
-            "SELECT * FROM get_user_conversation_stats($1)",
-            current_user['id']
-        )
+        try:
+            stats = await conn.fetchrow(
+                "SELECT * FROM get_user_conversation_stats($1)",
+                current_user['id']
+            )
+            active_count = stats['active_count'] if stats else 0
+        except Exception as e:
+            logger.warning(f"Stats function failed in unarchive, using fallback: {e}")
+            # Fallback: direct count
+            count_row = await conn.fetchrow(
+                "SELECT COUNT(*) as cnt FROM conversations WHERE user_id = $1 AND NOT archived",
+                current_user['id']
+            )
+            active_count = count_row['cnt'] if count_row else 0
 
-        if stats['active_count'] >= 50:
+        if active_count >= 50:
             raise HTTPException(
                 status_code=400,
                 detail="Cannot unarchive: you have reached the limit of 50 active conversations. Archive or delete some conversations first."
