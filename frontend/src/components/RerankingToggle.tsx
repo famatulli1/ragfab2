@@ -35,9 +35,6 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        Recherche approfondie
-      </span>
       <button
         onClick={handleToggle}
         disabled={isLoading}
@@ -64,6 +61,9 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
           `}
         />
       </button>
+      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        Recherche approfondie
+      </span>
     </div>
   );
 }
