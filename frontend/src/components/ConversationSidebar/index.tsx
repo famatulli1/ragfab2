@@ -134,7 +134,11 @@ export default function ConversationSidebar({
   };
 
   const handleRename = async (id: string, newTitle: string) => {
-    if (newTitle.trim() && newTitle !== editTitle) {
+    // Find original title from conversations array (editTitle == newTitle at this point)
+    const originalConv = conversations.find(c => c.id === id);
+    const originalTitle = originalConv?.title || '';
+
+    if (newTitle.trim() && newTitle !== originalTitle) {
       await onRenameConversation(id, newTitle);
     }
     handleEditCancel();
@@ -218,7 +222,7 @@ export default function ConversationSidebar({
         onOpenSettings={onOpenSettings}
       />
 
-      <SearchBar onSearch={handleSearch} placeholder="Rechercher..." />
+      <SearchBar key={activeTab} onSearch={handleSearch} placeholder="Rechercher..." />
 
       <FilterTabs
         activeTab={activeTab}
