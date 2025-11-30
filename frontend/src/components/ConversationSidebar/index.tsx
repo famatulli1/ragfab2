@@ -59,7 +59,10 @@ export default function ConversationSidebar({
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
-  // Load conversation stats
+  // Load conversation stats - refresh when conversations array changes or archive status changes
+  const archivedCount = conversations.filter(c => c.is_archived).length;
+  const activeCount = conversations.filter(c => !c.is_archived).length;
+
   useEffect(() => {
     const loadStats = async () => {
       try {
@@ -70,7 +73,7 @@ export default function ConversationSidebar({
       }
     };
     loadStats();
-  }, [conversations]);
+  }, [conversations.length, archivedCount, activeCount]);
 
   // Handle search
   const handleSearch = useCallback(async (query: string) => {

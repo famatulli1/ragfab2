@@ -708,12 +708,23 @@ async def archive_conversation(
 ):
     """Archive une conversation"""
     async with database.db_pool.acquire() as conn:
-        row = await conn.fetchrow(
+        # Update the conversation
+        await conn.execute(
             """
             UPDATE conversations
             SET archived = true, updated_at = CURRENT_TIMESTAMP
             WHERE id = $1 AND user_id = $2
-            RETURNING *
+            """,
+            conversation_id, current_user['id']
+        )
+
+        # Fetch with universe metadata
+        row = await conn.fetchrow(
+            """
+            SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+            FROM conversations c
+            LEFT JOIN product_universes pu ON c.universe_id = pu.id
+            WHERE c.id = $1 AND c.user_id = $2
             """,
             conversation_id, current_user['id']
         )
@@ -744,12 +755,23 @@ async def unarchive_conversation(
                 detail="Cannot unarchive: you have reached the limit of 50 active conversations. Archive or delete some conversations first."
             )
 
-        row = await conn.fetchrow(
+        # Update the conversation
+        await conn.execute(
             """
             UPDATE conversations
             SET archived = false, updated_at = CURRENT_TIMESTAMP
             WHERE id = $1 AND user_id = $2
-            RETURNING *
+            """,
+            conversation_id, current_user['id']
+        )
+
+        # Fetch with universe metadata
+        row = await conn.fetchrow(
+            """
+            SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+            FROM conversations c
+            LEFT JOIN product_universes pu ON c.universe_id = pu.id
+            WHERE c.id = $1 AND c.user_id = $2
             """,
             conversation_id, current_user['id']
         )
@@ -1175,10 +1197,15 @@ async def send_message(
     5. Sauvegarde la réponse
     6. Retourne le tout
     """
-    # Récupérer et vérifier la conversation
+    # Récupérer et vérifier la conversation (avec metadata univers)
     async with database.db_pool.acquire() as conn:
         conversation = await conn.fetchrow(
-            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            """
+            SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+            FROM conversations c
+            LEFT JOIN product_universes pu ON c.universe_id = pu.id
+            WHERE c.id = $1 AND c.user_id = $2
+            """,
             chat_request.conversation_id, current_user['id']
         )
         if not conversation:
@@ -1267,9 +1294,14 @@ async def send_message(
 
                 logger.info(f"✅ Titre de conversation mis à jour : '{new_title}'")
 
-                # Mettre à jour l'objet conversation pour la réponse
+                # Mettre à jour l'objet conversation pour la réponse (avec metadata univers)
                 conversation = await conn.fetchrow(
-                    "SELECT * FROM conversations WHERE id = $1",
+                    """
+                    SELECT c.*, pu.name as universe_name, pu.slug as universe_slug, pu.color as universe_color
+                    FROM conversations c
+                    LEFT JOIN product_universes pu ON c.universe_id = pu.id
+                    WHERE c.id = $1
+                    """,
                     chat_request.conversation_id
                 )
 

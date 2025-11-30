@@ -240,11 +240,15 @@ export default function ChatPage() {
         });
       }
 
-      // Mettre à jour la conversation dans la liste (preserve stats)
+      // Mettre à jour la conversation dans la liste (preserve stats and universe data)
       const updatedConvWithStats: ConversationWithStats = {
         ...response.conversation,
         thumbs_up_count: currentConversation.thumbs_up_count,
         thumbs_down_count: currentConversation.thumbs_down_count,
+        // Fallback: preserve universe data if not in response
+        universe_id: response.conversation.universe_id ?? currentConversation.universe_id,
+        universe_name: response.conversation.universe_name ?? currentConversation.universe_name,
+        universe_color: response.conversation.universe_color ?? currentConversation.universe_color,
       };
       setConversations(convs =>
         convs.map(c => c.id === currentConversation.id ? updatedConvWithStats : c)
@@ -385,11 +389,15 @@ export default function ChatPage() {
 
       setMessages([response.user_message, response.assistant_message]);
 
-      // Mettre à jour la conversation dans la liste (preserve stats)
+      // Mettre à jour la conversation dans la liste (preserve stats and universe data)
       const responseConvWithStats: ConversationWithStats = {
         ...response.conversation,
         thumbs_up_count: 0,
         thumbs_down_count: 0,
+        // Fallback: preserve universe data if not in response
+        universe_id: response.conversation.universe_id ?? newConversation.universe_id,
+        universe_name: response.conversation.universe_name ?? newConversation.universe_name,
+        universe_color: response.conversation.universe_color ?? newConversation.universe_color,
       };
       setConversations(convs =>
         convs.map(c => c.id === newConversation.id ? responseConvWithStats : c)
