@@ -438,6 +438,4 @@ export interface BulkActionResponse {
 // Time grouping for conversation list
 export type TimeGroup = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'older';
 
-export interface GroupedConversations {
-  [key: string]: ConversationWithStats[];
-}
+export type GroupedConversations = Record<TimeGroup, ConversationWithStats[]>;

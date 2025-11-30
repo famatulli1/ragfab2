@@ -45,7 +45,7 @@ export default function ConversationSidebar({
   onUnarchiveConversation,
   onMoveToUniverse,
   onOpenSettings,
-  onRefreshConversations,
+  onRefreshConversations: _onRefreshConversations,
   username,
   universes = [],
   currentUniverseId,

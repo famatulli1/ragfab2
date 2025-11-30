@@ -32,8 +32,6 @@ import type {
   ConversationPreferencesUpdate,
   ConversationStats,
   ConversationSearchResult,
-  BulkArchiveRequest,
-  BulkDeleteRequest,
   BulkActionResponse,
 } from '../types';
 import type {
