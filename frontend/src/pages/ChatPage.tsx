@@ -209,13 +209,14 @@ export default function ChatPage() {
       });
 
       // Add default stats and universe info for ConversationWithStats
+      // Use API response values as fallback (conv already has universe_name/color from backend JOIN)
       const convWithStats: ConversationWithStats = {
         ...conv,
         thumbs_up_count: 0,
         thumbs_down_count: 0,
-        universe_id: currentUniverseId,
-        universe_name: currentUniverse?.name,
-        universe_color: currentUniverse?.color,
+        universe_id: currentUniverseId || conv.universe_id,
+        universe_name: currentUniverse?.name || conv.universe_name,
+        universe_color: currentUniverse?.color || conv.universe_color,
       };
       // Utiliser existingConversations si fourni, sinon le state actuel
       if (existingConversations) {
