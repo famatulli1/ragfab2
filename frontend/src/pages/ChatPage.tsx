@@ -45,6 +45,7 @@ export default function ChatPage() {
   // Universe selection state
   const [selectedUniverseIds, setSelectedUniverseIds] = useState<string[]>([]);
   const [searchAllUniverses, setSearchAllUniverses] = useState(false);
+  const [defaultUniverseId, setDefaultUniverseId] = useState<string | null>(null);
 
   // Interactive mode state (pre-analyze before sending)
   const [preAnalyzeResult, setPreAnalyzeResult] = useState<PreAnalyzeResponse | null>(null);
@@ -56,9 +57,22 @@ export default function ChatPage() {
     loadCurrentUser();
   }, []);
 
-  // Charger les conversations
+  // Charger l'univers par défaut, puis les conversations
   useEffect(() => {
-    loadConversations();
+    const init = async () => {
+      try {
+        // 1. Charger l'univers par défaut de l'utilisateur
+        const defaultResponse = await api.getMyDefaultUniverse();
+        if (defaultResponse.default_universe) {
+          setDefaultUniverseId(defaultResponse.default_universe.universe_id);
+        }
+      } catch (error) {
+        console.error('Error loading default universe:', error);
+      }
+      // 2. Charger les conversations (après avoir récupéré l'univers par défaut)
+      await loadConversations();
+    };
+    init();
   }, []);
 
   // Charger les messages de la conversation courante
@@ -174,8 +188,10 @@ export default function ChatPage() {
 
   const createNewConversation = async (existingConversations?: ConversationWithStats[]) => {
     try {
-      // Pass the current universe if one is selected
-      const currentUniverseId = selectedUniverseIds.length > 0 ? selectedUniverseIds[0] : undefined;
+      // Pass the current universe if one is selected, otherwise use the default universe
+      const currentUniverseId = selectedUniverseIds.length > 0
+        ? selectedUniverseIds[0]
+        : (defaultUniverseId || undefined);
       const currentUniverse = currentUniverseId ? universes.find(u => u.id === currentUniverseId) : undefined;
 
       const conv = await api.createConversation({
@@ -352,23 +368,31 @@ export default function ChatPage() {
 
     setIsLoading(true);
 
+    // Get current universe for the new conversation (fallback to default universe)
+    const currentUniverseId = selectedUniverseIds.length > 0
+      ? selectedUniverseIds[0]
+      : (defaultUniverseId || undefined);
+    const currentUniverse = currentUniverseId ? universes.find(u => u.id === currentUniverseId) : undefined;
+
     try {
-      // 2. Créer nouvelle conversation avec le mode hybride configuré
-      const newConversation = await api.createConversation('Nouvelle conversation', provider, useTools);
-
-      // 3. Mettre à jour les settings hybrides de la nouvelle conversation
-      await api.updateConversation(newConversation.id, {
-        hybrid_search_enabled: hybridMode,
-        hybrid_search_alpha: 0.5, // valeur par défaut
-      });
-
-      // 4. Mettre à jour le state local (with stats)
-      const updatedConversation: ConversationWithStats = {
-        ...newConversation,
+      // 2. Créer nouvelle conversation avec le mode hybride configuré ET l'univers
+      const newConversation = await api.createConversation({
+        title: 'Nouvelle conversation',
+        provider: provider as 'mistral' | 'chocolatine',
+        use_tools: useTools,
+        universe_id: currentUniverseId,
         hybrid_search_enabled: hybridMode,
         hybrid_search_alpha: 0.5,
+      });
+
+      // 3. Mettre à jour le state local (with stats and universe info)
+      const updatedConversation: ConversationWithStats = {
+        ...newConversation,
         thumbs_up_count: 0,
         thumbs_down_count: 0,
+        universe_id: currentUniverseId,
+        universe_name: currentUniverse?.name,
+        universe_color: currentUniverse?.color,
       };
       setCurrentConversation(updatedConversation);
       setConversations([updatedConversation, ...conversations]);
