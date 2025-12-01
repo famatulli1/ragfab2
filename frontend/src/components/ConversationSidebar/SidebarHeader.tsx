@@ -16,7 +16,7 @@ export default function SidebarHeader({
         className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
       >
         <Plus size={20} />
-        <span>Nouvelle conversation</span>
+        <span>Nouveau</span>
       </button>
       <button
         onClick={onOpenSettings}

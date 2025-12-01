@@ -171,7 +171,7 @@ BEGIN
         WHERE c.user_id = p_user_id
           AND (p_include_archived OR c.archived = false)
           AND (p_universe_id IS NULL OR c.universe_id = p_universe_id)
-          AND c.title_tsv @@ v_tsquery
+          AND (c.title_tsv @@ v_tsquery OR c.title ILIKE '%' || p_query || '%')
     ),
     message_matches AS (
         -- Recherche dans les messages
@@ -194,7 +194,7 @@ BEGIN
           AND (p_include_archived OR c.archived = false)
           AND (p_universe_id IS NULL OR c.universe_id = p_universe_id)
           AND p_search_messages = true
-          AND m.content_tsv @@ v_tsquery
+          AND (m.content_tsv @@ v_tsquery OR m.content ILIKE '%' || p_query || '%')
         ORDER BY c.id, ts_rank(m.content_tsv, v_tsquery) DESC
     ),
     combined AS (
