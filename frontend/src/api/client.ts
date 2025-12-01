@@ -944,9 +944,9 @@ class APIClient {
     question: string,
     universeIds?: string[]
   ): Promise<FavoriteSuggestionResponse> {
-    const params: any = { question };
+    const params: any = { q: question };  // Backend expects 'q' not 'question'
     if (universeIds && universeIds.length > 0) {
-      params.universe_ids = universeIds.join(',');  // Backend expects comma-separated string
+      params.universe_ids = universeIds.join(',');
     }
 
     const { data } = await this.client.get<FavoriteSuggestionResponse>('/api/favorites/suggestions', {
