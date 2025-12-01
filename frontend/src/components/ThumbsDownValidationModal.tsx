@@ -69,7 +69,7 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
     validation.admin_override
   );
   const [adminNotes, setAdminNotes] = useState(validation.admin_notes || '');
-  const [adminAction, setAdminAction] = useState<AdminAction>(validation.admin_action);
+  const [adminAction, setAdminAction] = useState<AdminAction>(validation.admin_action || 'pending');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -375,7 +375,7 @@ export const ThumbsDownValidationModal: React.FC<ThumbsDownValidationModalProps>
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">
-                {ACTION_LABELS[adminAction].description}
+                {ACTION_LABELS[adminAction]?.description || 'Action non définie'}
               </p>
             </div>
 
