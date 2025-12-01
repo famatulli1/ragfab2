@@ -30,6 +30,7 @@ interface ConversationSidebarProps {
   onUnarchiveConversation: (id: string) => Promise<void>;
   onOpenSettings: () => void;
   onRefreshConversations: () => void;
+  onReloadConversations?: () => Promise<void>;
   username?: string;
   universes?: ProductUniverse[];
   currentUniverseId?: string;
@@ -47,6 +48,7 @@ export default function ConversationSidebar({
   onUnarchiveConversation,
   onOpenSettings,
   onRefreshConversations: _onRefreshConversations,
+  onReloadConversations,
   username,
   universes = [],
   currentUniverseId,
@@ -179,6 +181,10 @@ export default function ConversationSidebar({
       // Switch back to 'all' tab to see the new conversation
       setActiveTab('all');
       setSelectedFavorite(null);
+      // Reload conversations list to display the new conversation with correct message_count
+      if (onReloadConversations) {
+        await onReloadConversations();
+      }
     } catch (error) {
       console.error('Failed to copy favorite:', error);
       throw error;

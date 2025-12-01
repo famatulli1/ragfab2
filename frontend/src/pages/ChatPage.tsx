@@ -688,6 +688,7 @@ export default function ChatPage() {
         onUnarchiveConversation={handleUnarchiveConversation}
         onOpenSettings={() => setShowConversationSettings(true)}
         onRefreshConversations={refreshConversations}
+        onReloadConversations={loadConversations}
         username={currentUser?.username}
         universes={universes}
         currentUniverseId={selectedUniverseIds[0]}
