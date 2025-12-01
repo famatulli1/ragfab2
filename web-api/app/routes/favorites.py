@@ -161,6 +161,12 @@ async def propose_favorite(
 
         # Générer l'embedding de la question
         embedding = await generate_embedding(user_msg["content"])
+        # Convertir l'embedding en string pour pgvector
+        embedding_str = str(embedding) if embedding else None
+
+        # Sérialiser les sources en JSON si c'est une liste/dict
+        import json
+        sources_json = json.dumps(assistant_msg["sources"]) if assistant_msg["sources"] else None
 
         # Créer le favori
         row = await conn.fetchrow(
@@ -175,11 +181,11 @@ async def propose_favorite(
             """,
             user_msg["content"],
             assistant_msg["content"],
-            assistant_msg["sources"],
+            sources_json,
             data.conversation_id,
             current_user["id"],
             conv["universe_id"],
-            embedding
+            embedding_str
         )
 
         # Récupérer les infos complètes
