@@ -24,12 +24,12 @@ export default function FavoriteSuggestionBanner({
   const hasMore = suggestions.length > 1;
 
   return (
-    <div className="mx-4 mb-4 bg-gradient-to-r from-yellow-900/30 to-amber-900/30 border border-yellow-600/40 rounded-xl overflow-hidden">
+    <div className="mx-4 mb-4 bg-gradient-to-r from-indigo-950/80 to-purple-950/80 border border-indigo-500/50 rounded-xl overflow-hidden shadow-lg shadow-indigo-500/10">
       {/* Header */}
       <div className="px-4 py-3 flex items-start gap-3">
-        <div className="p-2 bg-yellow-500/20 rounded-lg">
+        <div className="p-2 bg-indigo-500/30 rounded-lg">
           <svg
-            className="w-5 h-5 text-yellow-400"
+            className="w-5 h-5 text-indigo-300"
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -39,14 +39,14 @@ export default function FavoriteSuggestionBanner({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-sm font-semibold text-yellow-300">
+            <h3 className="text-sm font-semibold text-white">
               Solution similaire trouvee !
             </h3>
-            <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-indigo-500/40 text-indigo-200 px-2 py-0.5 rounded-full font-medium">
               {Math.round(topSuggestion.similarity * 100)}% de correspondance
             </span>
           </div>
-          <p className="text-sm text-gray-300 line-clamp-2">
+          <p className="text-sm text-gray-200 line-clamp-2">
             {topSuggestion.title}
           </p>
           {topSuggestion.universe_name && (
@@ -55,7 +55,7 @@ export default function FavoriteSuggestionBanner({
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: topSuggestion.universe_color || '#6B7280' }}
               />
-              <span className="text-xs text-gray-400">{topSuggestion.universe_name}</span>
+              <span className="text-xs text-gray-300">{topSuggestion.universe_name}</span>
             </div>
           )}
         </div>
@@ -64,19 +64,19 @@ export default function FavoriteSuggestionBanner({
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => onViewDetail(topSuggestion)}
-            className="px-3 py-1.5 text-xs text-yellow-300 hover:text-yellow-200 transition-colors"
+            className="px-3 py-1.5 text-xs text-indigo-300 hover:text-white transition-colors underline-offset-2 hover:underline"
           >
             Voir details
           </button>
           <button
             onClick={onDecline}
-            className="px-3 py-1.5 text-xs text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="px-3 py-1.5 text-xs text-gray-300 hover:text-white bg-gray-700/80 hover:bg-gray-600 rounded-lg transition-colors"
           >
             Non merci
           </button>
           <button
             onClick={() => onAccept(topSuggestion.id)}
-            className="px-3 py-1.5 text-xs font-medium text-gray-900 bg-yellow-400 hover:bg-yellow-300 rounded-lg transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors"
           >
             Utiliser cette solution
           </button>
@@ -85,10 +85,10 @@ export default function FavoriteSuggestionBanner({
 
       {/* More suggestions */}
       {hasMore && (
-        <div className="border-t border-yellow-600/30">
+        <div className="border-t border-indigo-500/30">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="w-full px-4 py-2 text-xs text-yellow-300/80 hover:text-yellow-300 flex items-center gap-1 transition-colors"
+            className="w-full px-4 py-2 text-xs text-indigo-300 hover:text-white flex items-center gap-1 transition-colors"
           >
             <svg
               className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
@@ -138,7 +138,7 @@ export default function FavoriteSuggestionBanner({
                     </button>
                     <button
                       onClick={() => onAccept(suggestion.id)}
-                      className="p-1.5 text-yellow-400 hover:text-yellow-300 transition-colors"
+                      className="p-1.5 text-indigo-400 hover:text-indigo-300 transition-colors"
                       title="Utiliser cette solution"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
