@@ -13,6 +13,7 @@ from uuid import UUID
 from datetime import datetime
 import logging
 import httpx
+import json
 import os
 
 from ..auth import get_current_admin_user, get_current_user
@@ -413,12 +414,17 @@ async def get_suggestions(
                     row["universe_id"]
                 )
 
+            # Parse sources JSON if it's a string
+            sources = row["sources"]
+            if isinstance(sources, str):
+                sources = json.loads(sources) if sources else []
+
             suggestions.append(FavoriteSearchResult(
                 id=row["id"],
                 title=row["title"],
                 question=row["question"],
                 response=row["response"],
-                sources=row["sources"],
+                sources=sources,
                 similarity=row["similarity"],
                 universe_id=row["universe_id"],
                 universe_name=universe_info["name"] if universe_info else None,
