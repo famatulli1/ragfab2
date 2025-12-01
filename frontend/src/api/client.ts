@@ -946,7 +946,7 @@ class APIClient {
   ): Promise<FavoriteSuggestionResponse> {
     const params: any = { question };
     if (universeIds && universeIds.length > 0) {
-      params.universe_ids = universeIds.join(',');
+      params.universe_ids = universeIds;  // Axios serializes arrays as repeated params
     }
 
     const { data } = await this.client.get<FavoriteSuggestionResponse>('/api/favorites/suggestions', {
