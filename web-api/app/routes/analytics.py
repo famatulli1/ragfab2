@@ -1313,6 +1313,8 @@ async def get_reingestion_candidates(
                    (v.admin_override IS NULL AND v.ai_classification = 'missing_sources'))
               AND v.admin_action = 'mark_for_reingestion'
               AND mr.is_cancelled = false
+              AND v.sources_used IS NOT NULL
+              AND jsonb_typeof(v.sources_used) = 'array'
             GROUP BY d.id, d.title, d.source
             ORDER BY occurrences_count DESC, last_occurrence DESC
         """)
