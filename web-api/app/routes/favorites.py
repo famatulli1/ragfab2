@@ -353,7 +353,7 @@ async def search_favorites(
 @router.get("/suggestions", response_model=FavoriteSuggestionResponse)
 async def get_suggestions(
     q: str = Query(..., min_length=5),
-    universe_ids: Optional[List[UUID]] = Query(None),
+    universe_ids: Optional[str] = Query(None),
     threshold: float = Query(0.85, ge=0.5, le=1.0),
     limit: int = Query(3, ge=1, le=10),
     current_user: dict = Depends(get_current_user)
@@ -364,6 +364,14 @@ async def get_suggestions(
     Utilisé avant de lancer une recherche RAG pour proposer des solutions existantes.
     Seuil par défaut: 0.85 (très similaire).
     """
+    # Parser universe_ids (accepte "uuid1" ou "uuid1,uuid2")
+    parsed_universe_ids: Optional[List[UUID]] = None
+    if universe_ids:
+        try:
+            parsed_universe_ids = [UUID(uid.strip()) for uid in universe_ids.split(',') if uid.strip()]
+        except ValueError:
+            pass  # Ignore invalid UUIDs
+
     # Générer l'embedding de la question
     embedding = await generate_embedding(q)
 
@@ -382,7 +390,7 @@ async def get_suggestions(
             embedding,
             limit,
             threshold,
-            universe_ids
+            parsed_universe_ids
         )
 
         if not rows:
