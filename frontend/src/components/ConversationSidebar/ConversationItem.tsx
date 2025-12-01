@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MoreVertical, Edit2, Trash2, Archive, Undo2 } from 'lucide-react';
+import { MoreVertical, Edit2, Trash2, Archive, Undo2, Star } from 'lucide-react';
 import type { ConversationWithStats } from '../../types';
 import { formatRelativeDate } from './utils';
 
@@ -13,6 +13,7 @@ interface ConversationItemProps {
   onDelete: () => void;
   onArchive?: () => void;
   onUnarchive?: () => void;
+  onProposeFavorite?: () => void;
   onEditStart: () => void;
   onEditChange: (title: string) => void;
   onEditCancel: () => void;
@@ -29,6 +30,7 @@ export default function ConversationItem({
   onDelete,
   onArchive,
   onUnarchive,
+  onProposeFavorite,
   onEditStart,
   onEditChange,
   onEditCancel,
@@ -117,6 +119,21 @@ export default function ConversationItem({
                 <Edit2 size={14} />
                 Renommer
               </button>
+
+              {/* Propose as favorite - only if conversation has messages and not archived */}
+              {onProposeFavorite && !conversation.is_archived && conversation.message_count >= 2 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onProposeFavorite();
+                    setMenuOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-700 flex items-center gap-2 text-sm text-yellow-400"
+                >
+                  <Star size={14} />
+                  Proposer comme favori
+                </button>
+              )}
 
               {conversation.is_archived ? (
                 onUnarchive && (

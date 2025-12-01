@@ -15,6 +15,7 @@ interface ConversationGroupProps {
   onDeleteConversation: (id: string) => void;
   onArchiveConversation?: (id: string) => void;
   onUnarchiveConversation?: (id: string) => void;
+  onProposeFavorite?: (id: string) => void;
   onEditStart: (id: string, currentTitle: string) => void;
   onEditChange: (title: string) => void;
   onEditCancel: () => void;
@@ -35,6 +36,7 @@ export default function ConversationGroup({
   onDeleteConversation,
   onArchiveConversation,
   onUnarchiveConversation,
+  onProposeFavorite,
   onEditStart,
   onEditChange,
   onEditCancel,
@@ -84,6 +86,7 @@ export default function ConversationGroup({
               onDelete={() => onDeleteConversation(conv.id)}
               onArchive={onArchiveConversation ? () => onArchiveConversation(conv.id) : undefined}
               onUnarchive={onUnarchiveConversation ? () => onUnarchiveConversation(conv.id) : undefined}
+              onProposeFavorite={onProposeFavorite ? () => onProposeFavorite(conv.id) : undefined}
               onEditStart={() => onEditStart(conv.id, conv.title)}
               onEditChange={onEditChange}
               onEditCancel={onEditCancel}

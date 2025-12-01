@@ -348,7 +348,7 @@ export interface PreAnalyzeResponse {
 // Conversation Management Types
 // ============================================================================
 
-export type ConversationTab = 'all' | 'universes' | 'archive';
+export type ConversationTab = 'all' | 'universes' | 'archive' | 'favorites';
 
 export interface ConversationFilters {
   search?: string;
@@ -439,3 +439,73 @@ export interface BulkActionResponse {
 export type TimeGroup = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'older';
 
 export type GroupedConversations = Record<TimeGroup, ConversationWithStats[]>;
+
+// ============================================================================
+// Shared Favorites Types
+// ============================================================================
+
+export type FavoriteStatus = 'pending' | 'published' | 'rejected';
+
+export interface SharedFavorite {
+  id: string;
+  title: string;
+  question: string;
+  response: string;
+  sources?: Source[];
+  status: FavoriteStatus;
+  proposed_by_username?: string;
+  validated_by_username?: string;
+  universe_id?: string;
+  universe_name?: string;
+  universe_slug?: string;
+  universe_color?: string;
+  view_count: number;
+  copy_count: number;
+  created_at: string;
+  validated_at?: string;
+  last_edited_at?: string;
+  rejection_reason?: string;
+  admin_notes?: string;
+}
+
+export interface FavoriteSearchResult extends Omit<SharedFavorite, 'status' | 'proposed_by_username' | 'validated_by_username' | 'rejection_reason' | 'admin_notes' | 'validated_at' | 'last_edited_at'> {
+  similarity: number;
+}
+
+export interface FavoriteListResponse {
+  favorites: SharedFavorite[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface FavoriteSuggestionResponse {
+  has_suggestions: boolean;
+  suggestions: FavoriteSearchResult[];
+  message?: string;
+}
+
+export interface FavoriteCopyResponse {
+  conversation_id: string;
+  message: string;
+}
+
+export interface FavoriteCreate {
+  conversation_id: string;
+}
+
+export interface FavoriteUpdate {
+  published_title?: string;
+  published_question?: string;
+  published_response?: string;
+  admin_notes?: string;
+}
+
+export interface FavoriteValidation {
+  action: 'publish' | 'reject';
+  published_title?: string;
+  published_question?: string;
+  published_response?: string;
+  rejection_reason?: string;
+}

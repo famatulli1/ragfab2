@@ -3,7 +3,7 @@ import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, RotateCw, Bot, User 
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse } from '../types';
+import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse, FavoriteSearchResult, SharedFavorite } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -17,6 +17,8 @@ import QuestionSuggestions from '../components/QuestionSuggestions';
 import InteractiveSuggestionModal from '../components/InteractiveSuggestionModal';
 import ConversationSidebar from '../components/ConversationSidebar';
 import ConversationSettings from '../components/ConversationSettings';
+import FavoriteSuggestionBanner from '../components/Chat/FavoriteSuggestionBanner';
+import { FavoriteDetailModal } from '../components/ConversationSidebar';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -51,6 +53,11 @@ export default function ChatPage() {
   const [preAnalyzeResult, setPreAnalyzeResult] = useState<PreAnalyzeResponse | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string>('');
   const [isPreAnalyzing, setIsPreAnalyzing] = useState(false);
+
+  // Favorite suggestions state (pre-RAG check)
+  const [favoriteSuggestions, setFavoriteSuggestions] = useState<FavoriteSearchResult[]>([]);
+  const [selectedFavoriteForDetail, setSelectedFavoriteForDetail] = useState<SharedFavorite | FavoriteSearchResult | null>(null);
+  const [pendingQuestionForFavorites, setPendingQuestionForFavorites] = useState<string>('');
 
   // Charger l'utilisateur courant
   useEffect(() => {
@@ -297,12 +304,37 @@ export default function ChatPage() {
     }
   };
 
-  // Main send function - checks for interactive mode first
+  // Main send function - checks for favorites, then interactive mode
   const sendMessage = async () => {
     if (!inputMessage.trim() || !currentConversation || isLoading || isPreAnalyzing) return;
 
     const messageToSend = inputMessage;
 
+    // Step 1: Check for similar favorites (pre-RAG suggestion)
+    try {
+      const favoriteResponse = await api.checkFavoriteSuggestions(
+        messageToSend,
+        selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined
+      );
+
+      if (favoriteResponse.has_suggestions && favoriteResponse.suggestions.length > 0) {
+        // Show favorite suggestions banner
+        setFavoriteSuggestions(favoriteResponse.suggestions);
+        setPendingQuestionForFavorites(messageToSend);
+        // Don't clear input yet - user might decline
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking favorites:', error);
+      // Continue with normal flow on error
+    }
+
+    // Step 2: Continue with normal send flow
+    await proceedWithSend(messageToSend);
+  };
+
+  // Proceed with sending after favorite check
+  const proceedWithSend = async (messageToSend: string) => {
     // Check if user has interactive suggestion mode enabled
     const isInteractiveMode = currentUser?.suggestion_mode === 'interactive';
 
@@ -312,7 +344,7 @@ export default function ChatPage() {
       try {
         const preAnalysis = await api.preAnalyzeQuestion({
           message: messageToSend,
-          conversation_id: currentConversation.id,
+          conversation_id: currentConversation!.id,
           universe_ids: selectedUniverseIds.length > 0 ? selectedUniverseIds : undefined,
         });
 
@@ -340,6 +372,39 @@ export default function ChatPage() {
       setInputMessage('');
       await doSendMessage(messageToSend);
     }
+  };
+
+  // Handle accepting a favorite suggestion
+  const handleAcceptFavorite = async (favoriteId: string) => {
+    try {
+      const response = await api.copyFavoriteToConversation(favoriteId);
+      // Navigate to the new conversation
+      const newConv = await api.getConversation(response.conversation_id);
+      setCurrentConversation(newConv as ConversationWithStats);
+      // Clear the suggestion state
+      setFavoriteSuggestions([]);
+      setPendingQuestionForFavorites('');
+      setInputMessage('');
+      // Reload conversations to show the new one
+      await loadConversations();
+    } catch (error) {
+      console.error('Error copying favorite:', error);
+      alert('Erreur lors de la copie du favori');
+    }
+  };
+
+  // Handle declining favorite suggestions
+  const handleDeclineFavorites = async () => {
+    const messageToSend = pendingQuestionForFavorites;
+    setFavoriteSuggestions([]);
+    setPendingQuestionForFavorites('');
+    // Continue with normal RAG flow
+    await proceedWithSend(messageToSend);
+  };
+
+  // Handle viewing favorite detail
+  const handleViewFavoriteDetail = (favorite: FavoriteSearchResult) => {
+    setSelectedFavoriteForDetail(favorite);
   };
 
   // Handle using a suggestion from the interactive modal
@@ -761,6 +826,18 @@ export default function ChatPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {/* Favorite Suggestion Banner */}
+          {favoriteSuggestions.length > 0 && (
+            <div className="max-w-3xl mx-auto pt-4">
+              <FavoriteSuggestionBanner
+                suggestions={favoriteSuggestions}
+                onAccept={handleAcceptFavorite}
+                onDecline={handleDeclineFavorites}
+                onViewDetail={handleViewFavoriteDetail}
+              />
+            </div>
+          )}
+
           <div className="max-w-3xl mx-auto p-4">
             {messages.map((message) => (
               <div
@@ -1083,6 +1160,15 @@ export default function ChatPage() {
         onBulkArchive={handleBulkArchive}
         onBulkDelete={handleBulkDelete}
       />
+
+      {/* Favorite Detail Modal (from suggestion banner) */}
+      {selectedFavoriteForDetail && (
+        <FavoriteDetailModal
+          favorite={selectedFavoriteForDetail as SharedFavorite}
+          onClose={() => setSelectedFavoriteForDetail(null)}
+          onCopy={handleAcceptFavorite}
+        />
+      )}
     </div>
   );
 }

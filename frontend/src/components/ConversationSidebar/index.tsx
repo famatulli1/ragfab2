@@ -5,6 +5,7 @@ import type {
   ConversationStats,
   ProductUniverse,
   ConversationSearchResult,
+  SharedFavorite,
 } from '../../types';
 import api from '../../api/client';
 import SidebarHeader from './SidebarHeader';
@@ -13,6 +14,8 @@ import FilterTabs from './FilterTabs';
 import ConversationGroup, { TimeGroupedList } from './ConversationGroup';
 import SidebarFooter from './SidebarFooter';
 import EmptyState from './EmptyState';
+import FavoritesList from './FavoritesList';
+import FavoriteDetailModal from './FavoriteDetailModal';
 import { groupConversationsByTime, groupConversationsByUniverse } from './utils';
 
 interface ConversationSidebarProps {
@@ -57,6 +60,10 @@ export default function ConversationSidebar({
   const [editingConversation, setEditingConversation] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
+  // Favorites state
+  const [favoritesCount, setFavoritesCount] = useState(0);
+  const [selectedFavorite, setSelectedFavorite] = useState<SharedFavorite | null>(null);
+
   // Load conversation stats - refresh when conversations array changes or archive status changes
   const archivedCount = conversations.filter(c => c.is_archived).length;
   const activeCount = conversations.filter(c => !c.is_archived).length;
@@ -72,6 +79,19 @@ export default function ConversationSidebar({
     };
     loadStats();
   }, [conversations.length, archivedCount, activeCount]);
+
+  // Load favorites count
+  useEffect(() => {
+    const loadFavoritesCount = async () => {
+      try {
+        const response = await api.getFavorites({ page: 1, page_size: 1 });
+        setFavoritesCount(response.total);
+      } catch (error) {
+        console.error('Failed to load favorites count:', error);
+      }
+    };
+    loadFavoritesCount();
+  }, []);
 
   // Handle search
   const handleSearch = useCallback(async (query: string) => {
@@ -145,6 +165,37 @@ export default function ConversationSidebar({
     handleEditCancel();
   };
 
+  // Handle favorites
+  const handleSelectFavorite = (favorite: SharedFavorite) => {
+    setSelectedFavorite(favorite);
+  };
+
+  const handleCopyFavorite = async (favoriteId: string) => {
+    try {
+      const response = await api.copyFavoriteToConversation(favoriteId);
+      // Get the new conversation and select it
+      const newConv = await api.getConversation(response.conversation_id);
+      onSelectConversation(newConv as ConversationWithStats);
+      // Switch back to 'all' tab to see the new conversation
+      setActiveTab('all');
+      setSelectedFavorite(null);
+    } catch (error) {
+      console.error('Failed to copy favorite:', error);
+      throw error;
+    }
+  };
+
+  const handleProposeFavorite = async (conversationId: string) => {
+    try {
+      await api.proposeFavorite(conversationId);
+      // Show success notification (could be improved with toast)
+      alert('Conversation proposee comme favori. Elle sera examinee par un administrateur.');
+    } catch (error) {
+      console.error('Failed to propose favorite:', error);
+      alert('Erreur lors de la proposition du favori.');
+    }
+  };
+
   // Render conversation list based on active tab
   const renderConversationList = () => {
     if (displayConversations.length === 0) {
@@ -166,6 +217,7 @@ export default function ConversationSidebar({
       onDeleteConversation,
       onArchiveConversation,
       onUnarchiveConversation,
+      onProposeFavorite: handleProposeFavorite,
       onEditStart: handleEditStart,
       onEditChange: handleEditChange,
       onEditCancel: handleEditCancel,
@@ -227,6 +279,7 @@ export default function ConversationSidebar({
         activeTab={activeTab}
         onTabChange={handleTabChange}
         archivedCount={stats?.archived_count || 0}
+        favoritesCount={favoritesCount}
       />
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
@@ -234,12 +287,29 @@ export default function ConversationSidebar({
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin w-5 h-5 border-2 border-gray-500 border-t-white rounded-full" />
           </div>
+        ) : activeTab === 'favorites' ? (
+          <FavoritesList
+            universes={universes}
+            currentUniverseId={currentUniverseId}
+            searchQuery={searchQuery}
+            onSelectFavorite={handleSelectFavorite}
+            onCopyFavorite={handleCopyFavorite}
+          />
         ) : (
           renderConversationList()
         )}
       </div>
 
       <SidebarFooter stats={stats} username={username} />
+
+      {/* Favorite Detail Modal */}
+      {selectedFavorite && (
+        <FavoriteDetailModal
+          favorite={selectedFavorite}
+          onClose={() => setSelectedFavorite(null)}
+          onCopy={handleCopyFavorite}
+        />
+      )}
     </div>
   );
 }
@@ -252,3 +322,5 @@ export { default as ConversationItem } from './ConversationItem';
 export { default as ConversationGroup, TimeGroupedList } from './ConversationGroup';
 export { default as SidebarFooter } from './SidebarFooter';
 export { default as EmptyState } from './EmptyState';
+export { default as FavoritesList } from './FavoritesList';
+export { default as FavoriteDetailModal } from './FavoriteDetailModal';

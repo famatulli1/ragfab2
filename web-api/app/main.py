@@ -47,6 +47,7 @@ from .routes import templates
 from .routes import analytics
 from .routes import documents
 from .routes import universes
+from .routes import favorites
 from .question_quality import (
     analyze_question_quality,
     QuestionClassification,
@@ -137,6 +138,7 @@ app.include_router(templates.router)
 app.include_router(analytics.router)
 app.include_router(documents.router, tags=["documents"])
 app.include_router(universes.router)
+app.include_router(favorites.router)
 
 
 # ============================================================================

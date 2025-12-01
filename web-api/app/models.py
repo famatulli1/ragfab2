@@ -563,3 +563,100 @@ class BulkActionResponse(BaseModel):
     success_count: int
     failed_count: int = 0
     errors: List[str] = Field(default_factory=list)
+
+
+# ============================================================================
+# Shared Favorites Models
+# ============================================================================
+
+from enum import Enum
+from typing import Literal
+
+
+class FavoriteStatus(str, Enum):
+    """Status d'un favori partagé."""
+    PENDING = "pending"
+    PUBLISHED = "published"
+    REJECTED = "rejected"
+
+
+class FavoriteCreate(BaseModel):
+    """Requête pour proposer une conversation comme favori."""
+    conversation_id: UUID = Field(..., description="ID de la conversation source")
+
+
+class FavoriteUpdate(BaseModel):
+    """Mise à jour d'un favori (admin uniquement)."""
+    published_title: Optional[str] = Field(None, max_length=500, description="Titre édité")
+    published_question: Optional[str] = Field(None, description="Question éditée")
+    published_response: Optional[str] = Field(None, description="Réponse éditée")
+    admin_notes: Optional[str] = Field(None, description="Notes admin (privées)")
+
+
+class FavoriteValidation(BaseModel):
+    """Requête de validation d'un favori (publish/reject)."""
+    action: Literal["publish", "reject"] = Field(..., description="Action: publish ou reject")
+    published_title: Optional[str] = Field(None, max_length=500, description="Titre à publier")
+    published_question: Optional[str] = Field(None, description="Question éditée avant publication")
+    published_response: Optional[str] = Field(None, description="Réponse éditée avant publication")
+    rejection_reason: Optional[str] = Field(None, description="Raison du rejet (si action=reject)")
+
+
+class FavoriteResponse(BaseModel):
+    """Réponse détaillée d'un favori."""
+    id: UUID
+    title: str = Field(..., description="Titre affiché (published_title ou extrait de question)")
+    question: str = Field(..., description="Question affichée (published ou original)")
+    response: str = Field(..., description="Réponse affichée (published ou original)")
+    sources: Optional[List[Dict[str, Any]]] = Field(None, description="Sources RAG originales")
+    status: str = Field(..., description="pending, published, rejected")
+    proposed_by_username: Optional[str] = None
+    validated_by_username: Optional[str] = None
+    universe_id: Optional[UUID] = None
+    universe_name: Optional[str] = None
+    universe_slug: Optional[str] = None
+    universe_color: Optional[str] = None
+    view_count: int = 0
+    copy_count: int = 0
+    created_at: datetime
+    validated_at: Optional[datetime] = None
+    last_edited_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    admin_notes: Optional[str] = None  # Visible uniquement pour admin
+
+
+class FavoriteSearchResult(BaseModel):
+    """Résultat de recherche sémantique dans les favoris."""
+    id: UUID
+    title: str
+    question: str
+    response: str
+    sources: Optional[List[Dict[str, Any]]] = None
+    similarity: float = Field(..., ge=0.0, le=1.0, description="Score de similarité cosinus")
+    universe_id: Optional[UUID] = None
+    universe_name: Optional[str] = None
+    universe_color: Optional[str] = None
+    view_count: int = 0
+    copy_count: int = 0
+
+
+class FavoriteListResponse(BaseModel):
+    """Liste paginée des favoris."""
+    favorites: List[FavoriteResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class FavoriteSuggestionResponse(BaseModel):
+    """Réponse de suggestion pre-RAG (quand similarité > 0.85)."""
+    has_suggestions: bool = Field(..., description="True si des favoris similaires existent")
+    suggestions: List[FavoriteSearchResult] = Field(default_factory=list)
+    message: Optional[str] = Field(None, description="Message à afficher à l'utilisateur")
+
+
+class FavoriteCopyResponse(BaseModel):
+    """Réponse après copie d'un favori vers une nouvelle conversation."""
+    conversation_id: UUID = Field(..., description="ID de la nouvelle conversation créée")
+    message: str = Field(default="Favori copié avec succès")

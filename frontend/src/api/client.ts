@@ -33,6 +33,14 @@ import type {
   ConversationStats,
   ConversationSearchResult,
   BulkActionResponse,
+  // Shared Favorites
+  SharedFavorite,
+  FavoriteSearchResult,
+  FavoriteListResponse,
+  FavoriteSuggestionResponse,
+  FavoriteCopyResponse,
+  FavoriteUpdate,
+  FavoriteValidation,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -869,6 +877,159 @@ class APIClient {
       { cancellation_reason: reason }
     );
     return data;
+  }
+
+  // ============================================================================
+  // SHARED FAVORITES
+  // ============================================================================
+
+  /**
+   * Propose a conversation as a shared favorite
+   * @param conversationId - The conversation to propose
+   */
+  async proposeFavorite(conversationId: string): Promise<SharedFavorite> {
+    const { data } = await this.client.post<SharedFavorite>('/api/favorites', {
+      conversation_id: conversationId,
+    });
+    return data;
+  }
+
+  /**
+   * Get published favorites with optional filtering
+   * @param params - Optional filters (page, page_size, universe_id, search)
+   */
+  async getFavorites(params?: {
+    page?: number;
+    page_size?: number;
+    universe_id?: string;
+    search?: string;
+  }): Promise<FavoriteListResponse> {
+    const { data } = await this.client.get<FavoriteListResponse>('/api/favorites', {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.page_size || 20,
+        universe_id: params?.universe_id,
+        search: params?.search,
+      },
+    });
+    return data;
+  }
+
+  /**
+   * Semantic search for similar favorites
+   * @param query - Search query
+   * @param universeId - Optional universe filter
+   * @param limit - Max results (default 10)
+   */
+  async searchFavorites(
+    query: string,
+    universeId?: string,
+    limit = 10
+  ): Promise<FavoriteSearchResult[]> {
+    const params: any = { q: query, limit };
+    if (universeId) params.universe_id = universeId;
+
+    const { data } = await this.client.get<FavoriteSearchResult[]>('/api/favorites/search', {
+      params,
+    });
+    return data;
+  }
+
+  /**
+   * Check for similar favorites before RAG (pre-RAG suggestion)
+   * @param question - User's question
+   * @param universeIds - Optional universe IDs to search within
+   */
+  async checkFavoriteSuggestions(
+    question: string,
+    universeIds?: string[]
+  ): Promise<FavoriteSuggestionResponse> {
+    const params: any = { question };
+    if (universeIds && universeIds.length > 0) {
+      params.universe_ids = universeIds.join(',');
+    }
+
+    const { data } = await this.client.get<FavoriteSuggestionResponse>('/api/favorites/suggestions', {
+      params,
+    });
+    return data;
+  }
+
+  /**
+   * Get full details of a favorite
+   * @param favoriteId - Favorite UUID
+   */
+  async getFavoriteDetail(favoriteId: string): Promise<SharedFavorite> {
+    const { data } = await this.client.get<SharedFavorite>(`/api/favorites/${favoriteId}`);
+    return data;
+  }
+
+  /**
+   * Copy a favorite to user's conversations
+   * @param favoriteId - Favorite to copy
+   */
+  async copyFavoriteToConversation(favoriteId: string): Promise<FavoriteCopyResponse> {
+    const { data } = await this.client.post<FavoriteCopyResponse>(
+      `/api/favorites/${favoriteId}/copy`
+    );
+    return data;
+  }
+
+  // ============================================================================
+  // SHARED FAVORITES - Admin
+  // ============================================================================
+
+  /**
+   * Get pending favorites awaiting validation (admin only)
+   */
+  async getPendingFavorites(params?: {
+    page?: number;
+    page_size?: number;
+  }): Promise<FavoriteListResponse> {
+    const { data } = await this.client.get<FavoriteListResponse>('/api/favorites/admin/pending', {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.page_size || 20,
+      },
+    });
+    return data;
+  }
+
+  /**
+   * Update a favorite (admin only)
+   * @param favoriteId - Favorite to update
+   * @param updates - Fields to update
+   */
+  async updateFavorite(favoriteId: string, updates: FavoriteUpdate): Promise<SharedFavorite> {
+    const { data } = await this.client.patch<SharedFavorite>(
+      `/api/favorites/${favoriteId}`,
+      updates
+    );
+    return data;
+  }
+
+  /**
+   * Validate (publish/reject) a pending favorite (admin only)
+   * @param favoriteId - Favorite to validate
+   * @param validation - Validation action and optional edits
+   */
+  async validateFavorite(
+    favoriteId: string,
+    validation: FavoriteValidation
+  ): Promise<SharedFavorite> {
+    const { data } = await this.client.post<SharedFavorite>(
+      `/api/favorites/${favoriteId}/validate`,
+      validation
+    );
+    return data;
+  }
+
+  /**
+   * Delete a favorite (admin only)
+   * @param favoriteId - Favorite to delete
+   */
+  async deleteFavorite(favoriteId: string): Promise<void> {
+    await this.client.delete(`/api/favorites/${favoriteId}`);
   }
 }
 

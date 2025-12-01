@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield, Globe } from 'lucide-react';
+import { Upload, Moon, Sun, FileText, Users as UsersIcon, BarChart3, Shield, Globe, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import { useDropzone } from 'react-dropzone';
@@ -9,9 +9,10 @@ import UserMenu from '../components/UserMenu';
 import ReingestionBadge from '../components/ReingestionBadge';
 import UniverseManagement from '../components/UniverseManagement';
 import DocumentTable from '../components/DocumentTable';
+import FavoritesValidationPanel from '../components/FavoritesValidationPanel';
 import type { DocumentStats, Chunk, IngestionJob, User, ProductUniverse } from '../types';
 
-type TabType = 'documents' | 'users' | 'universes';
+type TabType = 'documents' | 'users' | 'universes' | 'favorites';
 
 type OcrEngine = 'rapidocr' | 'easyocr' | 'tesseract';
 type VlmEngine = 'paddleocr-vl' | 'internvl' | 'none';
@@ -213,6 +214,17 @@ export default function AdminPage() {
               >
                 <Globe className="h-5 w-5" />
                 Univers
+              </button>
+              <button
+                onClick={() => setActiveTab('favorites')}
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition ${
+                  activeTab === 'favorites'
+                    ? 'border-yellow-500 text-yellow-600 dark:text-yellow-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <Star className="h-5 w-5" />
+                Favoris
               </button>
             </nav>
           </div>
@@ -425,6 +437,9 @@ export default function AdminPage() {
 
         {/* Content - Universes Tab */}
         {activeTab === 'universes' && <UniverseManagement />}
+
+        {/* Content - Favorites Tab */}
+        {activeTab === 'favorites' && <FavoritesValidationPanel />}
       </div>
     </div>
   );
