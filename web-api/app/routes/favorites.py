@@ -56,19 +56,25 @@ def format_favorite_response(row: dict, include_admin_notes: bool = False) -> Fa
     """Convert a database row to FavoriteResponse."""
     import json
 
-    # Parse sources - handle both string and already-parsed cases
+    # Parse sources - handle string, double-encoded, and already-parsed cases
     sources = row.get("original_sources")
     if sources is not None:
-        if isinstance(sources, str):
+        # Keep parsing until we get a list or None
+        max_attempts = 3  # Prevent infinite loop
+        attempt = 0
+        while isinstance(sources, str) and attempt < max_attempts:
             try:
                 sources = json.loads(sources)
+                attempt += 1
             except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Failed to parse sources JSON: {sources[:100] if sources else 'None'}")
+                logger.warning(f"Failed to parse sources JSON (attempt {attempt}): {sources[:100] if sources else 'None'}")
                 sources = None
-        elif not isinstance(sources, list):
-            # If it's some other type, try to convert
+                break
+
+        # Final check: must be a list
+        if sources is not None and not isinstance(sources, list):
             try:
-                sources = list(sources) if sources else None
+                sources = list(sources)
             except:
                 sources = None
 
