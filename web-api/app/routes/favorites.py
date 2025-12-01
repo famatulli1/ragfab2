@@ -382,12 +382,15 @@ async def get_suggestions(
             message=None
         )
 
+    # Convertir l'embedding en format PostgreSQL vector string
+    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+
     async with database.db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT * FROM match_favorites($1, $2, $3, $4)
+            SELECT * FROM match_favorites($1::vector, $2, $3, $4)
             """,
-            embedding,
+            embedding_str,
             limit,
             threshold,
             parsed_universe_ids
