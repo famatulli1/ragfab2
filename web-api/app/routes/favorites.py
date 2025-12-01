@@ -41,13 +41,12 @@ async def generate_embedding(text: str) -> Optional[List[float]]:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{EMBEDDINGS_API_URL}/embed",
-                json={"texts": [text]},
+                json={"text": text},
                 timeout=30.0
             )
             response.raise_for_status()
             result = response.json()
-            if result and len(result) > 0:
-                return result[0]
+            return result.get("embedding")
     except Exception as e:
         logger.error(f"Failed to generate embedding: {e}")
     return None
@@ -55,12 +54,21 @@ async def generate_embedding(text: str) -> Optional[List[float]]:
 
 def format_favorite_response(row: dict, include_admin_notes: bool = False) -> FavoriteResponse:
     """Convert a database row to FavoriteResponse."""
+    # Parse sources if it's a JSON string
+    sources = row.get("original_sources")
+    if isinstance(sources, str):
+        import json
+        try:
+            sources = json.loads(sources)
+        except (json.JSONDecodeError, TypeError):
+            sources = None
+
     return FavoriteResponse(
         id=row["id"],
         title=row.get("published_title") or row["original_question"][:100],
         question=row.get("published_question") or row["original_question"],
         response=row.get("published_response") or row["original_response"],
-        sources=row.get("original_sources"),
+        sources=sources,
         status=row["status"],
         proposed_by_username=row.get("proposed_by_username"),
         validated_by_username=row.get("validated_by_username"),
