@@ -54,14 +54,23 @@ async def generate_embedding(text: str) -> Optional[List[float]]:
 
 def format_favorite_response(row: dict, include_admin_notes: bool = False) -> FavoriteResponse:
     """Convert a database row to FavoriteResponse."""
-    # Parse sources if it's a JSON string
+    import json
+
+    # Parse sources - handle both string and already-parsed cases
     sources = row.get("original_sources")
-    if isinstance(sources, str):
-        import json
-        try:
-            sources = json.loads(sources)
-        except (json.JSONDecodeError, TypeError):
-            sources = None
+    if sources is not None:
+        if isinstance(sources, str):
+            try:
+                sources = json.loads(sources)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse sources JSON: {sources[:100] if sources else 'None'}")
+                sources = None
+        elif not isinstance(sources, list):
+            # If it's some other type, try to convert
+            try:
+                sources = list(sources) if sources else None
+            except:
+                sources = None
 
     return FavoriteResponse(
         id=row["id"],
@@ -164,9 +173,15 @@ async def propose_favorite(
         # Convertir l'embedding en string pour pgvector
         embedding_str = str(embedding) if embedding else None
 
-        # Sérialiser les sources en JSON si c'est une liste/dict
+        # Sources : asyncpg gère JSONB directement, pas besoin de json.dumps()
+        # Si c'est une string (venant d'une ancienne sauvegarde), on la parse
         import json
-        sources_json = json.dumps(assistant_msg["sources"]) if assistant_msg["sources"] else None
+        sources = assistant_msg["sources"]
+        if isinstance(sources, str):
+            try:
+                sources = json.loads(sources)
+            except:
+                sources = []
 
         # Créer le favori
         row = await conn.fetchrow(
@@ -176,12 +191,12 @@ async def propose_favorite(
                 source_conversation_id, proposed_by, universe_id,
                 question_embedding
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
             RETURNING *
             """,
             user_msg["content"],
             assistant_msg["content"],
-            sources_json,
+            json.dumps(sources) if sources else '[]',
             data.conversation_id,
             current_user["id"],
             conv["universe_id"],
