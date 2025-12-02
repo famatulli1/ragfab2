@@ -2017,21 +2017,34 @@ FORMAT DE RÉPONSE:
     logger.info(f"✅ Deep context response generated in {processing_time}ms")
 
     # 8. Construire la réponse
-    msg_dict = dict(new_message)
-    if msg_dict.get('sources') and isinstance(msg_dict['sources'], str):
-        msg_dict['sources'] = json.loads(msg_dict['sources'])
+    try:
+        msg_dict = dict(new_message)
+        if msg_dict.get('sources') and isinstance(msg_dict['sources'], str):
+            msg_dict['sources'] = json.loads(msg_dict['sources'])
 
-    return DeepContextResponse(
-        message=MessageResponse(**msg_dict, rating=None),
-        documents_used=[DocumentTokenInfo(
-            id=d['id'],
-            title=d['title'],
-            token_count=d['total_tokens'],
-            truncated=d.get('truncated', False)
-        ) for d in documents_used],
-        total_tokens_used=used_tokens,
-        follow_up_suggestions=suggestions
-    )
+        # Filtrer les champs pour ne garder que ceux de MessageResponse
+        message_fields = {
+            'id', 'conversation_id', 'role', 'content', 'sources',
+            'provider', 'model_name', 'token_usage', 'created_at', 'is_regenerated'
+        }
+        filtered_msg = {k: v for k, v in msg_dict.items() if k in message_fields}
+
+        response = DeepContextResponse(
+            message=MessageResponse(**filtered_msg, rating=None),
+            documents_used=[DocumentTokenInfo(
+                id=d['id'],
+                title=d['title'],
+                token_count=d['total_tokens'],
+                truncated=d.get('truncated', False)
+            ) for d in documents_used],
+            total_tokens_used=used_tokens,
+            follow_up_suggestions=suggestions
+        )
+        logger.info(f"📤 DeepContextResponse constructed successfully")
+        return response
+    except Exception as e:
+        logger.error(f"❌ Error constructing DeepContextResponse: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error building response: {str(e)}")
 
 
 @app.post("/api/messages/{message_id}/rate", response_model=Rating)

@@ -551,9 +551,12 @@ export default function ChatPage() {
     setIsDeepLoading(true);
     setRegenerateModal(null);
     try {
+      console.log('🔄 Starting deep regeneration for message:', messageId, 'with docs:', documentIds);
       const response = await api.regenerateDeep(messageId, documentIds);
-      // Ajouter le nouveau message
-      setMessages([...messages, response.message]);
+      console.log('✅ Deep regeneration response:', response);
+
+      // Ajouter le nouveau message (functional update to avoid stale closure)
+      setMessages(prev => [...prev, response.message]);
 
       // Stocker les suggestions de suivi pour ce message
       if (response.follow_up_suggestions && response.follow_up_suggestions.length > 0) {
@@ -564,7 +567,7 @@ export default function ChatPage() {
         });
       }
     } catch (error) {
-      console.error('Error in deep regeneration:', error);
+      console.error('❌ Error in deep regeneration:', error);
       alert('Erreur lors de l\'approfondissement');
     } finally {
       setIsDeepLoading(false);
