@@ -1827,9 +1827,9 @@ def parse_deep_context_response(response: str) -> tuple:
 @app.post("/api/messages/{message_id}/regenerate-deep", response_model=DeepContextResponse)
 @limiter.limit("5/minute")
 async def regenerate_deep_context(
-    request_obj: Request,
+    request: Request,
     message_id: UUID,
-    request: DeepContextRequest,
+    body: DeepContextRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1888,7 +1888,7 @@ async def regenerate_deep_context(
             WHERE d.id = ANY($1::uuid[])
             GROUP BY d.id, d.title, d.source
             """,
-            request.document_ids
+            body.document_ids
         )
 
     if not documents:
@@ -1897,7 +1897,7 @@ async def regenerate_deep_context(
     # 3. Vérifier et gérer la limite de tokens
     docs_list = [dict(row) for row in documents]
     total_tokens = sum(d['total_tokens'] for d in docs_list)
-    max_context = request.max_tokens - 3000  # Réserver pour prompt + réponse
+    max_context = body.max_tokens - 3000  # Réserver pour prompt + réponse
 
     # Tronquer si nécessaire (garder les documents par ordre de priorité)
     documents_used = []
