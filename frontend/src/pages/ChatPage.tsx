@@ -713,9 +713,39 @@ export default function ChatPage() {
                 <UniverseSelector
                   selectedUniverseIds={selectedUniverseIds}
                   searchAllUniverses={searchAllUniverses}
-                  onChange={(universeIds, searchAll) => {
+                  onChange={async (universeIds, searchAll) => {
                     setSelectedUniverseIds(universeIds);
                     setSearchAllUniverses(searchAll);
+
+                    // Si conversation vide (0 messages) ET un univers spécifique sélectionné, mettre à jour son univers
+                    // Note: Si "Tous les univers" (universeIds vide), on garde l'univers actuel
+                    if (currentConversation && currentConversation.message_count === 0 && universeIds.length > 0) {
+                      const newUniverseId = universeIds[0];
+                      // Ne pas appeler l'API si l'univers est déjà le même
+                      if (newUniverseId !== currentConversation.universe_id) {
+                        try {
+                          const updatedConv = await api.moveConversationToUniverse(
+                            currentConversation.id,
+                            newUniverseId
+                          );
+                          // Mettre à jour le state local
+                          setCurrentConversation(prev => prev ? {
+                            ...prev,
+                            universe_id: updatedConv.universe_id,
+                            universe_name: updatedConv.universe_name,
+                            universe_color: updatedConv.universe_color,
+                          } : null);
+                          // Mettre à jour dans la liste des conversations
+                          setConversations(prev => prev.map(c =>
+                            c.id === currentConversation.id
+                              ? { ...c, universe_id: updatedConv.universe_id, universe_name: updatedConv.universe_name, universe_color: updatedConv.universe_color }
+                              : c
+                          ));
+                        } catch (error) {
+                          console.error('Erreur mise à jour univers conversation:', error);
+                        }
+                      }
+                    }
                   }}
                   compact={true}
                 />
