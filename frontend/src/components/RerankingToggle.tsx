@@ -51,7 +51,6 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
         role="switch"
         aria-checked={rerankingEnabled}
         aria-label={rerankingEnabled ? 'Recherche approfondie activée' : 'Recherche approfondie désactivée'}
-        title="Réordonne les résultats par pertinence avec un modèle de reranking"
       >
         <span
           className={`
@@ -61,7 +60,10 @@ export default function RerankingToggle({ initialValue = false, onUpdate }: Rera
           `}
         />
       </button>
-      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+      <span
+        className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-help"
+        title="Analyse plus de documents pour des réponses plus complètes et précises."
+      >
         Recherche approfondie
       </span>
     </div>

@@ -118,7 +118,6 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
           role="switch"
           aria-checked={hybridEnabled}
           aria-label={hybridEnabled ? 'Recherche hybride activée' : 'Recherche hybride désactivée'}
-          title="Combine recherche sémantique et mots-clés pour des résultats plus précis"
         >
           <span
             className={`
@@ -130,7 +129,10 @@ export const HybridSearchToggle: React.FC<HybridSearchToggleProps> = ({
         </button>
 
         {/* Label */}
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <span
+          className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-help"
+          title="Combine recherche par sens et par mots-clés pour de meilleurs résultats."
+        >
           Recherche Hybride
         </span>
 
