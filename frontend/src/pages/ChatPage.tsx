@@ -107,14 +107,17 @@ export default function ChatPage() {
   // Charger les univers accessibles à l'utilisateur (pas tous les univers)
   useEffect(() => {
     api.getMyUniverseAccess().then(data => {
-      // Convertir UserUniverseAccessSimple[] en ProductUniverse[]
+      // Convertir UserUniverseAccess[] en ProductUniverse[] (partial)
       const accessibleUniverses = data.map(access => ({
         id: access.universe_id,
         name: access.universe_name,
-        slug: access.universe_slug,
+        slug: access.universe_id, // Utiliser l'ID comme slug fallback
         color: access.universe_color,
         is_active: true,
-      }));
+        detection_keywords: [],
+        created_at: '',
+        updated_at: '',
+      } as ProductUniverse));
       setUniverses(accessibleUniverses);
     }).catch(console.error);
   }, []);
