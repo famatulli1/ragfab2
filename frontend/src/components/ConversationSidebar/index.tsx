@@ -82,12 +82,16 @@ export default function ConversationSidebar({
     loadStats();
   }, [conversations.length, archivedCount, activeCount]);
 
-  // Load favorites count - filtered by user's accessible universes
+  // Load favorites count - filtered by currently selected universe
   useEffect(() => {
     const loadFavoritesCount = async () => {
       try {
-        const universeIds = universes.map(u => u.id);
-        const response = await api.getFavoritesCount(universeIds);
+        // Si pas d'univers sélectionné, afficher 0
+        if (!currentUniverseId) {
+          setFavoritesCount(0);
+          return;
+        }
+        const response = await api.getFavoritesCount([currentUniverseId]);
         setFavoritesCount(response.total);
       } catch (error) {
         console.error('Failed to load favorites count:', error);
@@ -95,7 +99,7 @@ export default function ConversationSidebar({
       }
     };
     loadFavoritesCount();
-  }, [universes]); // Reload when universes change
+  }, [currentUniverseId]); // Reload when selected universe changes
 
   // Handle search
   const handleSearch = useCallback(async (query: string) => {
