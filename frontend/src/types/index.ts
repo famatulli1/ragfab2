@@ -509,3 +509,31 @@ export interface FavoriteValidation {
   published_response?: string;
   rejection_reason?: string;
 }
+
+// ============================================================================
+// Deep Context Mode Types
+// ============================================================================
+
+export interface DeepContextRequest {
+  document_ids: string[];
+  max_tokens?: number;
+}
+
+export interface FollowUpSuggestion {
+  text: string;
+  relevance?: 'high' | 'medium' | 'low';
+}
+
+export interface DocumentTokenInfo {
+  id: string;
+  title: string;
+  token_count: number;
+  truncated: boolean;
+}
+
+export interface DeepContextResponse {
+  message: Message;
+  documents_used: DocumentTokenInfo[];
+  total_tokens_used: number;
+  follow_up_suggestions: FollowUpSuggestion[];
+}

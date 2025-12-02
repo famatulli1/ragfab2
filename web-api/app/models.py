@@ -660,3 +660,35 @@ class FavoriteCopyResponse(BaseModel):
     """Réponse après copie d'un favori vers une nouvelle conversation."""
     conversation_id: UUID = Field(..., description="ID de la nouvelle conversation créée")
     message: str = Field(default="Favori copié avec succès")
+
+
+# ============================================================================
+# Deep Context Mode Models
+# ============================================================================
+
+class DeepContextRequest(BaseModel):
+    """Requête pour régénération avec contexte complet des documents."""
+    document_ids: List[UUID] = Field(..., description="IDs des documents à analyser en entier")
+    max_tokens: int = Field(default=32000, le=32000, ge=1000, description="Limite de tokens pour le contexte")
+
+
+class FollowUpSuggestion(BaseModel):
+    """Suggestion de question de suivi générée par le mode approfondi."""
+    text: str = Field(..., description="Texte de la question suggérée")
+    relevance: str = Field(default="high", description="Niveau de pertinence: high, medium, low")
+
+
+class DocumentTokenInfo(BaseModel):
+    """Information sur les tokens d'un document pour le mode approfondi."""
+    id: UUID
+    title: str
+    token_count: int = Field(..., description="Nombre total de tokens du document")
+    truncated: bool = Field(default=False, description="True si le document a été tronqué")
+
+
+class DeepContextResponse(BaseModel):
+    """Réponse du mode approfondi avec suggestions de suivi."""
+    message: MessageResponse
+    documents_used: List[DocumentTokenInfo] = Field(..., description="Documents utilisés dans la réponse")
+    total_tokens_used: int = Field(..., description="Total de tokens de contexte utilisés")
+    follow_up_suggestions: List[FollowUpSuggestion] = Field(default_factory=list, description="Questions de suivi suggérées")

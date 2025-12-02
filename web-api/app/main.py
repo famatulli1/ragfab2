@@ -37,7 +37,9 @@ from .models import (
     # Conversation Management
     ConversationPreferencesUpdate, ConversationPreferencesResponse,
     ConversationStats, ConversationSearchResult,
-    BulkArchiveRequest, BulkDeleteRequest, BulkActionResponse
+    BulkArchiveRequest, BulkDeleteRequest, BulkActionResponse,
+    # Deep Context Mode
+    DeepContextRequest, DeepContextResponse, FollowUpSuggestion, DocumentTokenInfo
 )
 from .routes import auth
 from .routes import admin
@@ -1775,6 +1777,261 @@ async def regenerate_message(
         msg_dict['token_usage'] = json.loads(msg_dict['token_usage'])
 
     return MessageResponse(**msg_dict, rating=None)
+
+
+# ============================================================================
+# Deep Context Mode - Régénération avec documents complets
+# ============================================================================
+
+def format_full_document_context(documents: List[dict]) -> str:
+    """Formate les documents complets pour le contexte LLM."""
+    parts = []
+    for doc in documents:
+        parts.append(f"""
+=== DOCUMENT: {doc['title']} ===
+Source: {doc.get('source', 'N/A')}
+
+{doc['full_content']}
+
+=== FIN DU DOCUMENT ===
+""")
+    return "\n\n".join(parts)
+
+
+def parse_deep_context_response(response: str) -> tuple:
+    """Parse la réponse LLM pour extraire contenu et suggestions."""
+    import re
+
+    if "---SUGGESTIONS---" in response:
+        parts = response.split("---SUGGESTIONS---")
+        main_content = parts[0].strip()
+        suggestions_text = parts[1].strip() if len(parts) > 1 else ""
+
+        suggestions = []
+        for line in suggestions_text.split("\n"):
+            line = line.strip()
+            if line and (line[0].isdigit() or line.startswith("-") or line.startswith("•")):
+                # Nettoyer le préfixe (1., 2., -, •, etc.)
+                text = re.sub(r'^[\d\.\-\•\s]+', '', line).strip()
+                if text and len(text) > 10:  # Ignorer les lignes trop courtes
+                    suggestions.append(FollowUpSuggestion(
+                        text=text,
+                        relevance="high"
+                    ))
+
+        return main_content, suggestions[:3]  # Max 3 suggestions
+
+    return response.strip(), []
+
+
+@app.post("/api/messages/{message_id}/regenerate-deep", response_model=DeepContextResponse)
+@limiter.limit("5/minute")
+async def regenerate_deep_context(
+    request_obj: Request,
+    message_id: UUID,
+    request: DeepContextRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Régénère une réponse en utilisant le contenu COMPLET des documents sélectionnés.
+
+    Cette fonction permet d'obtenir une réponse plus détaillée en chargeant
+    l'intégralité des documents sources au lieu des seuls chunks pertinents.
+    Génère également des suggestions de questions de suivi.
+    """
+    import time
+    start_time = time.time()
+
+    # 1. Valider le message et récupérer la question originale
+    async with database.db_pool.acquire() as conn:
+        original = await conn.fetchrow(
+            "SELECT * FROM messages WHERE id = $1 AND role = 'assistant'",
+            message_id
+        )
+        if not original:
+            raise HTTPException(status_code=404, detail="Message not found or not an assistant message")
+
+        # Récupérer le message utilisateur précédent
+        user_msg = await conn.fetchrow(
+            """
+            SELECT * FROM messages
+            WHERE conversation_id = $1
+            AND created_at < $2
+            AND role = 'user'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            original["conversation_id"], original["created_at"]
+        )
+
+        if not user_msg:
+            raise HTTPException(status_code=400, detail="No user message found to regenerate from")
+
+        # Récupérer et vérifier la conversation
+        conversation = await conn.fetchrow(
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            original["conversation_id"], current_user['id']
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 2. Récupérer le contenu complet des documents avec leurs tokens
+    async with database.db_pool.acquire() as conn:
+        documents = await conn.fetch(
+            """
+            SELECT
+                d.id, d.title, d.source,
+                string_agg(c.content, E'\n\n' ORDER BY c.chunk_index) as full_content,
+                COALESCE(SUM(c.token_count), 0) as total_tokens
+            FROM documents d
+            JOIN chunks c ON c.document_id = d.id
+            WHERE d.id = ANY($1::uuid[])
+            GROUP BY d.id, d.title, d.source
+            """,
+            request.document_ids
+        )
+
+    if not documents:
+        raise HTTPException(status_code=404, detail="No documents found with provided IDs")
+
+    # 3. Vérifier et gérer la limite de tokens
+    docs_list = [dict(row) for row in documents]
+    total_tokens = sum(d['total_tokens'] for d in docs_list)
+    max_context = request.max_tokens - 3000  # Réserver pour prompt + réponse
+
+    # Tronquer si nécessaire (garder les documents par ordre de priorité)
+    documents_used = []
+    used_tokens = 0
+    for doc in docs_list:
+        if used_tokens + doc['total_tokens'] <= max_context:
+            documents_used.append(doc)
+            used_tokens += doc['total_tokens']
+        elif not documents_used:
+            # Premier document trop grand - tronquer
+            ratio = max_context / doc['total_tokens']
+            doc['full_content'] = doc['full_content'][:int(len(doc['full_content']) * ratio)]
+            doc['truncated'] = True
+            documents_used.append(doc)
+            used_tokens = max_context
+            break
+        else:
+            break
+
+    if not documents_used:
+        raise HTTPException(status_code=400, detail="Documents too large for context window")
+
+    # 4. Construire le prompt avec contexte complet
+    formatted_context = format_full_document_context(documents_used)
+
+    system_prompt = """Tu es un assistant expert qui analyse des documents complets.
+
+CONTEXTE:
+L'utilisateur souhaite une réponse approfondie basée sur le contenu COMPLET des documents fournis.
+Tu as accès à l'intégralité du texte, pas seulement des extraits.
+
+INSTRUCTIONS:
+1. Analyse l'ensemble du document pour répondre de manière exhaustive
+2. Cite des passages spécifiques quand pertinent
+3. Structure ta réponse de manière claire avec des sections si nécessaire
+4. Si l'information n'est pas dans les documents, dis-le clairement
+
+LANGUE DE RÉPONSE - RÈGLE STRICTE:
+🇫🇷 Tu DOIS répondre UNIQUEMENT et EXCLUSIVEMENT en français.
+🚫 NE PAS utiliser d'autres langues
+✅ Chaque mot, chaque phrase doit être en français
+
+RÈGLES:
+- Ne cite PAS les sources avec [Source: ...] (elles sont affichées séparément)
+- Base-toi UNIQUEMENT sur les documents fournis
+- Sois précis et complet dans ta réponse"""
+
+    user_prompt = f"""DOCUMENTS:
+{formatted_context}
+
+QUESTION DE L'UTILISATEUR:
+{user_msg['content']}
+
+INSTRUCTIONS:
+1. Réponds à la question de manière approfondie en te basant sur les documents
+2. À la fin de ta réponse, ajoute une section "---SUGGESTIONS---" avec 3 questions de suivi pertinentes basées sur le contenu des documents
+
+FORMAT DE RÉPONSE:
+[Ta réponse détaillée ici]
+
+---SUGGESTIONS---
+1. [Question de suivi 1]
+2. [Question de suivi 2]
+3. [Question de suivi 3]"""
+
+    # 5. Appeler le LLM
+    try:
+        from pydantic_ai import Agent
+        from .utils.generic_llm_provider import get_generic_llm_model
+
+        model = get_generic_llm_model()
+        agent = Agent(model, system_prompt=system_prompt)
+
+        logger.info(f"🔍 Deep context mode: {len(documents_used)} documents, ~{used_tokens} tokens")
+        result = await agent.run(user_prompt, message_history=[])
+
+    except Exception as e:
+        logger.error(f"Erreur LLM deep context: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
+
+    # 6. Parser la réponse
+    main_content, suggestions = parse_deep_context_response(result.data)
+
+    # 7. Sauvegarder le nouveau message
+    async with database.db_pool.acquire() as conn:
+        # Créer les sources pour le message (format deep context)
+        sources_data = [{
+            'document_id': str(d['id']),
+            'document_title': d['title'],
+            'document_source': d.get('source', ''),
+            'deep_context': True,
+            'token_count': d['total_tokens'],
+            'truncated': d.get('truncated', False)
+        } for d in documents_used]
+
+        sources_json = json.dumps(sources_data)
+
+        new_message = await conn.fetchrow(
+            """
+            INSERT INTO messages (
+                conversation_id, role, content, sources,
+                provider, model_name,
+                is_regenerated, parent_message_id
+            )
+            VALUES ($1, 'assistant', $2, $3, $4, $5, true, $6)
+            RETURNING *
+            """,
+            original["conversation_id"],
+            main_content,
+            sources_json,
+            conversation["provider"],
+            os.getenv("LLM_MODEL_NAME", "generic-llm"),
+            message_id
+        )
+
+    processing_time = int((time.time() - start_time) * 1000)
+    logger.info(f"✅ Deep context response generated in {processing_time}ms")
+
+    # 8. Construire la réponse
+    msg_dict = dict(new_message)
+    if msg_dict.get('sources') and isinstance(msg_dict['sources'], str):
+        msg_dict['sources'] = json.loads(msg_dict['sources'])
+
+    return DeepContextResponse(
+        message=MessageResponse(**msg_dict, rating=None),
+        documents_used=[DocumentTokenInfo(
+            id=d['id'],
+            title=d['title'],
+            token_count=d['total_tokens'],
+            truncated=d.get('truncated', False)
+        ) for d in documents_used],
+        total_tokens_used=used_tokens,
+        follow_up_suggestions=suggestions
+    )
 
 
 @app.post("/api/messages/{message_id}/rate", response_model=Rating)

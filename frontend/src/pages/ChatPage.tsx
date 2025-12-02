@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, RotateCw, Bot, User as UserIcon, Search, Zap } from 'lucide-react';
+import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, Bot, User as UserIcon, Search, Zap, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse, FavoriteSearchResult, SharedFavorite } from '../types';
+import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse, FavoriteSearchResult, SharedFavorite, Source, FollowUpSuggestion } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -19,6 +19,8 @@ import ConversationSidebar from '../components/ConversationSidebar';
 import ConversationSettings from '../components/ConversationSettings';
 import FavoriteSuggestionBanner from '../components/Chat/FavoriteSuggestionBanner';
 import { FavoriteDetailModal } from '../components/ConversationSidebar';
+import RegenerateModal from '../components/RegenerateModal';
+import FollowUpSuggestions from '../components/FollowUpSuggestions';
 
 export default function ChatPage() {
   const { theme, toggleTheme } = useTheme();
@@ -58,6 +60,11 @@ export default function ChatPage() {
   const [favoriteSuggestions, setFavoriteSuggestions] = useState<FavoriteSearchResult[]>([]);
   const [selectedFavoriteForDetail, setSelectedFavoriteForDetail] = useState<SharedFavorite | FavoriteSearchResult | null>(null);
   const [pendingQuestionForFavorites, setPendingQuestionForFavorites] = useState<string>('');
+
+  // Deep context mode state (regenerate with full documents)
+  const [regenerateModal, setRegenerateModal] = useState<{ messageId: string; sources: Source[] } | null>(null);
+  const [followUpSuggestions, setFollowUpSuggestions] = useState<Map<string, FollowUpSuggestion[]>>(new Map());
+  const [isDeepLoading, setIsDeepLoading] = useState(false);
 
   // Charger l'utilisateur courant
   useEffect(() => {
@@ -537,6 +544,36 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Deep context regeneration (full documents)
+  const regenerateDeep = async (messageId: string, documentIds: string[]) => {
+    setIsDeepLoading(true);
+    setRegenerateModal(null);
+    try {
+      const response = await api.regenerateDeep(messageId, documentIds);
+      // Ajouter le nouveau message
+      setMessages([...messages, response.message]);
+
+      // Stocker les suggestions de suivi pour ce message
+      if (response.follow_up_suggestions && response.follow_up_suggestions.length > 0) {
+        setFollowUpSuggestions(prev => {
+          const newMap = new Map(prev);
+          newMap.set(response.message.id, response.follow_up_suggestions);
+          return newMap;
+        });
+      }
+    } catch (error) {
+      console.error('Error in deep regeneration:', error);
+      alert('Erreur lors de l\'approfondissement');
+    } finally {
+      setIsDeepLoading(false);
+    }
+  };
+
+  // Ouvrir le modal de régénération
+  const openRegenerateModal = (messageId: string, sources: Source[]) => {
+    setRegenerateModal({ messageId, sources: sources || [] });
   };
 
   const rateMessage = async (messageId: string, rating: 1 | -1) => {
@@ -1022,12 +1059,12 @@ export default function ChatPage() {
                           <Copy size={16} />
                         </button>
                         <button
-                          onClick={() => regenerateMessage(message.id)}
+                          onClick={() => openRegenerateModal(message.id, message.sources || [])}
                           className="btn-ghost p-1"
-                          title="Régénérer"
-                          disabled={isLoading}
+                          title="Régénérer / Approfondir"
+                          disabled={isLoading || isDeepLoading}
                         >
-                          <RotateCw size={16} />
+                          <Layers size={16} />
                         </button>
                         <button
                           onClick={(e) => {
@@ -1105,6 +1142,17 @@ export default function ChatPage() {
                             newMap.delete(message.id);
                             return newMap;
                           });
+                        }}
+                      />
+                    )}
+
+                    {/* Suggestions de suivi (mode approfondi) */}
+                    {message.role === 'assistant' && followUpSuggestions.has(message.id) && (
+                      <FollowUpSuggestions
+                        suggestions={followUpSuggestions.get(message.id)!}
+                        onSuggestionClick={(text) => {
+                          setInputMessage(text);
+                          inputRef.current?.focus();
                         }}
                       />
                     )}
@@ -1217,6 +1265,25 @@ export default function ChatPage() {
           onCopy={handleAcceptFavorite}
         />
       )}
+
+      {/* Regenerate Modal (deep context mode) */}
+      <RegenerateModal
+        isOpen={regenerateModal !== null}
+        onClose={() => setRegenerateModal(null)}
+        onRegenerateClassic={() => {
+          if (regenerateModal) {
+            regenerateMessage(regenerateModal.messageId);
+            setRegenerateModal(null);
+          }
+        }}
+        onRegenerateDeep={(documentIds) => {
+          if (regenerateModal) {
+            regenerateDeep(regenerateModal.messageId, documentIds);
+          }
+        }}
+        sources={regenerateModal?.sources || []}
+        isLoading={isLoading || isDeepLoading}
+      />
     </div>
   );
 }

@@ -41,6 +41,8 @@ import type {
   FavoriteCopyResponse,
   FavoriteUpdate,
   FavoriteValidation,
+  // Deep Context Mode
+  DeepContextResponse,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -394,6 +396,14 @@ class APIClient {
 
   async regenerateMessage(messageId: string): Promise<Message> {
     const { data } = await this.client.post<Message>(`/api/messages/${messageId}/regenerate`);
+    return data;
+  }
+
+  async regenerateDeep(messageId: string, documentIds: string[]): Promise<DeepContextResponse> {
+    const { data } = await this.client.post<DeepContextResponse>(
+      `/api/messages/${messageId}/regenerate-deep`,
+      { document_ids: documentIds }
+    );
     return data;
   }
 
