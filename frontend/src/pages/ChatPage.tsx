@@ -559,12 +559,17 @@ export default function ChatPage() {
       setMessages(prev => [...prev, response.message]);
 
       // Stocker les suggestions de suivi pour ce message
+      console.log('📝 Suggestions from response:', response.follow_up_suggestions);
+      console.log('📝 Message ID for suggestions:', response.message.id);
       if (response.follow_up_suggestions && response.follow_up_suggestions.length > 0) {
         setFollowUpSuggestions(prev => {
           const newMap = new Map(prev);
           newMap.set(response.message.id, response.follow_up_suggestions);
+          console.log('📝 Updated suggestions map, keys:', Array.from(newMap.keys()));
           return newMap;
         });
+      } else {
+        console.log('⚠️ No follow-up suggestions in response');
       }
     } catch (error) {
       console.error('❌ Error in deep regeneration:', error);
@@ -949,8 +954,8 @@ export default function ChatPage() {
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
 
-                    {/* Sources */}
-                    {message.sources && message.sources.length > 0 && (
+                    {/* Sources (masquées pour deep context) */}
+                    {message.sources && message.sources.length > 0 && !message.sources[0]?.deep_context && (
                       <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <div className="font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1165,7 +1170,7 @@ export default function ChatPage() {
             ))}
 
             {/* Typing indicator */}
-            {isLoading && (
+            {(isLoading || isDeepLoading) && (
               <div className="flex items-start gap-3 mb-6">
                 <div className="w-8 h-8 rounded-full bg-cyan-500 dark:bg-cyan-600 flex items-center justify-center text-white">
                   <Bot className="w-5 h-5" />

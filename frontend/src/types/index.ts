@@ -156,6 +156,7 @@ export interface Source {
   document_title?: string;
   document_source?: string;
   chunk_index?: number;
+  deep_context?: boolean;  // True for deep context mode responses (full document analysis)
 }
 
 export interface TokenUsage {
