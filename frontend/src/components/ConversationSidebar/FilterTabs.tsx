@@ -17,7 +17,7 @@ export default function FilterTabs({
     {
       id: 'all',
       tooltip: 'Tout',
-      activeColor: 'text-yellow-400',
+      activeColor: 'text-blue-400',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -51,7 +51,7 @@ export default function FilterTabs({
     {
       id: 'favorites',
       tooltip: 'Favoris',
-      activeColor: 'text-blue-400',
+      activeColor: 'text-yellow-400',
       badge: favoritesCount,
       icon: (
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
