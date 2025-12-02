@@ -916,6 +916,25 @@ class APIClient {
   }
 
   /**
+   * Get favorites count filtered by accessible universes
+   * @param universeIds - Array of universe IDs the user has access to
+   * @returns Total count of published favorites for those universes
+   */
+  async getFavoritesCount(universeIds: string[]): Promise<{ total: number }> {
+    // If user has no universes, return 0 (by design)
+    if (universeIds.length === 0) {
+      return { total: 0 };
+    }
+
+    const { data } = await this.client.get<{ total: number }>('/api/favorites/count', {
+      params: {
+        universe_ids: universeIds.join(','),
+      },
+    });
+    return data;
+  }
+
+  /**
    * Semantic search for similar favorites
    * @param query - Search query
    * @param universeId - Optional universe filter

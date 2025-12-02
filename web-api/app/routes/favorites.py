@@ -440,6 +440,39 @@ async def get_suggestions(
         )
 
 
+@router.get("/count")
+async def get_favorites_count(
+    universe_ids: Optional[str] = Query(None, description="Comma-separated universe IDs"),
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """
+    Compte les favoris publiés pour les univers spécifiés.
+
+    Si aucun universe_ids n'est fourni, retourne 0 (par design: un utilisateur
+    sans univers attribué ne voit aucun favori).
+    """
+    if not universe_ids:
+        return {"total": 0}
+
+    try:
+        ids = [UUID(uid.strip()) for uid in universe_ids.split(",") if uid.strip()]
+    except ValueError:
+        return {"total": 0}
+
+    if not ids:
+        return {"total": 0}
+
+    async with database.db_pool.acquire() as conn:
+        count = await conn.fetchval(
+            """
+            SELECT COUNT(*) FROM shared_favorites
+            WHERE status = 'published' AND universe_id = ANY($1)
+            """,
+            ids
+        )
+        return {"total": count or 0}
+
+
 @router.get("/{favorite_id}", response_model=FavoriteResponse)
 async def get_favorite(
     favorite_id: UUID,

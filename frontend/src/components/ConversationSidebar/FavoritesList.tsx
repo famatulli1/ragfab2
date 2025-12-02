@@ -24,6 +24,15 @@ export default function FavoritesList({
   const [total, setTotal] = useState(0);
 
   const loadFavorites = useCallback(async (pageNum: number, reset = false) => {
+    // If user has no accessible universes, don't load any favorites
+    if (universes.length === 0) {
+      setFavorites([]);
+      setTotal(0);
+      setHasMore(false);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const response: FavoriteListResponse = await api.getFavorites({
@@ -45,13 +54,13 @@ export default function FavoritesList({
     } finally {
       setIsLoading(false);
     }
-  }, [currentUniverseId, searchQuery]);
+  }, [universes, currentUniverseId, searchQuery]);
 
   // Initial load and reload on filter changes
   useEffect(() => {
     setPage(1);
     loadFavorites(1, true);
-  }, [currentUniverseId, searchQuery, loadFavorites]);
+  }, [universes, currentUniverseId, searchQuery, loadFavorites]);
 
   const handleLoadMore = () => {
     if (!isLoading && hasMore) {
