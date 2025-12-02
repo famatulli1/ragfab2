@@ -13,10 +13,11 @@ export default function FilterTabs({
   archivedCount = 0,
   favoritesCount = 0,
 }: FilterTabsProps) {
-  const tabs: { id: ConversationTab; tooltip: string; badge?: number; icon: React.ReactNode }[] = [
+  const tabs: { id: ConversationTab; tooltip: string; activeColor: string; badge?: number; icon: React.ReactNode }[] = [
     {
       id: 'all',
       tooltip: 'Tout',
+      activeColor: 'text-yellow-400',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -27,6 +28,7 @@ export default function FilterTabs({
     {
       id: 'universes',
       tooltip: 'Univers',
+      activeColor: 'text-purple-400',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -37,6 +39,7 @@ export default function FilterTabs({
     {
       id: 'archive',
       tooltip: 'Archives',
+      activeColor: 'text-green-400',
       badge: archivedCount,
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,6 +51,7 @@ export default function FilterTabs({
     {
       id: 'favorites',
       tooltip: 'Favoris',
+      activeColor: 'text-blue-400',
       badge: favoritesCount,
       icon: (
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -71,7 +75,7 @@ export default function FilterTabs({
                 : 'text-gray-400 hover:text-white'
             }`}
           >
-            <span className={tab.id === 'favorites' && activeTab === tab.id ? 'text-yellow-400' : ''}>
+            <span className={activeTab === tab.id ? tab.activeColor : ''}>
               {tab.icon}
             </span>
             {tab.badge !== undefined && tab.badge > 0 && (
