@@ -724,21 +724,25 @@ export default function ChatPage() {
                       // Ne pas appeler l'API si l'univers est déjà le même
                       if (newUniverseId !== currentConversation.universe_id) {
                         try {
-                          const updatedConv = await api.moveConversationToUniverse(
+                          await api.moveConversationToUniverse(
                             currentConversation.id,
                             newUniverseId
                           );
+                          // Récupérer les infos de l'univers depuis le state (l'API ne retourne pas universe_name/color)
+                          const targetUniverse = universes.find(u => u.id === newUniverseId);
+                          const universeName = targetUniverse?.name;
+                          const universeColor = targetUniverse?.color;
                           // Mettre à jour le state local
                           setCurrentConversation(prev => prev ? {
                             ...prev,
-                            universe_id: updatedConv.universe_id,
-                            universe_name: updatedConv.universe_name,
-                            universe_color: updatedConv.universe_color,
+                            universe_id: newUniverseId,
+                            universe_name: universeName,
+                            universe_color: universeColor,
                           } : null);
                           // Mettre à jour dans la liste des conversations
                           setConversations(prev => prev.map(c =>
                             c.id === currentConversation.id
-                              ? { ...c, universe_id: updatedConv.universe_id, universe_name: updatedConv.universe_name, universe_color: updatedConv.universe_color }
+                              ? { ...c, universe_id: newUniverseId, universe_name: universeName, universe_color: universeColor }
                               : c
                           ));
                         } catch (error) {
