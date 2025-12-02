@@ -954,7 +954,35 @@ export default function ChatPage() {
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
 
-                    {/* Sources (masquées pour deep context) */}
+                    {/* Sources - Deep Context (style simplifié violet) */}
+                    {message.sources && message.sources.length > 0 && message.sources[0]?.deep_context && (
+                      <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                        <div className="font-semibold text-purple-800 dark:text-purple-300 mb-2 flex items-center gap-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          Documents analysés en profondeur ({message.sources.length})
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {message.sources.map((source: any, i: number) => (
+                            <div
+                              key={i}
+                              onClick={() => setSelectedDocument({
+                                documentId: source.document_id,
+                                chunkIds: [],
+                                initialChunkId: ''
+                              })}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700 cursor-pointer hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all"
+                            >
+                              <span className="text-purple-600 dark:text-purple-400">📄</span>
+                              <span className="text-gray-700 dark:text-gray-300">{source.document_title}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sources - RAG classique (style bleu avec détails) */}
                     {message.sources && message.sources.length > 0 && !message.sources[0]?.deep_context && (
                       <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <div className="font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2">
