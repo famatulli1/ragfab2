@@ -104,9 +104,19 @@ export default function ChatPage() {
     api.listActiveTemplates().then(setTemplates).catch(console.error);
   }, []);
 
-  // Charger les univers
+  // Charger les univers accessibles à l'utilisateur (pas tous les univers)
   useEffect(() => {
-    api.getUniverses().then(data => setUniverses(data.universes)).catch(console.error);
+    api.getMyUniverseAccess().then(data => {
+      // Convertir UserUniverseAccessSimple[] en ProductUniverse[]
+      const accessibleUniverses = data.map(access => ({
+        id: access.universe_id,
+        name: access.universe_name,
+        slug: access.universe_slug,
+        color: access.universe_color,
+        is_active: true,
+      }));
+      setUniverses(accessibleUniverses);
+    }).catch(console.error);
   }, []);
 
   const loadCurrentUser = async () => {
