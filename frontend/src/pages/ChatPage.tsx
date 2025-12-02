@@ -3,7 +3,7 @@ import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, Bot, User as UserIco
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
-import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse, FavoriteSearchResult, SharedFavorite, Source, FollowUpSuggestion } from '../types';
+import type { ConversationWithStats, Message, Provider, User, QualityAnalysis, PreAnalyzeResponse, ProductUniverse, FavoriteSearchResult, SharedFavorite, Source, DeepContextSuggestionData } from '../types';
 import ReactMarkdown from 'react-markdown';
 import DocumentViewModal from '../components/DocumentViewModal';
 import RerankingToggle from '../components/RerankingToggle';
@@ -63,7 +63,7 @@ export default function ChatPage() {
 
   // Deep context mode state (regenerate with full documents)
   const [regenerateModal, setRegenerateModal] = useState<{ messageId: string; sources: Source[] } | null>(null);
-  const [followUpSuggestions, setFollowUpSuggestions] = useState<Map<string, FollowUpSuggestion[]>>(new Map());
+  const [followUpSuggestions, setFollowUpSuggestions] = useState<Map<string, DeepContextSuggestionData>>(new Map());
   const [isDeepLoading, setIsDeepLoading] = useState(false);
 
   // Charger l'utilisateur courant
@@ -558,14 +558,17 @@ export default function ChatPage() {
       // Ajouter le nouveau message (functional update to avoid stale closure)
       setMessages(prev => [...prev, response.message]);
 
-      // Stocker les suggestions de suivi pour ce message
+      // Stocker les suggestions de suivi avec les document_ids pour continuation
       console.log('📝 Suggestions from response:', response.follow_up_suggestions);
       console.log('📝 Message ID for suggestions:', response.message.id);
       if (response.follow_up_suggestions && response.follow_up_suggestions.length > 0) {
         setFollowUpSuggestions(prev => {
           const newMap = new Map(prev);
-          newMap.set(response.message.id, response.follow_up_suggestions);
-          console.log('📝 Updated suggestions map, keys:', Array.from(newMap.keys()));
+          newMap.set(response.message.id, {
+            suggestions: response.follow_up_suggestions,
+            documentIds: documentIds  // Sauvegarder pour continuer en deep context
+          });
+          console.log('📝 Updated suggestions map with documentIds, keys:', Array.from(newMap.keys()));
           return newMap;
         });
       } else {
@@ -574,6 +577,57 @@ export default function ChatPage() {
     } catch (error) {
       console.error('❌ Error in deep regeneration:', error);
       alert('Erreur lors de l\'approfondissement');
+    } finally {
+      setIsDeepLoading(false);
+    }
+  };
+
+  // Continuer une conversation en mode deep context (pour les suggestions de suivi)
+  const chatDeepContext = async (question: string, documentIds: string[]) => {
+    if (!currentConversation) return;
+
+    setIsDeepLoading(true);
+    try {
+      console.log('🔄 Starting deep context chat:', question, 'with docs:', documentIds);
+
+      // Ajouter message utilisateur localement (optimistic update)
+      const tempUserMessage: Message = {
+        id: crypto.randomUUID(),
+        conversation_id: currentConversation.id,
+        role: 'user',
+        content: question,
+        created_at: new Date().toISOString(),
+        is_regenerated: false
+      };
+      setMessages(prev => [...prev, tempUserMessage]);
+
+      // Appeler le nouvel endpoint
+      const response = await api.chatDeep(currentConversation.id, question, documentIds);
+      console.log('✅ Deep context chat response:', response);
+
+      // Remplacer le message user temporaire par le vrai + ajouter le message assistant
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => m.id !== tempUserMessage.id);
+        return [...withoutTemp, response.user_message, response.assistant_message];
+      });
+
+      // Stocker les suggestions avec les document_ids pour continuation
+      if (response.follow_up_suggestions && response.follow_up_suggestions.length > 0) {
+        setFollowUpSuggestions(prev => {
+          const newMap = new Map(prev);
+          newMap.set(response.assistant_message.id, {
+            suggestions: response.follow_up_suggestions,
+            documentIds: documentIds  // Réutiliser les mêmes documents
+          });
+          console.log('📝 Updated suggestions for new deep message:', response.assistant_message.id);
+          return newMap;
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error in deep context chat:', error);
+      // Retirer le message temporaire en cas d'erreur
+      setMessages(prev => prev.filter(m => m.role !== 'user' || m.content !== question));
+      alert('Erreur lors de la requête deep context');
     } finally {
       setIsDeepLoading(false);
     }
@@ -1185,10 +1239,17 @@ export default function ChatPage() {
                     {/* Suggestions de suivi (mode approfondi) */}
                     {message.role === 'assistant' && followUpSuggestions.has(message.id) && (
                       <FollowUpSuggestions
-                        suggestions={followUpSuggestions.get(message.id)!}
+                        suggestions={followUpSuggestions.get(message.id)!.suggestions}
                         onSuggestionClick={(text) => {
-                          setInputMessage(text);
-                          inputRef.current?.focus();
+                          const data = followUpSuggestions.get(message.id);
+                          if (data?.documentIds && data.documentIds.length > 0) {
+                            // Mode deep context - continuer avec les mêmes documents
+                            chatDeepContext(text, data.documentIds);
+                          } else {
+                            // Mode RAG classique - juste mettre dans l'input
+                            setInputMessage(text);
+                            inputRef.current?.focus();
+                          }
                         }}
                       />
                     )}

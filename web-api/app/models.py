@@ -692,3 +692,20 @@ class DeepContextResponse(BaseModel):
     documents_used: List[DocumentTokenInfo] = Field(..., description="Documents utilisés dans la réponse")
     total_tokens_used: int = Field(..., description="Total de tokens de contexte utilisés")
     follow_up_suggestions: List[FollowUpSuggestion] = Field(default_factory=list, description="Questions de suivi suggérées")
+
+
+class DeepContextChatRequest(BaseModel):
+    """Requête pour poser une nouvelle question en mode deep context."""
+    conversation_id: UUID = Field(..., description="ID de la conversation")
+    question: str = Field(..., description="Question à poser")
+    document_ids: List[UUID] = Field(..., description="IDs des documents à utiliser")
+    max_tokens: int = Field(default=32000, le=32000, ge=1000, description="Limite de tokens")
+
+
+class DeepContextChatResponse(BaseModel):
+    """Réponse du chat en mode deep context avec messages user et assistant."""
+    user_message: MessageResponse
+    assistant_message: MessageResponse
+    documents_used: List[DocumentTokenInfo] = Field(..., description="Documents utilisés")
+    total_tokens_used: int = Field(..., description="Total de tokens utilisés")
+    follow_up_suggestions: List[FollowUpSuggestion] = Field(default_factory=list, description="Questions suggérées")

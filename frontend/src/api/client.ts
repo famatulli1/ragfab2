@@ -43,6 +43,7 @@ import type {
   FavoriteValidation,
   // Deep Context Mode
   DeepContextResponse,
+  DeepContextChatResponse,
 } from '../types';
 import type {
   ThumbsDownStats,
@@ -403,6 +404,25 @@ class APIClient {
     const { data } = await this.client.post<DeepContextResponse>(
       `/api/messages/${messageId}/regenerate-deep`,
       { document_ids: documentIds }
+    );
+    return data;
+  }
+
+  /**
+   * Pose une nouvelle question en mode deep context (continuation des suggestions)
+   */
+  async chatDeep(
+    conversationId: string,
+    question: string,
+    documentIds: string[]
+  ): Promise<DeepContextChatResponse> {
+    const { data } = await this.client.post<DeepContextChatResponse>(
+      '/api/chat/deep',
+      {
+        conversation_id: conversationId,
+        question,
+        document_ids: documentIds
+      }
     );
     return data;
   }

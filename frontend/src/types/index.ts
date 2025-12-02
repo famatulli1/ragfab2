@@ -538,3 +538,18 @@ export interface DeepContextResponse {
   total_tokens_used: number;
   follow_up_suggestions: FollowUpSuggestion[];
 }
+
+// Pour stocker les suggestions avec les document_ids pour continuation deep context
+export interface DeepContextSuggestionData {
+  suggestions: FollowUpSuggestion[];
+  documentIds: string[];  // Documents utilisés pour le deep context
+}
+
+// Réponse du nouveau endpoint POST /api/chat/deep
+export interface DeepContextChatResponse {
+  user_message: Message;
+  assistant_message: Message;
+  documents_used: DocumentTokenInfo[];
+  total_tokens_used: number;
+  follow_up_suggestions: FollowUpSuggestion[];
+}

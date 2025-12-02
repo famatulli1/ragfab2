@@ -39,7 +39,8 @@ from .models import (
     ConversationStats, ConversationSearchResult,
     BulkArchiveRequest, BulkDeleteRequest, BulkActionResponse,
     # Deep Context Mode
-    DeepContextRequest, DeepContextResponse, FollowUpSuggestion, DocumentTokenInfo
+    DeepContextRequest, DeepContextResponse, FollowUpSuggestion, DocumentTokenInfo,
+    DeepContextChatRequest, DeepContextChatResponse
 )
 from .routes import auth
 from .routes import admin
@@ -2045,6 +2046,199 @@ FORMAT DE RÉPONSE:
     except Exception as e:
         logger.error(f"❌ Error constructing DeepContextResponse: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error building response: {str(e)}")
+
+
+@app.post("/api/chat/deep", response_model=DeepContextChatResponse)
+@limiter.limit("5/minute")
+async def chat_deep_context(
+    request: Request,
+    body: DeepContextChatRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Pose une nouvelle question en utilisant le contenu COMPLET des documents.
+    Utilisé pour les questions de suivi en mode deep context.
+    """
+    import time
+    start_time = time.time()
+
+    # 1. Vérifier la conversation
+    async with database.db_pool.acquire() as conn:
+        conversation = await conn.fetchrow(
+            "SELECT * FROM conversations WHERE id = $1 AND user_id = $2",
+            body.conversation_id, current_user['id']
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # 2. Créer le message utilisateur
+    async with database.db_pool.acquire() as conn:
+        user_message = await conn.fetchrow(
+            """
+            INSERT INTO messages (conversation_id, role, content)
+            VALUES ($1, 'user', $2)
+            RETURNING *
+            """,
+            body.conversation_id, body.question
+        )
+
+    # 3. Récupérer le contenu complet des documents
+    async with database.db_pool.acquire() as conn:
+        documents = await conn.fetch(
+            """
+            SELECT
+                d.id, d.title, d.source,
+                string_agg(c.content, E'\n\n' ORDER BY c.chunk_index) as full_content,
+                COALESCE(SUM(c.token_count), 0) as total_tokens
+            FROM documents d
+            JOIN chunks c ON c.document_id = d.id
+            WHERE d.id = ANY($1::uuid[])
+            GROUP BY d.id, d.title, d.source
+            """,
+            body.document_ids
+        )
+
+    if not documents:
+        raise HTTPException(status_code=404, detail="No documents found")
+
+    # 4. Gérer la limite de tokens
+    docs_list = [dict(row) for row in documents]
+    max_context = body.max_tokens - 3000
+
+    documents_used = []
+    used_tokens = 0
+    for doc in docs_list:
+        if used_tokens + doc['total_tokens'] <= max_context:
+            documents_used.append(doc)
+            used_tokens += doc['total_tokens']
+        elif not documents_used:
+            ratio = max_context / doc['total_tokens']
+            doc['full_content'] = doc['full_content'][:int(len(doc['full_content']) * ratio)]
+            doc['truncated'] = True
+            documents_used.append(doc)
+            used_tokens = max_context
+            break
+        else:
+            break
+
+    if not documents_used:
+        raise HTTPException(status_code=400, detail="Documents too large")
+
+    # 5. Construire le prompt
+    formatted_context = format_full_document_context(documents_used)
+
+    system_prompt = """Tu es un assistant expert qui analyse des documents complets.
+
+CONTEXTE:
+L'utilisateur souhaite une réponse approfondie basée sur le contenu COMPLET des documents fournis.
+
+INSTRUCTIONS:
+1. Analyse l'ensemble du document pour répondre de manière exhaustive
+2. Cite des passages spécifiques quand pertinent
+3. Structure ta réponse de manière claire
+
+LANGUE DE RÉPONSE - RÈGLE STRICTE:
+🇫🇷 Tu DOIS répondre UNIQUEMENT et EXCLUSIVEMENT en français.
+
+RÈGLES:
+- Ne cite PAS les sources avec [Source: ...]
+- Base-toi UNIQUEMENT sur les documents fournis"""
+
+    user_prompt = f"""DOCUMENTS:
+{formatted_context}
+
+QUESTION:
+{body.question}
+
+INSTRUCTIONS:
+1. Réponds à la question de manière approfondie
+2. À la fin, ajoute "---SUGGESTIONS---" avec 3 questions de suivi pertinentes
+
+FORMAT:
+[Ta réponse]
+
+---SUGGESTIONS---
+1. [Question 1]
+2. [Question 2]
+3. [Question 3]"""
+
+    # 6. Appeler le LLM
+    try:
+        from pydantic_ai import Agent
+        from .utils.generic_llm_provider import get_generic_llm_model
+
+        model = get_generic_llm_model()
+        agent = Agent(model, system_prompt=system_prompt)
+
+        logger.info(f"🔍 Deep context chat: {len(documents_used)} documents, ~{used_tokens} tokens")
+        result = await agent.run(user_prompt, message_history=[])
+
+    except Exception as e:
+        logger.error(f"Erreur LLM deep context chat: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+    # 7. Parser la réponse
+    main_content, suggestions = parse_deep_context_response(result.data)
+
+    # 8. Sauvegarder le message assistant
+    async with database.db_pool.acquire() as conn:
+        sources_data = [{
+            'document_id': str(d['id']),
+            'document_title': d['title'],
+            'document_source': d.get('source', ''),
+            'deep_context': True,
+            'token_count': d['total_tokens'],
+            'truncated': d.get('truncated', False)
+        } for d in documents_used]
+
+        sources_json = json.dumps(sources_data)
+
+        assistant_message = await conn.fetchrow(
+            """
+            INSERT INTO messages (conversation_id, role, content, sources, provider, model_name)
+            VALUES ($1, 'assistant', $2, $3, $4, $5)
+            RETURNING *
+            """,
+            body.conversation_id,
+            main_content,
+            sources_json,
+            conversation["provider"],
+            os.getenv("LLM_MODEL_NAME", "generic-llm")
+        )
+
+    processing_time = int((time.time() - start_time) * 1000)
+    logger.info(f"✅ Deep context chat completed in {processing_time}ms")
+
+    # 9. Construire la réponse
+    try:
+        user_msg_dict = dict(user_message)
+        assistant_msg_dict = dict(assistant_message)
+
+        if assistant_msg_dict.get('sources') and isinstance(assistant_msg_dict['sources'], str):
+            assistant_msg_dict['sources'] = json.loads(assistant_msg_dict['sources'])
+
+        message_fields = {
+            'id', 'conversation_id', 'role', 'content', 'sources',
+            'provider', 'model_name', 'token_usage', 'created_at', 'is_regenerated'
+        }
+        filtered_user = {k: v for k, v in user_msg_dict.items() if k in message_fields}
+        filtered_assistant = {k: v for k, v in assistant_msg_dict.items() if k in message_fields}
+
+        return DeepContextChatResponse(
+            user_message=MessageResponse(**filtered_user, rating=None),
+            assistant_message=MessageResponse(**filtered_assistant, rating=None),
+            documents_used=[DocumentTokenInfo(
+                id=d['id'],
+                title=d['title'],
+                token_count=d['total_tokens'],
+                truncated=d.get('truncated', False)
+            ) for d in documents_used],
+            total_tokens_used=used_tokens,
+            follow_up_suggestions=suggestions
+        )
+    except Exception as e:
+        logger.error(f"❌ Error building response: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @app.post("/api/messages/{message_id}/rate", response_model=Rating)
