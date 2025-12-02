@@ -94,6 +94,10 @@ export default function ChatPage() {
   // Charger les messages de la conversation courante
   useEffect(() => {
     if (currentConversation) {
+      // Vider les états spécifiques à la conversation précédente pour éviter la pollution de contexte
+      setFollowUpSuggestions(new Map());
+      setQualityAnalyses(new Map());
+
       loadMessages(currentConversation.id);
       // Logs de débogage pour diagnostiquer le problème du toggle
       console.log('🎚️ Current conversation loaded:', currentConversation);
@@ -253,6 +257,9 @@ export default function ChatPage() {
       }
       setCurrentConversation(convWithStats);
       setMessages([]);
+      // Vider les états de la conversation précédente pour éviter la pollution de contexte
+      setFollowUpSuggestions(new Map());
+      setQualityAnalyses(new Map());
     } catch (error) {
       console.error('Error creating conversation:', error);
     }
