@@ -55,6 +55,7 @@ import type {
   ReingestionCandidatesResponse,
   ThumbsDownFilters,
 } from '../types/thumbsDown';
+import { clearSession, updateLastActivity } from '../utils/sessionTimeout';
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';
 
@@ -103,8 +104,8 @@ class APIClient {
       (error: AxiosError) => {
         if (error.response?.status === 401) {
           // Token expiré, déconnecter l'utilisateur
-          sessionStorage.removeItem('access_token');
-          window.location.href = '/admin';
+          clearSession();
+          window.location.href = '/login';
         }
         return Promise.reject(error);
       }
@@ -118,6 +119,8 @@ class APIClient {
   async login(credentials: LoginRequest): Promise<TokenResponse> {
     const { data } = await this.client.post<TokenResponse>('/api/auth/login', credentials);
     sessionStorage.setItem('access_token', data.access_token);
+    // Initialiser le timestamp d'activité
+    updateLastActivity();
     return data;
   }
 
@@ -128,7 +131,8 @@ class APIClient {
 
   async logout(): Promise<void> {
     await this.client.post('/api/auth/logout');
-    sessionStorage.removeItem('access_token');
+    // Nettoyer complètement la session (token + timestamp)
+    clearSession();
   }
 
   async checkMustChangePassword(): Promise<{ must_change_password: boolean }> {

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRATION_MINUTES: int = 60 * 24 * 7  # 7 jours
+    JWT_EXPIRATION_MINUTES: int = int(os.getenv("JWT_EXPIRATION_MINUTES", str(60 * 24 * 7)))  # 7 jours par défaut
 
     # Admin credentials (pour création initiale)
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")

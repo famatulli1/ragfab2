@@ -7,6 +7,7 @@ import QualityManagementPage from './pages/QualityManagementPage';
 import LoginPage from './pages/LoginPage';
 import ProfilePage from './pages/ProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
+import { initSessionTimeout } from './utils/sessionTimeout';
 
 // Theme Context
 interface ThemeContextType {
@@ -41,6 +42,11 @@ function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  // Initialiser le système de timeout d'inactivité
+  useEffect(() => {
+    initSessionTimeout();
+  }, []);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
