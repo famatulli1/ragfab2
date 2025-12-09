@@ -13,7 +13,7 @@ export default function ProtectedRoute({ children, adminOnly = false }: Protecte
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('access_token');
+      const token = sessionStorage.getItem('access_token');
       if (!token) {
         setIsAuthenticated(false);
         return;
@@ -25,7 +25,7 @@ export default function ProtectedRoute({ children, adminOnly = false }: Protecte
         setIsAdmin(user.is_admin);
       } catch (error) {
         setIsAuthenticated(false);
-        localStorage.removeItem('access_token');
+        sessionStorage.removeItem('access_token');
       }
     };
 

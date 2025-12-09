@@ -68,8 +68,8 @@ const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         setLoading(true);
         setError(null);
 
-        // Récupérer le token JWT depuis localStorage
-        const token = localStorage.getItem('access_token');
+        // Récupérer le token JWT depuis sessionStorage
+        const token = sessionStorage.getItem('access_token');
         if (!token) {
           throw new Error('Non authentifié. Veuillez vous reconnecter.');
         }

@@ -58,6 +58,22 @@ import type {
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';
 
+/**
+ * Migration utility: Moves token from localStorage to sessionStorage
+ * Backward compatibility for users with existing localStorage tokens
+ */
+function migrateTokenToSessionStorage(): void {
+  const oldToken = localStorage.getItem('access_token');
+  if (oldToken && !sessionStorage.getItem('access_token')) {
+    console.log('🔄 Migrating access_token from localStorage to sessionStorage');
+    sessionStorage.setItem('access_token', oldToken);
+    localStorage.removeItem('access_token');
+  }
+}
+
+// Run migration immediately on module load
+migrateTokenToSessionStorage();
+
 class APIClient {
   private client: AxiosInstance;
 
@@ -74,7 +90,7 @@ class APIClient {
 
     // Intercepteur pour ajouter le token JWT
     this.client.interceptors.request.use((config) => {
-      const token = localStorage.getItem('access_token');
+      const token = sessionStorage.getItem('access_token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -87,7 +103,7 @@ class APIClient {
       (error: AxiosError) => {
         if (error.response?.status === 401) {
           // Token expiré, déconnecter l'utilisateur
-          localStorage.removeItem('access_token');
+          sessionStorage.removeItem('access_token');
           window.location.href = '/admin';
         }
         return Promise.reject(error);
@@ -101,7 +117,7 @@ class APIClient {
 
   async login(credentials: LoginRequest): Promise<TokenResponse> {
     const { data } = await this.client.post<TokenResponse>('/api/auth/login', credentials);
-    localStorage.setItem('access_token', data.access_token);
+    sessionStorage.setItem('access_token', data.access_token);
     return data;
   }
 
@@ -112,7 +128,7 @@ class APIClient {
 
   async logout(): Promise<void> {
     await this.client.post('/api/auth/logout');
-    localStorage.removeItem('access_token');
+    sessionStorage.removeItem('access_token');
   }
 
   async checkMustChangePassword(): Promise<{ must_change_password: boolean }> {
