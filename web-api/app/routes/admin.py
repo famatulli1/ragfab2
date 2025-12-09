@@ -373,7 +373,7 @@ async def reingest_document(
     async with database.db_pool.acquire() as conn:
         # Get original document info
         document = await conn.fetchrow("""
-            SELECT title, source FROM documents WHERE id = $1::uuid
+            SELECT title, source, universe_id FROM documents WHERE id = $1::uuid
         """, str(document_id))
 
         if not document:
@@ -431,9 +431,10 @@ async def reingest_document(
         # Create ingestion job in database
         await conn.execute("""
             INSERT INTO ingestion_jobs
-            (id, filename, status, ocr_engine, vlm_engine, chunker_type)
-            VALUES ($1, $2, 'pending', $3, $4, $5)
-        """, str(new_job_id), original_job["filename"], config.ocr_engine, config.vlm_engine, config.chunker_type)
+            (id, filename, status, ocr_engine, vlm_engine, chunker_type, universe_id)
+            VALUES ($1, $2, 'pending', $3, $4, $5, $6::uuid)
+        """, str(new_job_id), original_job["filename"], config.ocr_engine, config.vlm_engine, config.chunker_type,
+           str(document["universe_id"]) if document["universe_id"] else None)
 
         logger.info(f"✅ New ingestion job created: {new_job_id}")
 
