@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, Bot, User as UserIcon, Search, Zap, Layers } from 'lucide-react';
+import { Menu, Send, Moon, Sun, ThumbsUp, ThumbsDown, Copy, Bot, User as UserIcon, Search, Zap, Layers, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../App';
 import api from '../api/client';
@@ -65,6 +65,9 @@ export default function ChatPage() {
   const [regenerateModal, setRegenerateModal] = useState<{ messageId: string; sources: Source[] } | null>(null);
   const [followUpSuggestions, setFollowUpSuggestions] = useState<Map<string, DeepContextSuggestionData>>(new Map());
   const [isDeepLoading, setIsDeepLoading] = useState(false);
+
+  // Sources collapse/expand state
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
   // Charger l'utilisateur courant
   useEffect(() => {
@@ -670,6 +673,24 @@ export default function ChatPage() {
     navigator.clipboard.writeText(content);
   };
 
+  // Sources collapse/expand handlers
+  const toggleSourcesExpanded = (messageId: string) => {
+    const newSet = new Set(expandedSources);
+    if (newSet.has(messageId)) {
+      newSet.delete(messageId);
+    } else {
+      newSet.add(messageId);
+    }
+    setExpandedSources(newSet);
+  };
+
+  const isSourcesExpanded = (messageId: string) => expandedSources.has(messageId);
+
+  const getSourcesWithImageCount = (sources: Source[]) => {
+    const withImages = sources.filter(s => s.images && s.images.length > 0).length;
+    return withImages > 0 ? ` • ${withImages} avec images` : '';
+  };
+
   const handleRenameConversation = async (id: string, newTitle: string) => {
     if (!newTitle.trim()) {
       return;
@@ -1017,81 +1038,117 @@ export default function ChatPage() {
 
                     {/* Sources - Deep Context (style simplifié violet) */}
                     {message.sources && message.sources.length > 0 && message.sources[0]?.deep_context && (
-                      <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-                        <div className="font-semibold text-purple-800 dark:text-purple-300 mb-2 flex items-center gap-2">
+                      <div className="mt-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                        {/* Header cliquable */}
+                        <button
+                          onClick={() => toggleSourcesExpanded(message.id!)}
+                          className="w-full flex items-center gap-2 px-3 py-2 font-semibold text-purple-800 dark:text-purple-300 hover:opacity-80 transition-opacity"
+                        >
+                          {isSourcesExpanded(message.id!)
+                            ? <ChevronUp size={18} />
+                            : <ChevronDown size={18} />
+                          }
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                           </svg>
-                          Documents analysés en profondeur ({message.sources.length})
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {message.sources.map((source: any, i: number) => (
-                            <div
-                              key={i}
-                              onClick={() => setSelectedDocument({
-                                documentId: source.document_id,
-                                chunkIds: [],
-                                initialChunkId: ''
-                              })}
-                              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700 cursor-pointer hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all"
-                            >
-                              <span className="text-purple-600 dark:text-purple-400">📄</span>
-                              <span className="text-gray-700 dark:text-gray-300">{source.document_title}</span>
-                            </div>
-                          ))}
+                          <span>Documents analysés en profondeur ({message.sources.length})</span>
+                        </button>
+
+                        {/* Contenu avec animation */}
+                        <div
+                          className={`overflow-hidden transition-all duration-300 ${
+                            isSourcesExpanded(message.id!)
+                              ? 'max-h-[2000px] opacity-100'
+                              : 'max-h-0 opacity-0'
+                          }`}
+                        >
+                          <div className="px-3 pb-3 flex flex-wrap gap-2">
+                            {message.sources.map((source: any, i: number) => (
+                              <div
+                                key={i}
+                                onClick={() => setSelectedDocument({
+                                  documentId: source.document_id,
+                                  chunkIds: [],
+                                  initialChunkId: ''
+                                })}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700 cursor-pointer hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all"
+                              >
+                                <span className="text-purple-600 dark:text-purple-400">📄</span>
+                                <span className="text-gray-700 dark:text-gray-300">{source.document_title}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
 
                     {/* Sources - RAG classique (style bleu avec détails) */}
                     {message.sources && message.sources.length > 0 && !message.sources[0]?.deep_context && (
-                      <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <div className="font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2">
+                      <div className="mt-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                        {/* Header cliquable avec info détaillée */}
+                        <button
+                          onClick={() => toggleSourcesExpanded(message.id!)}
+                          className="w-full flex items-center gap-2 px-3 py-2 font-semibold text-blue-800 dark:text-blue-300 hover:opacity-80 transition-opacity"
+                        >
+                          {isSourcesExpanded(message.id!)
+                            ? <ChevronUp size={18} />
+                            : <ChevronDown size={18} />
+                          }
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
-                          Sources ({message.sources.length})
-                        </div>
-                        <div className="space-y-3">
-                          {message.sources.map((source: any, i: number) => (
-                            <div key={i} className="space-y-2">
-                              <div
-                                onClick={() => setSelectedDocument({
-                                  documentId: source.document_id,
-                                  chunkIds: (message.sources || [])
-                                    .filter((s: any) => s.document_id === source.document_id)
-                                    .map((s: any) => s.chunk_id),
-                                  initialChunkId: source.chunk_id
-                                })}
-                                className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
-                              >
-                                <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
-                                  {source.is_image_chunk ? '🖼️' : '📄'} {source.document_title}
-                                  <span className="text-xs text-gray-400">→ Voir le document</span>
+                          <span>Sources ({message.sources.length}){getSourcesWithImageCount(message.sources)}</span>
+                        </button>
+
+                        {/* Contenu avec animation */}
+                        <div
+                          className={`overflow-hidden transition-all duration-300 ${
+                            isSourcesExpanded(message.id!)
+                              ? 'max-h-[2000px] opacity-100'
+                              : 'max-h-0 opacity-0'
+                          }`}
+                        >
+                          <div className="px-3 pb-3 space-y-3">
+                            {message.sources.map((source: any, i: number) => (
+                              <div key={i} className="space-y-2">
+                                <div
+                                  onClick={() => setSelectedDocument({
+                                    documentId: source.document_id,
+                                    chunkIds: (message.sources || [])
+                                      .filter((s: any) => s.document_id === source.document_id)
+                                      .map((s: any) => s.chunk_id),
+                                    initialChunkId: source.chunk_id
+                                  })}
+                                  className="text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+                                >
+                                  <div className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                                    {source.is_image_chunk ? '🖼️' : '📄'} {source.document_title}
+                                    <span className="text-xs text-gray-400">→ Voir le document</span>
+                                  </div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    Chunk #{source.chunk_index} • Similarité: {(source.similarity * 100).toFixed(1)}%
+                                    {source.is_image_chunk && <span className="ml-2 text-purple-500">• Image</span>}
+                                  </div>
+                                  {/* Only show text content for non-image chunks */}
+                                  {!source.is_image_chunk && (
+                                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
+                                      "{source.content}"
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  Chunk #{source.chunk_index} • Similarité: {(source.similarity * 100).toFixed(1)}%
-                                  {source.is_image_chunk && <span className="ml-2 text-purple-500">• Image</span>}
-                                </div>
-                                {/* Only show text content for non-image chunks */}
-                                {!source.is_image_chunk && (
-                                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1 italic">
-                                    "{source.content}"
+
+                                {/* Display images inline if available */}
+                                {source.images && source.images.length > 0 && (
+                                  <div className="pl-2">
+                                    <ImageViewer
+                                      images={source.images}
+                                      documentTitle={source.document_title}
+                                    />
                                   </div>
                                 )}
                               </div>
-
-                              {/* Display images inline if available */}
-                              {source.images && source.images.length > 0 && (
-                                <div className="pl-2">
-                                  <ImageViewer
-                                    images={source.images}
-                                    documentTitle={source.document_title}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
