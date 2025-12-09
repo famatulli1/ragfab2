@@ -439,7 +439,7 @@ async def reingest_document(
 
         # Delete ratings for messages that reference chunks from this document
         # (important pour analytics - sinon les anciens ratings polluent les stats)
-        deleted_ratings = await conn.fetchval("""
+        deleted_ratings_result = await conn.fetch("""
             WITH document_chunks AS (
                 SELECT id FROM chunks WHERE document_id = $1::uuid
             ),
@@ -451,10 +451,11 @@ async def reingest_document(
             )
             DELETE FROM message_ratings
             WHERE message_id IN (SELECT id FROM messages_to_clean)
-            RETURNING COUNT(*)
+            RETURNING id
         """, str(document_id))
 
-        logger.info(f"✅ Deleted {deleted_ratings or 0} ratings from messages referencing old document chunks")
+        deleted_ratings = len(deleted_ratings_result)
+        logger.info(f"✅ Deleted {deleted_ratings} ratings from messages referencing old document chunks")
 
         # Delete old document (CASCADE will delete chunks, images, etc.)
         await conn.execute("""
